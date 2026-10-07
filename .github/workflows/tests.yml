@@ -26,4 +26,4 @@ jobs:
 
     - name: Exécuter le test CLI
       run: |
-        python main_cli-v2.py
+        python main_cli.py

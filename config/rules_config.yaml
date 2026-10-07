@@ -1,0 +1,23 @@
+# Configuration centralisée du moteur Suivi PREV
+
+conversions:
+  divisor_hl: 10000.0  # Formula : contenance_cl / 10 000
+
+seasonality_exceptions:
+  fixed_coefficients:
+    - pattern: "CAN_33CL"
+      value: 1.0
+  reference_mapping:
+    "CAPRICE_35CL": "ARTICLE_REF_BOISSON"
+# garde-fous & sécurité de calcul 
+guardrails:
+  momentum_floor: 0.0
+  cagr_fallback_triggers: [0.0, -1.0] # Fallback si CAGR = 0% ou -100%
+  budget_divisor_default: 1.0         # Explicite la constante (ex-diviseur 6 dans Excel)
+
+#cas spéciaux 
+special_cases:
+  fosa:
+    target_volume_hl: 15000.0
+  cap_citron:
+    unit_conversion: true

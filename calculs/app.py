@@ -14,12 +14,13 @@ import streamlit as st
 import altair as alt
 
 try:
-    from .article_detail import construire_courbe_article
-    from .forecast_quality import (
-        calculer_indicateurs,
-        comparer_previsions_aux_realises,
-        detecter_ecarts_importants,
-    )
+    # [MASQUÉ] article_detail et forecast_quality : ne servaient qu'aux affichages masqués
+    # from .article_detail import construire_courbe_article
+    # from .forecast_quality import (
+    #     calculer_indicateurs,
+    #     comparer_previsions_aux_realises,
+    #     detecter_ecarts_importants,
+    # )
     from .filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
     from .monthly_import import (
         normaliser_lignes_data_brut,
@@ -27,16 +28,18 @@ try:
         remplacer_periodes_importees,
     )
     from .seasonality_index import (
+        annees_completes_saisonnalite,
         calculer_indices_saisonnalite,
         calculer_matrice_indices_saisonnalite,
     )
 except ImportError:  # pragma: no cover - script execution from the same folder
-    from article_detail import construire_courbe_article
-    from forecast_quality import (
-        calculer_indicateurs,
-        comparer_previsions_aux_realises,
-        detecter_ecarts_importants,
-    )
+    # [MASQUÉ] article_detail et forecast_quality : ne servaient qu'aux affichages masqués
+    # from article_detail import construire_courbe_article
+    # from forecast_quality import (
+    #     calculer_indicateurs,
+    #     comparer_previsions_aux_realises,
+    #     detecter_ecarts_importants,
+    # )
     from filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
     from monthly_import import (
         normaliser_lignes_data_brut,
@@ -44,6 +47,7 @@ except ImportError:  # pragma: no cover - script execution from the same folder
         remplacer_periodes_importees,
     )
     from seasonality_index import (
+        annees_completes_saisonnalite,
         calculer_indices_saisonnalite,
         calculer_matrice_indices_saisonnalite,
     )
@@ -1175,60 +1179,6 @@ def trier(valeurs, col):
         return sorted(valeurs, key=lambda valeur: (ordre.get(str(valeur), 99), str(valeur)))
     return sorted(valeurs)
 
-def calculer_indices_saisonnalite_complets(
-    d: pd.DataFrame,
-    val: str,
-    annee_debut: int,
-    annee_fin: int,
-    annee_cloture: int,
-    mois_cloture: int,
-) -> tuple[pd.DataFrame, list[int], list[int]]:
-    """Indice saisonnier = volume moyen du mois / volume mensuel moyen x 100.
-
-    - Volumes réalisés uniquement, entre annee_debut et annee_fin (incluses).
-    - Seules les années COMPLÈTES (12 mois réalisés) sont retenues : l'année de
-      clôture arrêtée avant décembre est exclue, sinon ses mois manquants
-      (ex. oct-déc) tireraient l'indice de ces mois vers le bas.
-    - Moyenne des 12 indices = 100 (100 = mois « moyen »).
-    Retourne (tableau, années retenues, années exclues).
-    """
-    realise = d.loc[
-        d["nature"].eq("Réalisé") & d["annee"].between(annee_debut, annee_fin)
-    ]
-    annees_presentes = sorted(int(a) for a in realise["annee"].unique())
-
-    def annee_complete(a: int) -> bool:
-        return a < annee_cloture or (a == annee_cloture and mois_cloture == 12)
-
-    annees_retenues = [a for a in annees_presentes if annee_complete(a)]
-    annees_exclues = [a for a in annees_presentes if not annee_complete(a)]
-    colonnes = ["Mois", "Volume moyen", "Indice saisonnier"]
-    if not annees_retenues:
-        return pd.DataFrame(columns=colonnes), annees_retenues, annees_exclues
-
-    mensuel = (
-        realise.loc[realise["annee"].isin(annees_retenues)]
-        .groupby(["annee", "mois"])[val]
-        .sum()
-        .unstack("mois")
-        .reindex(index=annees_retenues, columns=range(1, 13))
-        .fillna(0.0)
-    )
-    volume_moyen = mensuel.mean(axis=0)
-    moyenne_generale = float(volume_moyen.mean())
-    if moyenne_generale > 0:
-        indice = volume_moyen / moyenne_generale * 100.0
-    else:
-        indice = pd.Series(np.nan, index=volume_moyen.index)
-    resultat = pd.DataFrame(
-        {
-            "Mois": MOIS,
-            "Volume moyen": volume_moyen.to_numpy(dtype=float),
-            "Indice saisonnier": indice.to_numpy(dtype=float),
-        }
-    )
-    return resultat, annees_retenues, annees_exclues
-
 FICHIERS_EXISTANTS = []
 for d in DOSSIERS:
     for f_nom in FICHIERS_CANDIDATS:
@@ -1553,24 +1503,26 @@ if annees_debut_possibles:
     st.caption(
         f"Période inclusive : années {annee_debut} à {annee_fin}. "
         "L’indice est calculé sur les volumes réalisés : "
-        "100 correspond à la moyenne mensuelle de toutes les années et des 12 mois."
+        "1,00 correspond à un mois moyen (moyenne des 12 mois)."
     )
-    # [ANCIEN CALCUL — module seasonality_index, conservé pour comparaison]
-    # indices_saisonnalite = calculer_indices_saisonnalite(
-    #     d,
-    #     val,
-    #     int(annee_debut),
-    #     int(annee_fin),
-    # )
-    indices_saisonnalite, annees_indice, annees_exclues_indice = (
-        calculer_indices_saisonnalite_complets(
-            d,
-            val,
-            int(annee_debut),
-            int(annee_fin),
-            int(annee_cloture),
-            int(mois_cloture),
-        )
+    annees_indice = annees_completes_saisonnalite(
+        d, int(annee_debut), int(annee_fin), int(annee_cloture), int(mois_cloture)
+    )
+    annees_exclues_indice = sorted(
+        int(a)
+        for a in d.loc[
+            d["nature"].eq("Réalisé") & d["annee"].between(annee_debut, annee_fin),
+            "annee",
+        ].unique()
+        if int(a) not in annees_indice
+    )
+    indices_saisonnalite = calculer_indices_saisonnalite(
+        d,
+        val,
+        int(annee_debut),
+        int(annee_fin),
+        annee_cloture=int(annee_cloture),
+        mois_cloture=int(mois_cloture),
     )
     if annees_indice:
         st.caption(
@@ -1587,6 +1539,11 @@ if annees_debut_possibles:
             )
             + "."
         )
+    else:
+        st.warning(
+            "Aucune année complète (12 mois réalisés) dans la période choisie : "
+            "l'indice saisonnier ne peut pas être calculé."
+        )
 else:
     indices_saisonnalite = pd.DataFrame()
     st.info(
@@ -1594,14 +1551,15 @@ else:
         "les indices de saisonnalité (année fin > année début)."
     )
 
-realises_pour_evaluation = d.loc[
-    d["nature"].eq("Réalisé") & d["annee"].lt(annee_cloture)
-]
-comparaison_qualite = comparer_previsions_aux_realises(
-    realises_pour_evaluation,
-    df_previsions_historiques,
-    val,
-)
+# [MASQUÉ] calcul réservé à l'onglet « Fiabilité & alertes » (masqué)
+# realises_pour_evaluation = d.loc[
+#     d["nature"].eq("Réalisé") & d["annee"].lt(annee_cloture)
+# ]
+# comparaison_qualite = comparer_previsions_aux_realises(
+#     realises_pour_evaluation,
+#     df_previsions_historiques,
+#     val,
+# )
 
 # 🔍 Lignes de diagnostic temporaires à insérer :
 # [MASQUÉ] diagnostic temporaire :
@@ -2703,57 +2661,53 @@ with tab_d:
 #                 )
 
 with tab_saisonnalite:
-    st.subheader("Indice de saisonnalité — période d’analyse")
-    
-    annees_reelles = sorted(int(annee) for annee in df_brut.loc[df_brut["nature"].eq("Réalisé"), "annee"].unique())
-    annees_debut_possibles = annees_reelles[:-1] if len(annees_reelles) > 1 else annees_reelles
-    
-    if annees_debut_possibles:
-        col_debut_annee, col_fin_annee = st.columns(2)
-        annee_debut = col_debut_annee.selectbox("Année début", options=annees_debut_possibles, index=0, key="tab_saisonnalite_annee_debut")
-        annees_fin_possibles = [annee for annee in annees_reelles if annee >= annee_debut]
-        if not annees_fin_possibles:
-            annees_fin_possibles = annees_reelles
-        annee_fin_defaut = annees_fin_possibles[-1]
-        if st.session_state.get("tab_saisonnalite_annee_fin") not in annees_fin_possibles:
-            st.session_state["tab_saisonnalite_annee_fin"] = annee_fin_defaut
-        annee_fin = col_fin_annee.selectbox("Année fin", options=annees_fin_possibles, key="tab_saisonnalite_annee_fin")
+    st.subheader("Indice de saisonnalité par mois")
+    # [ANCIENNE LÉGENDE]
+    # st.caption(
+    #     "Pour chaque mois : ventes moyennes de ce mois sur les années sélectionnées, "
+    #     "divisées par le total réalisé sur ces années et les 12 mois, puis multipliées par 100."
+    # )
+    st.caption(
+        "Coefficient = volume moyen du mois (années complètes retenues) ÷ volume "
+        "mensuel moyen de ces années (12 mois). La moyenne des 12 coefficients vaut 1 ; "
+        "1,40 signifie un mois 40 % au-dessus de la moyenne."
+    )
+    if indices_saisonnalite.empty:
+        st.info(
+            "Aucune période disponible : il faut au moins deux années avec des "
+            "données réalisées."
+        )
+    elif indices_saisonnalite["Indice saisonnier"].notna().any():
+        donnees_graphique_indice = indices_saisonnalite.set_index("Mois")[
+            ["Indice saisonnier"]
+        ]
+        donnees_graphique_indice.index = pd.CategoricalIndex(
+            donnees_graphique_indice.index,
+            categories=donnees_graphique_indice.index.tolist(),
+            ordered=True,
+            name="Mois",
+        )  # ordre janv → déc (sinon Streamlit trie les mois par ordre alphabétique)
+        st.bar_chart(donnees_graphique_indice, height=400)
         
-        indices_saisonnalite = calculer_indices_saisonnalite(d, val, int(annee_debut), int(annee_fin))
-    else:
-        indices_saisonnalite = pd.DataFrame()
-        st.info("Il faut des données réalisées sur au moins deux années pour afficher les indices de saisonnalité.")
-
-    if not indices_saisonnalite.empty and indices_saisonnalite["Indice saisonnier"].notna().any():
+        st.markdown("#### Tableau détaillé des indices saisonniers")
         
-        df_affiche = indices_saisonnalite.copy()
+        df_affiche = indices_saisonnalite.round(
+            {"Volume moyen": dec, "Indice saisonnier": 2}
+        )
         
-        # S'assurer que les valeurs sont numériques
-        df_affiche["Indice saisonnier"] = pd.to_numeric(df_affiche["Indice saisonnier"], errors="coerce").fillna(0.0)
-        
-        # Normalisation universelle : gère que les indices soient en base 100 ou en base unitaire
-        somme_actuelle = df_affiche["Indice saisonnier"].sum()
-        if somme_actuelle > 50:  # Si les indices sont en base 100 (somme > 50)
-            df_affiche["Indice saisonnier"] = df_affiche["Indice saisonnier"] / (somme_actuelle / 12.0)
-        elif somme_actuelle > 0:  # Déjà en base unitaire, on ajuste
-            df_affiche["Indice saisonnier"] = df_affiche["Indice saisonnier"] * (12.0 / somme_actuelle)
+        def mettre_en_gras(val):
+            return 'font-weight: 700;'
             
-        # Arrondi à 2 décimales avec ajustement strict du dernier mois pour que la somme fasse EXACTEMENT 12.0
-        valeurs_brutes = df_affiche["Indice saisonnier"].values
-        arrondis = [round(float(v), 2) for v in valeurs_brutes]
-        if len(arrondis) == 12:
-            diff = 12.0 - sum(arrondis[:-1])
-            arrondis[-1] = round(diff, 2)
-            df_affiche["Indice saisonnier"] = arrondis
+        styled_df = df_affiche.style.map(mettre_en_gras)
         
-        df_affiche = df_affiche.round({"Volume moyen": dec})
-        
-        st.bar_chart(df_affiche.set_index("Mois")[["Indice saisonnier"]], height=350)
-        
-        st.markdown("#### Tableau détaillé des coefficients saisonniers (Moyenne = 1, Somme = 12)")
-        tableau(df_affiche, hide_index=True, height=350)
+        st.dataframe(styled_df, width="stretch", hide_index=True, height=450)
     else:
-        st.info("Aucun volume réalisé positif n'est disponible dans la période choisie pour calculer l'indice.")
+        st.info(
+            "Aucun volume réalisé positif n'est disponible dans la période "
+            "choisie avec les filtres actifs."
+        )
+
+st.markdown("---")
 tampon = io.BytesIO()
 with pd.ExcelWriter(tampon, engine="openpyxl") as xl:
     if not piv_comp.empty:

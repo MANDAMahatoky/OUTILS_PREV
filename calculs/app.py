@@ -40,17 +40,42 @@ except ImportError:  # pragma: no cover - script execution from the same folder
     #     comparer_previsions_aux_realises,
     #     detecter_ecarts_importants,
     # )
-    from filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
-    from monthly_import import (
-        normaliser_lignes_data_brut,
-        normaliser_mois,
-        remplacer_periodes_importees,
-    )
-    from seasonality_index import (
-        annees_completes_saisonnalite,
-        calculer_indices_saisonnalite,
-        calculer_matrice_indices_saisonnalite,
-    )
+    try:
+        from filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
+        from monthly_import import (
+            normaliser_lignes_data_brut,
+            normaliser_mois,
+            remplacer_periodes_importees,
+        )
+        from seasonality_index import (
+            annees_completes_saisonnalite,
+            calculer_indices_saisonnalite,
+            calculer_matrice_indices_saisonnalite,
+        )
+    except ImportError as erreur_import:
+        # Message clair à la place d'un traceback masqué (Streamlit Cloud)
+        import importlib.util
+
+        dossier_app = Path(__file__).resolve().parent
+        manquants = [
+            f"{nom}.py"
+            for nom in ("filter_dimensions", "monthly_import", "seasonality_index")
+            if importlib.util.find_spec(nom) is None
+        ]
+        st.error("Démarrage impossible : un fichier Python est introuvable ou obsolète.")
+        st.write(f"**Détail :** {erreur_import}")
+        if manquants:
+            st.write("**Fichiers manquants à côté de app.py :** " + ", ".join(manquants))
+        st.write(f"**Dossier de app.py :** {dossier_app}")
+        st.write(
+            "**Fichiers .py présents dans ce dossier :** "
+            + (", ".join(sorted(p.name for p in dossier_app.glob("*.py"))) or "aucun")
+        )
+        st.info(
+            "Ajoutez (ou remplacez) ces fichiers dans le dépôt GitHub, dans le même dossier "
+            "que app.py, puis redéployez l'application."
+        )
+        st.stop()
 
 
 def _lire_csv_robuste(flux: io.BytesIO | str):
@@ -606,6 +631,7 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
         else df_raw.copy()
     )
     df.columns = [str(c).strip() for c in df.columns]
+    colonnes_source = list(df.columns)  # diagnostic d'affichage uniquement
     
     col_map = {}
     real_cols = []
@@ -768,8 +794,24 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
         )
         & ~articles_nettoyes.isin(articles_exclus)
     )
+    lignes_avant_filtre_article = len(df)
+    exemples_articles = (
+        df["article"].astype(str).str.strip().drop_duplicates().head(8).tolist()
+    )
     df = df[masque_article_valide].copy()
 
+    # Diagnostic d'affichage uniquement (aucun effet sur les calculs)
+    df.attrs["diagnostic_chargement"] = {
+        "nom_fichier": nom_fichier,
+        "est_data_brut": est_data_brut,
+        "colonnes_source": colonnes_source,
+        "colonnes_reconnues": sorted(set(col_map.values())),
+        "colonnes_reel": sorted(colonnes_reelles_decalees),
+        "colonnes_date": sorted(colonnes_dates_decalees),
+        "lignes_avant_filtre_article": lignes_avant_filtre_article,
+        "lignes_conservees": len(df),
+        "exemples_articles": exemples_articles,
+    }
     return df
 
 
@@ -1257,6 +1299,9 @@ mode_affichage = st.sidebar.selectbox(
 # -------------------------------------------------------------
 
 df_brut = None
+erreur_chargement = None
+diagnostic_import_vide = None
+historique = None
 try:
     historique = st.session_state.get("historique_cumule_mensuel")
     if historique is None and chemin:
@@ -1266,9 +1311,11 @@ try:
             int(annee_cloture), int(mois_cloture),
             (stat_fichier.st_mtime_ns, stat_fichier.st_size)
         )
-        st.session_state["historique_cumule_mensuel"] = historique
+        if not historique.empty:  # un résultat vide n'est pas mémorisé
+            st.session_state["historique_cumule_mensuel"] = historique
 
     if importe is not None:
+        import_ignore = False
         contenu_import = importe.getvalue()
         empreinte = hashlib.sha256(contenu_import).hexdigest()
         if empreinte != st.session_state.get("empreinte_dernier_import_mensuel"):
@@ -1276,44 +1323,101 @@ try:
                 contenu_import, importe.name, None,
                 int(annee_cloture), int(mois_cloture)
             )
-            if historique is None:
-                historique = nouvel_import
-                nb_periodes = nouvel_import[["annee", "mois"]].drop_duplicates().shape[0]
-            else:
-                historique, nb_periodes = remplacer_periodes_importees(
-                    historique,
-                    nouvel_import,
+            if nouvel_import.empty:
+                # Fichier lu mais aucune ligne exploitable : import ignoré, rien n'est mémorisé
+                import_ignore = True
+                diagnostic_import_vide = nouvel_import.attrs.get("diagnostic_chargement")
+                erreur_chargement = (
+                    f"« {importe.name} » a été lu mais aucune ligne exploitable "
+                    "n'en est ressortie : import ignoré."
                 )
-            st.session_state["historique_cumule_mensuel"] = historique
-            st.session_state["empreinte_dernier_import_mensuel"] = empreinte
-            periodes = nouvel_import[["annee", "mois"]].drop_duplicates()
-            periodes_triees = sorted(
-                (int(annee), int(mois))
-                for annee, mois in periodes.itertuples(index=False, name=None)
-            )
-            premiere_periode = f"{periodes_triees[0][0]}-{periodes_triees[0][1]:02d}"
-            derniere_periode = f"{periodes_triees[-1][0]}-{periodes_triees[-1][1]:02d}"
-            st.session_state["resume_dernier_import_mensuel"] = (
-                f"{importe.name} : {len(nouvel_import):,} lignes intégrées, "
-                f"{nb_periodes} période(s) remplacée(s) ou ajoutée(s) "
-                f"({premiere_periode} à {derniere_periode})."
-            )
-            historique = st.session_state["historique_cumule_mensuel"]
+                st.sidebar.error(erreur_chargement)
+            else:
+                if historique is None:
+                    historique = nouvel_import
+                    nb_periodes = nouvel_import[["annee", "mois"]].drop_duplicates().shape[0]
+                else:
+                    historique, nb_periodes = remplacer_periodes_importees(
+                        historique,
+                        nouvel_import,
+                    )
+                st.session_state["historique_cumule_mensuel"] = historique
+                st.session_state["empreinte_dernier_import_mensuel"] = empreinte
+                periodes = nouvel_import[["annee", "mois"]].drop_duplicates()
+                periodes_triees = sorted(
+                    (int(annee), int(mois))
+                    for annee, mois in periodes.itertuples(index=False, name=None)
+                )
+                premiere_periode = f"{periodes_triees[0][0]}-{periodes_triees[0][1]:02d}"
+                derniere_periode = f"{periodes_triees[-1][0]}-{periodes_triees[-1][1]:02d}"
+                st.session_state["resume_dernier_import_mensuel"] = (
+                    f"{importe.name} : {len(nouvel_import):,} lignes intégrées, "
+                    f"{nb_periodes} période(s) remplacée(s) ou ajoutée(s) "
+                    f"({premiere_periode} à {derniere_periode})."
+                )
+                historique = st.session_state["historique_cumule_mensuel"]
 
-        df_brut = historique.copy()
-        st.sidebar.success(
-            st.session_state.get(
-                "resume_dernier_import_mensuel",
-                f"Fichier déjà intégré : {importe.name}",
+        if import_ignore:
+            if historique is not None and not historique.empty:
+                df_brut = historique.copy()  # l'historique déjà chargé reste utilisable
+        else:
+            df_brut = historique.copy()
+            st.sidebar.success(
+                st.session_state.get(
+                    "resume_dernier_import_mensuel",
+                    f"Fichier déjà intégré : {importe.name}",
+                )
             )
-        )
     elif historique is not None:
         df_brut = historique.copy()
 except Exception as e:
+    erreur_chargement = f"{type(e).__name__} : {e}"
     st.sidebar.error(f"Erreur lors du chargement : {e}")
 
 if df_brut is None or df_brut.empty:
     st.warning("⚠️ Aucun fichier source trouvé. Veuillez importer un fichier CSV ou Excel via la barre latérale pour lancer le tableau de bord.")
+    # --- Diagnostic (affichage uniquement) : explique pourquoi rien n'est chargé ---
+    _hist_diag = historique if isinstance(historique, pd.DataFrame) else st.session_state.get("historique_cumule_mensuel")
+    _diag = diagnostic_import_vide or (
+        _hist_diag.attrs.get("diagnostic_chargement")
+        if isinstance(_hist_diag, pd.DataFrame)
+        else None
+    )
+    if erreur_chargement or _diag or importe is not None or chemin is not None:
+        with st.expander("🔎 Pourquoi ? Diagnostic du chargement", expanded=True):
+            if erreur_chargement:
+                st.error(f"Erreur pendant la lecture du fichier : {erreur_chargement}")
+            if _diag:
+                st.write(f"**Fichier lu :** {_diag['nom_fichier'] or '(sans nom)'}")
+                st.write(
+                    "**Reconnu comme DATA_BRUT.xlsx :** "
+                    + ("oui" if _diag["est_data_brut"] else
+                       "non (le nom doit être exactement DATA_BRUT.xlsx pour la lecture de la feuille « Export »)")
+                )
+                st.write(f"**Colonnes du fichier :** {', '.join(map(str, _diag['colonnes_source'][:30]))}"
+                         + (" …" if len(_diag["colonnes_source"]) > 30 else ""))
+                st.write(f"**Colonnes reconnues :** {', '.join(_diag['colonnes_reconnues']) or 'aucune'}")
+                st.write(
+                    f"**Colonnes « Real -k » détectées :** {len(_diag['colonnes_reel'])} · "
+                    f"**colonnes dates « M -k » :** {len(_diag['colonnes_date'])}"
+                )
+                st.write(
+                    f"**Lignes lues :** {_diag['lignes_avant_filtre_article']} → "
+                    f"**conservées après filtre article :** {_diag['lignes_conservees']}"
+                )
+                if _diag["exemples_articles"]:
+                    st.write("**Exemples de valeurs d'article :** " + ", ".join(_diag["exemples_articles"]))
+                if _diag["lignes_avant_filtre_article"] == 0:
+                    st.info("Aucune ligne n'a été lue : vérifiez la feuille (« Export » pour DATA_BRUT.xlsx) et la ligne d'en-tête.")
+                elif _diag["lignes_conservees"] == 0 and "article" not in _diag["colonnes_reconnues"]:
+                    st.info("La colonne article n'est pas reconnue, donc toutes les lignes sont écartées. "
+                            "En-têtes acceptés : Article, Articles, SKU, Code article, Désignation.")
+                elif _diag["lignes_conservees"] == 0:
+                    st.info("Toutes les lignes ont été écartées : articles vides, « Non renseigné », totaux ou catégories génériques.")
+            st.caption(
+                "Après correction du fichier ou d'un module : cliquez sur « Réinitialiser les imports de cette session » "
+                "(barre latérale), puis menu ⋮ → « Clear cache », et réimportez."
+            )
     st.stop()
 
 df_brut = assurer_dimensions_filtres(df_brut, CATALOGUE_PAR_ARTICLE, TYPES)

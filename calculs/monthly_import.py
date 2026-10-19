@@ -13,11 +13,12 @@ B) Format "pivoté sans en-tête" (cas de DATA_BRUT.xlsx, feuille « Export »)
    Converti en format long, avec ajout des colonnes attendues en aval
    (periode, colis, article, origine).
 
+Le matching des articles sur le référentiel Classeur2.xlsx est optionnel :
+il est activé en passant `articles_referentiel` à `normaliser_lignes_data_brut`.
+
 - normaliser_mois : noms de mois (fr/en, abrégés, accents) ou numéros -> numéro de mois.
-  Les nombres sont renvoyés tels quels (app.nettoyer_annees_mois repère ensuite les
-  colonnes annee/mois inversées, par ex. mois = 2026).
 - normaliser_lignes_data_brut : point d'entrée unique. Détecte le format puis
-  délègue à la branche A ou B.
+  délègue à la branche A ou B, avec matching référentiel pour B.
 - remplacer_periodes_importees : un import remplace ses périodes (annee, mois)
   et conserve le reste.
 """
@@ -155,7 +156,6 @@ _NATURE_MAP = {
 
 
 def _cle_nature(valeur: object) -> str:
-    """Clé normalisée de 'nature' : minuscule, sans accents, sans séparateurs."""
     s = _sans_accents(str(valeur).strip().lower())
     return re.sub(r"[^a-z]", "", s)
 
@@ -165,22 +165,18 @@ def _detecter_format_pivote(brut: pd.DataFrame) -> bool:
     if brut.empty or brut.shape[1] < 7:
         return False
 
-    # La première ligne ne doit pas contenir de libellé d'en-tête connu
     premiere = {_nom_simple(c) for c in brut.iloc[0].tolist()}
     if premiere & _LIBELLES_ENTETE:
         return False
 
-    # Colonne 0 : années plausibles
     annee0 = pd.to_numeric(brut.iloc[:, 0], errors="coerce")
     if annee0.between(1990, 2100).sum() < max(1, int(len(brut) * 0.3)):
         return False
 
-    # Colonne 1 : mois lisibles
     mois1 = normaliser_mois(brut.iloc[:, 1])
     if mois1.notna().sum() < max(1, int(len(brut) * 0.3)):
         return False
 
-    # Colonne 6 : numérique
     hl6 = pd.to_numeric(brut.iloc[:, 6], errors="coerce")
     if hl6.notna().sum() < max(1, int(len(brut) * 0.3)):
         return False
@@ -188,9 +184,76 @@ def _detecter_format_pivote(brut: pd.DataFrame) -> bool:
     return True
 
 
-def _normaliser_format_pivote(brut: pd.DataFrame) -> pd.DataFrame:
+# ---------------------------------------------------------------------------
+# Matching sur le référentiel Classeur2.xlsx
+# ---------------------------------------------------------------------------
+
+def charger_referentiel_articles(chemin: str | None) -> list[str]:
+    """Liste des articles du Classeur2.xlsx (feuille Ref actif)."""
+    if not chemin:
+        return []
+    try:
+        ref = pd.read_excel(chemin, sheet_name="Ref actif")
+    except Exception:
+        return []
+    if "Article" not in ref.columns:
+        return []
+    valeurs = ref["Article"].astype(str).str.strip()
+    valeurs = valeurs.loc[valeurs.ne("") & valeurs.str.lower().ne("nan")]
+    return valeurs.drop_duplicates().tolist()
+
+
+def _tokens(texte: object) -> list[str]:
+    s = _sans_accents(str(texte).lower())
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    return [t for t in s.split() if t]
+
+
+def matcher_article(
+    produit: object,
+    segment: object,
+    articles_ref: list[str],
+) -> str | None:
+    """Retourne l'article du référentiel le plus proche de `produit`.
+
+    Heuristique : tous les tokens du produit doivent être présents dans
+    l'article. Si plusieurs candidats, on prend le plus court (le plus
+    spécifique). Retourne None si aucun match.
+    """
+    if not articles_ref:
+        return None
+    tokens_prod = _tokens(produit)
+    if not tokens_prod:
+        return None
+
+    candidats: list[str] = []
+    for art in articles_ref:
+        cle_art = _sans_accents(str(art).lower())
+        cle_art = re.sub(r"[^a-z0-9]+", " ", cle_art).strip()
+        if all(tok in cle_art for tok in tokens_prod):
+            candidats.append(art)
+
+    if not candidats:
+        # Fallback : au moins le premier token significatif
+        premier = next((t for t in tokens_prod if len(t) >= 3), None)
+        if premier:
+            candidats = [
+                art for art in articles_ref
+                if premier in _sans_accents(str(art).lower())
+            ]
+    if not candidats:
+        return None
+
+    # Éviter les collisions avec le segment (ex. produit="World Cola")
+    # quand plusieurs candidats existent : on garde le plus court.
+    return sorted(candidats, key=lambda a: (len(str(a)), str(a)))[0]
+
+
+def _normaliser_format_pivote(
+    brut: pd.DataFrame,
+    articles_referentiel: list[str] | None = None,
+) -> pd.DataFrame:
     """[annee, mois, segment, produit, agence, nature, hl] -> format long."""
-    # Renommage positionnel
     rename = {
         brut.columns[i]: col
         for i, col in enumerate(_COLONNES_PIVOT[: brut.shape[1]])
@@ -239,7 +302,6 @@ def _normaliser_format_pivote(brut: pd.DataFrame) -> pd.DataFrame:
     if "nature" in df.columns:
         cles = df["nature"].map(_cle_nature)
         df["nature"] = cles.map(_NATURE_MAP).fillna(df["nature"])
-        # Si la valeur reste inconnue, on la laisse telle quelle (pas d'invention)
         df.loc[df["nature"].astype(str).str.strip().eq(""), "nature"] = "Réalisé"
 
     # Période
@@ -250,13 +312,21 @@ def _normaliser_format_pivote(brut: pd.DataFrame) -> pd.DataFrame:
         df["colis"] = 0.0
     if "origine" not in df.columns:
         df["origine"] = "Donnée source"
-    if "article" not in df.columns:
-        # Fallback synthétique : produit - segment
-        df["article"] = (
-            df["produit"].astype(str).str.strip()
-            + " - "
-            + df["segment"].astype(str).str.strip()
-        )
+
+    # Article : matching référentiel, sinon fallback synthétique
+    if "article" not in df.columns or df["article"].isna().any() or df["article"].eq("").any():
+        if articles_referentiel:
+            df["article"] = [
+                matcher_article(prod, seg, articles_referentiel)
+                or f"{prod} - {seg}"
+                for prod, seg in zip(df["produit"], df["segment"])
+            ]
+        else:
+            df["article"] = (
+                df["produit"].astype(str).str.strip()
+                + " - "
+                + df["segment"].astype(str).str.strip()
+            )
 
     keep = [
         "annee", "mois", "periode", "segment", "produit", "agence",
@@ -264,9 +334,9 @@ def _normaliser_format_pivote(brut: pd.DataFrame) -> pd.DataFrame:
     ]
     df = df[[c for c in keep if c in df.columns]]
 
-    # Diagnostic récupérable via df.attrs
     df.attrs["format_detecte"] = "pivot_sans_entete"
     df.attrs["colonnes_positionnelles"] = dict(enumerate(_COLONNES_PIVOT))
+    df.attrs["articles_referentiel_utilises"] = bool(articles_referentiel)
 
     return df.reset_index(drop=True)
 
@@ -275,10 +345,14 @@ def _normaliser_format_pivote(brut: pd.DataFrame) -> pd.DataFrame:
 # Point d'entrée
 # ---------------------------------------------------------------------------
 
-def normaliser_lignes_data_brut(df_raw: pd.DataFrame) -> pd.DataFrame:
+def normaliser_lignes_data_brut(
+    df_raw: pd.DataFrame,
+    articles_referentiel: list[str] | None = None,
+) -> pd.DataFrame:
     """Détecte le format et applique la normalisation adaptée.
 
-    - Format B (pivoté sans en-tête) : détecté en priorité, converti en long.
+    - Format B (pivoté sans en-tête) : détecté en priorité, converti en long,
+      avec matching des articles sur `articles_referentiel` si fourni.
     - Format A (en-tête nommé)        : promotion de la meilleure ligne d'en-tête.
     """
     if df_raw is None or df_raw.empty:
@@ -287,7 +361,7 @@ def normaliser_lignes_data_brut(df_raw: pd.DataFrame) -> pd.DataFrame:
     brut = df_raw.reset_index(drop=True)
 
     if _detecter_format_pivote(brut):
-        return _normaliser_format_pivote(brut)
+        return _normaliser_format_pivote(brut, articles_referentiel=articles_referentiel)
 
     return _normaliser_format_entete(brut)
 

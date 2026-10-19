@@ -72,7 +72,92 @@ TYPES = {
 }
 
 # ==============================================================================
-# 2. FONCTIONS UTILITAIRES & FILTRES
+# 2. RÉFÉRENTIEL EN DUR (Indépendant de Classeur2.xlsx)
+# ==============================================================================
+
+# On définit ici les règles par défaut selon les gammes
+def _generer_catalogue_manuel():
+    articles = [
+        "Booster Appel-Mix 50CL VER", "Booster Tornado 50CL VER VER",
+        "Caprice Ananas 100 cl VER", "Caprice Ananas 150 cl PET", "Caprice Ananas 30 cl VER",
+        "Caprice Bonbon Anglais 100 cl VER", "Caprice Bonbon Anglais 150 cl PET", "Caprice Bonbon Anglais 30 cl VER",
+        "Caprice Bonbon Anglais 35 cl PET", "Caprice Bonbon Anglais 50 cl PET", "Caprice Bonbon Anglais 33 cl CAN",
+        "Caprice Grenadine 100 cl VER", "Caprice Grenadine 150 cl PET", "Caprice Grenadine 30 cl VER",
+        "Caprice Grenadine 33 cl CAN", "Caprice Grenadine 35 cl PET", "Caprice Grenadine 50 cl PET",
+        "Caprice Orange 100 cl VER", "Caprice Orange 150 cl PET", "Caprice Orange 30 cl VER",
+        "Caprice Orange 33 cl CAN", "Caprice Orange 35 cl PET", "Caprice Orange 50 cl PET",
+        "Caprice Citron 100 cl VER", "Caprice Citron 150 cl PET", "Caprice Citron 30 cl VER", "Caprice Citron 50 cl PET",
+        "Tonic 100 cl VER", "Tonic 30 cl VER",
+        "World Cola 100cl VER", "World Cola 100cl WOCO VER", "World Cola 150cl PET", "World Cola 30cl VER",
+        "World Cola 30cl WOCO VER", "World Cola 33 cl CAN", "World Cola 35cl PET", "World Cola 50cl PET",
+        "Beaufort 33 CL CAN", "Beaufort 33CL VER",
+        "FRESH 33 cl CAN", "THB Fresh 33 cl VER", "THB Fresh 65 cl VER",
+        "Gold 8 50 cl CAN", "Gold 8 50 cl VER",
+        "Gold Blanche 33cl VER", "Gold Blanche 50 cl CAN", "Gold Blanche 50 cl VER",
+        "Gold Blonde 33 cl VER", "Gold Blonde 50 cl CAN", "Gold Blonde 50 cl VER", "Gold Blonde 65 cl VER",
+        "Queen s 65 cl VER",
+        "THB Pilsener 33 cl VER", "THB Pilsener 50 cl CAN", "THB Pilsener 65 cl VER",
+        "Cristal 100 cl VER", "Cristal 150 cl PET", "Cristal 30 cl VER", "Cristal 50 cl VER",
+        "Cristalline 100 cl PET", "Cristalline 200 cl PET",
+        "Eau vive 150 cl PET", "Eau vive 50 cl PET", "Eau vive 50 cl VER",
+        "FOSA 50 cl CAN",
+        "XXL 30cl BOB VER", "XXL 30cl VER", "XXL 33 cl CAN", "XXL 35cl PET"
+    ]
+    
+    data = []
+    for art in articles:
+        art_lower = art.lower()
+        
+        # Déduction du Segment
+        if "cristal" in art_lower or "eau" in art_lower:
+            segment = "EAUX"
+        elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]):
+            segment = "BIERES"
+        else:
+            segment = "BOISSONS"
+            
+        # Déduction du Positionnement (Standard / Premium / Économique)
+        if segment == "EAUX": pos = "Standard"
+        elif "gold" in art_lower or "queen" in art_lower or "thb" in art_lower: pos = "Premium"
+        else: pos = "Économique"
+        
+        # Déduction de l'Occasion
+        if "pet" in art_lower or "can" in art_lower or "ver" in art_lower: occ = "À emporter"
+        else: occ = "Sur place"
+        
+        # Format & Contenance
+        fmt = art.split()[-1].upper() if art.split()[-1].upper() in ["VER", "PET", "CAN"] else "VER"
+        if "WOCO" in art_lower: fmt = "VER"
+        if "BOB" in art_lower: fmt = "VER"
+        
+        # Extraction de la contenance (chiffre avant cl)
+        match = re.search(r'(\d+)\s*cl', art_lower)
+        c_cl = int(match.group(1)) if match else 50
+        c_hl = c_cl * 0.0001
+        
+        data.append({
+            "article": art,
+            "segment": segment,
+            "produit": art.split()[0], # ex: Caprice, World, Gold
+            "parfum": art,
+            "positionnement": pos,
+            "occasion": occ,
+            "conditionnement": fmt,
+            "format": f"{c_cl} cl {fmt}",
+            "contenance_ci": c_cl,
+            "contenance_hl": c_hl,
+            "type_format": occ,
+            "type_format_lib": occ
+        })
+    return pd.DataFrame(data)
+
+# On génère le catalogue en dur
+CATALOGUE = _generer_catalogue_manuel()
+CATALOGUE_PAR_ARTICLE = {meta["article"].lower().strip(): meta for meta in CATALOGUE.to_dict(orient="records")}
+ARTICLES_REFERENTIEL = CATALOGUE["article"].tolist()
+
+# ==============================================================================
+# 3. FONCTIONS UTILITAIRES & FILTRES
 # ==============================================================================
 
 def _sans_accents(texte: str) -> str:
@@ -112,10 +197,16 @@ def options_filtre_cascade(df: pd.DataFrame, col: str, filtres: list, selections
     for c, _ in filtres:
         if c != col and selections.get(c) and c in df_filtre.columns:
             df_filtre = df_filtre[df_filtre[c].isin(selections[c])]
-    return df_filtre[col].dropna().unique().tolist()
+    
+    # Si on est sur un filtre du catalogue, on s'assure que les options viennent du catalogue + des données
+    options = df_filtre[col].dropna().unique().tolist()
+    if col in ["article", "positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl"]:
+        options = list(set(options) | set(CATALOGUE[col].dropna().unique().tolist()))
+        
+    return options
 
 # ==============================================================================
-# 3. LECTURE DES DONNÉES
+# 4. LECTURE DES DONNÉES
 # ==============================================================================
 
 _MOIS_MAP = {
@@ -204,26 +295,8 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
     return df
 
 # ==============================================================================
-# 4. RÉFÉRENTIEL & SAISONNALITÉ
+# 5. SAISONNALITÉ & SAAR
 # ==============================================================================
-
-@st.cache_data
-def charger_referentiel():
-    chemins_ref = [RACINE / "Classeur2.xlsx", Path.cwd() / "Classeur2.xlsx"]
-    f_ref = next((p for p in chemins_ref if p.exists()), None)
-    if f_ref:
-        df_ref = pd.read_excel(f_ref, sheet_name="Ref actif")
-        catalogue = []
-        for _, r in df_ref.iterrows():
-            art = str(r['Article']).strip()
-            segment = "BIERES" if any(b in art.lower() for b in ["beer", "thb", "gold", "queen", "beaufort"]) else ("EAUX" if "cristal" in art.lower() or "eau" in art.lower() else "BOISSONS")
-            catalogue.append({"segment": segment, "produit": art.split()[0], "parfum": art, "format": f"{r['Contenance (Cl)']} cl {r['Format']}", "type_format": str(r['Occasion']).strip(), "article": art, "positionnement": str(r['Positionnement']).strip(), "occasion": str(r['Occasion']).strip(), "conditionnement": str(r['Format']).strip(), "contenance_ci": r['Contenance (Cl)'], "contenance_hl": r['Contenance (hl)'], "type_format_lib": str(r['Occasion']).strip()})
-        return pd.DataFrame(catalogue)
-    return pd.DataFrame()
-
-CATALOGUE = charger_referentiel()
-CATALOGUE_PAR_ARTICLE = {meta["article"].lower().strip(): meta for meta in CATALOGUE.to_dict(orient="records")}
-ARTICLES_REFERENTIEL = CATALOGUE["article"].dropna().astype(str).str.strip().tolist() if not CATALOGUE.empty else []
 
 def annees_completes_saisonnalite(donnees: pd.DataFrame, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int) -> list[int]:
     realise = donnees.loc[donnees["nature"].eq("Réalisé") & donnees["mois"].between(1, 12)]
@@ -247,22 +320,14 @@ def calculer_indices_saisonnalite(donnees: pd.DataFrame, valeur: str, annee_debu
     if float(indices.sum()) > 0: indices = indices * 12.0 / float(indices.sum())
     return pd.DataFrame({"Mois": MOIS_NOMS, "Volume moyen": volumes.mean(axis=0).to_numpy(), "Nombre de périodes": len(annees), "Indice saisonnier": indices.to_numpy()})
 
-# ==============================================================================
-# 5. MOTEUR SAAR (avec cascade pour les années futures)
-# ==============================================================================
-
 @st.cache_data(show_spinner="Calcul des prévisions SAAR...")
 def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture: int, annee_cible: int, taux_croissance: float) -> pd.DataFrame:
     if annee_cible < annee_cloture: return df
     cles = ["agence", "article"]
     dimensions = ["agence", "region", "segment", "produit", "parfum", "format", "type_format", "article", "origine", "positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl"]
-    
-    # On prend le réalisé de l'année de clôture pour calculer la base
     realise_ytd = df.loc[(df["nature"] == "Réalisé") & (df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture)]
     
-    # Si on projette 2027+, on peut avoir besoin des prévisions 2026 comme "réalisé"
     if annee_cible > annee_cloture:
-        # On considère toutes les lignes de l'année_cloture (réalisées ou prévues) comme la base
         base_df = df.loc[(df["annee"] == annee_cloture) & (df["nature"].isin(["Réalisé", "Prévision"]))]
         if base_df.empty: return df
         cumul_base = base_df.groupby(cles)[["hl", "colis"]].sum()
@@ -272,7 +337,6 @@ def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture
         cumul_base = realise_ytd.groupby(cles)[["hl", "colis"]].sum()
         derniere_ligne = realise_ytd.sort_values(["annee", "mois"]).drop_duplicates(cles, keep="last").set_index(cles)
 
-    # Profils de référence
     df_ref = df.loc[df["annee"].isin([2024, 2025]) & (df["nature"] == "Réalisé")]
     profils_ref = {}
     if not df_ref.empty:
@@ -280,7 +344,6 @@ def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture
         totaux = volumes_mensuels.sum(axis=1)
         profils_ref = {c: p.to_numpy(dtype=float) for c, p in volumes_mensuels.div(totaux.where(totaux > 0), axis=0).mul(12.0).iterrows() if totaux.loc[c] > 0}
 
-    # On regarde les volumes de l'année précédente pour le plancher
     volumes_annee_precedente = df.loc[df["annee"] == annee_cible - 1].groupby([*cles, "mois"])[["hl", "colis"]].sum()
     taux_annuel = 1.0 + max(taux_croissance, 1.0) / 100.0
     facteur_croissance = taux_annuel ** (annee_cible - annee_cloture)
@@ -295,7 +358,6 @@ def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture
         base_hl = max(0.0, float(volumes["hl"]) / poids_ecoule * 12.0)
         base_colis = max(0.0, float(volumes["colis"]) / poids_ecoule * 12.0)
         
-        # Attention: si annee_cible > annee_cloture, la base est l'année de clôture complète, donc on applique le taux
         if annee_cible > annee_cloture:
             base_hl *= taux_annuel ** (annee_cible - annee_cloture - 1)
             base_colis *= taux_annuel ** (annee_cible - annee_cloture - 1)
@@ -310,7 +372,6 @@ def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture
             if (*cle, mois) in volumes_annee_precedente.index and volumes_annee_precedente.loc[(*cle, mois)]["hl"] > 0:
                 plancher = volumes_annee_precedente.loc[(*cle, mois)]
                 vol_hl_min, vol_colis_min = max(0.0, float(plancher["hl"])), max(0.0, float(plancher["colis"]))
-                # Application de la croissance
                 vol_hl_min *= taux_annuel
                 vol_colis_min *= taux_annuel
             else:
@@ -353,7 +414,7 @@ def reconstituer_previsions_historiques(df: pd.DataFrame, annee_cloture: int, ta
     return pd.concat(previsions, ignore_index=True) if previsions else df.iloc[0:0]
 
 # ==============================================================================
-# 6. AFFICHAGE
+# 6. AFFICHAGE & UI
 # ==============================================================================
 
 st.markdown("""
@@ -469,10 +530,14 @@ if st.sidebar.button("🔄 Réinitialiser les filtres"):
 selections_filtres = {col: st.session_state.get(f"f_{col}", []) for col, _ in FILTRES}
 for col, label in FILTRES:
     if col not in df_brut.columns: continue
+    
+    # Les options viennent des données ET du catalogue en dur
     options = options_filtre_cascade(df_brut, col, FILTRES, selections_filtres)
     options = [o for o in options if pd.notna(o) and str(o).strip().lower() not in ("", "nan", "none")]
+    
     if col == "agence": options = [a for a in AGENCES_REFERENCE if a in set(options)]
     else: options = trier(options, col)
+    
     if not options: continue
     cle = f"f_{col}"
     if cle in st.session_state: st.session_state[cle] = [v for v in st.session_state[cle] if v in options]
@@ -498,12 +563,8 @@ if activer_saar:
     df_previsions_toutes = reconstituer_previsions_historiques(df_brut, int(annee_cloture) + 1, float(taux_saar))
     if afficher_prev_hist: df_previsions_hist = df_previsions_toutes.loc[df_previsions_toutes["annee"].lt(annee_cloture)].copy()
     
-    # ✚ MODIFICATION ICI : On boucle jusqu'à annee_cible incluse, et on applique la cascade
     if annee_cible >= annee_cloture:
-        # On s'assure que l'année de clôture est d'abord "complétée" (atterrissage)
         df_brut = appliquer_projection_saar(df_brut, int(annee_cloture), int(mois_cloture), int(annee_cloture), float(taux_saar))
-        
-        # Puis on projette pour toutes les années futures jusqu'à l'année cible
         for a_proj in range(int(annee_cloture) + 1, int(annee_cible) + 1):
             df_brut = appliquer_projection_saar(df_brut, int(annee_cloture), int(mois_cloture), a_proj, float(taux_saar))
 
@@ -586,7 +647,6 @@ tampon = io.BytesIO()
 with pd.ExcelWriter(tampon, engine="openpyxl") as xl:
     if not d.empty: d.to_excel(xl, index=False, sheet_name="Données Filtrées")
     if not df_previsions_toutes.empty: df_previsions_toutes.to_excel(xl, index=False, sheet_name="Prévisions Historiques")
-    # Export de l'année cible complète
     df_annee_cible = d_tendance[d_tendance["annee"] == annee_cible].copy()
     if not df_annee_cible.empty: df_annee_cible.to_excel(xl, index=False, sheet_name=f"Prévisions {annee_cible}")
 

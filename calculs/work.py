@@ -1,21 +1,20 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
 # Mode Global vs Mode Filtré — Workflow 11 étapes
-# Version corrigée (gestion des cas vides)
+# UN SEUL UPLOAD : historique des ventes
 # ============================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from datetime import date
 from io import BytesIO
 
 # ============================================================
 # CONFIG PAGE
 # ============================================================
 st.set_page_config(
-    page_title="Moteur Ventes — Global vs Filtré",
+    page_title="Moteur Ventes — Historique",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -25,7 +24,7 @@ DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
 
 # ============================================================
-# RÉFÉRENTIEL PRODUIT
+# RÉFÉRENTIEL INTÉGRÉ (69 SKU du PDF Classeur2)
 # ============================================================
 REFERENTIEL_DATA = [
     ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
@@ -102,6 +101,12 @@ REFERENTIEL_DATA = [
 CONV_CL_HL = {30: 0.003, 33: 0.0033, 35: 0.0035, 50: 0.005,
               65: 0.0065, 100: 0.01, 150: 0.015, 200: 0.02}
 
+# Liste des agences (pour mapping région automatique)
+AGENCES_DEMO = ["Alger Centre", "Oran", "Constantine", "Annaba", "Blida",
+                "Sétif", "Tlemcen", "Béjaïa", "Batna", "Tizi Ouzou",
+                "Djelfa", "Biskra", "Tiaret", "Skikda", "Chlef"]
+REGIONS = ["Nord", "Ouest", "Est", "Centre", "Sud"]
+
 # ============================================================
 # UTILITAIRES
 # ============================================================
@@ -128,65 +133,17 @@ def construire_referentiel_integre():
     return df
 
 
-def enrichir_referentiel(df_ref):
-    df = df_ref.copy()
-    if "Format" not in df.columns:
-        df["Format"] = df["Article"].apply(extraire_format)
-    if "Contenance_cl" not in df.columns:
-        df["Contenance_cl"] = df["Article"].apply(extraire_contenance)
-        df["Contenance_hl"] = df["Contenance_cl"].map(CONV_CL_HL)
-    return df
-
-
-def lire_fichier(uploaded_file):
-    if uploaded_file is None:
-        return None
-    b = uploaded_file.getvalue()
-    try:
-        return pd.read_excel(BytesIO(b))
-    except Exception:
-        try:
-            return pd.read_csv(BytesIO(b))
-        except Exception:
-            return None
-
-
-# ============================================================
-# GÉNÉRATION DE DONNÉES DÉMO
-# ============================================================
-def generer_ventes_demo():
-    np.random.seed(42)
-    ref = construire_referentiel_integre()
-    agences = ["Alger Centre", "Oran", "Constantine", "Annaba", "Blida",
-               "Sétif", "Tlemcen", "Béjaïa", "Batna", "Tizi Ouzou",
-               "Djelfa", "Biskra", "Tiaret", "Skikda", "Chlef"]
-    rows = []
-    for art in ref["Article"].unique():
-        base = np.random.randint(200, 1500)
-        for ag in agences:
-            for annee in [2023, 2024, 2025]:
-                for mois in range(1, 13):
-                    saison = 1 + 0.35 * np.sin((mois - 3) / 12 * 2 * np.pi)
-                    vol = max(0, int(base * saison * np.random.uniform(0.8, 1.2)))
-                    rows.append([date(annee, mois, 15), art, ag, vol])
-    return pd.DataFrame(rows, columns=["Date", "Article", "Agence", "Volume"])
-
-
-def generer_mapping_demo():
-    agences = ["Alger Centre", "Oran", "Constantine", "Annaba", "Blida",
-               "Sétif", "Tlemcen", "Béjaïa", "Batna", "Tizi Ouzou",
-               "Djelfa", "Biskra", "Tiaret", "Skikda", "Chlef"]
-    regions = ["Nord", "Ouest", "Est", "Centre", "Sud"]
+def construire_mapping_auto(agences):
+    """Mapping Agence → Région automatique (round-robin)."""
     return pd.DataFrame({
         "Agence": agences,
-        "Région": [regions[i % len(regions)] for i in range(len(agences))],
+        "Région": [REGIONS[i % len(REGIONS)] for i in range(len(agences))],
     })
 
 
-def generer_objectifs_demo():
+def generer_objectifs_auto(ref, mapr):
+    """Génère des objectifs annuels fictifs (5k–20k) par Article × Agence."""
     np.random.seed(7)
-    ref = construire_referentiel_integre()
-    mapr = generer_mapping_demo()
     obj = (ref[["Article"]].assign(key=1)
               .merge(mapr[["Agence"]].assign(key=1), on="key")
               .drop("key", axis=1))
@@ -194,52 +151,84 @@ def generer_objectifs_demo():
     return obj
 
 
+def lire_fichier(uploaded_file):
+    """Lit un fichier uploadé (xlsx ou csv) et retourne un DataFrame."""
+    b = uploaded_file.getvalue()
+    try:
+        return pd.read_excel(BytesIO(b))
+    except Exception:
+        try:
+            return pd.read_csv(BytesIO(b))
+        except Exception as e:
+            st.error(f"❌ Impossible de lire le fichier : {e}")
+            st.stop()
+
+
 # ============================================================
-# ÉTAPE 1 — CHARGEMENT ET FUSION
+# ÉTAPE 1 — CHARGEMENT + ENRICHISSEMENT + FUSION
 # ============================================================
-@st.cache_data(show_spinner="⏳ Chargement et fusion des données...")
-def charger_donnees(ventes_bytes, ref_bytes, mapr_bytes, obj_bytes):
-    if ref_bytes:
-        try:
-            ref = pd.read_excel(BytesIO(ref_bytes))
-        except Exception:
-            ref = pd.read_csv(BytesIO(ref_bytes))
-        ref = enrichir_referentiel(ref)
-    else:
-        ref = construire_referentiel_integre()
+@st.cache_data(show_spinner="⏳ Chargement et enrichissement du fichier...")
+def charger_et_enrichir(file_bytes):
+    """
+    Charge l'historique des ventes, l'enrichit avec :
+    - le référentiel intégré (Positionnement, Occasion, Format, Contenance)
+    - un mapping région automatique
+    - des objectifs annuels automatiques
+    """
+    # --- Lecture du fichier uploadé ---
+    try:
+        ventes = pd.read_excel(BytesIO(file_bytes))
+    except Exception:
+        ventes = pd.read_csv(BytesIO(file_bytes))
 
-    if ventes_bytes:
-        try:
-            ventes = pd.read_excel(BytesIO(ventes_bytes))
-        except Exception:
-            ventes = pd.read_csv(BytesIO(ventes_bytes))
-    else:
-        ventes = generer_ventes_demo()
+    # --- Vérification des colonnes obligatoires ---
+    cols_obligatoires = ["Date", "Article", "Agence", "Volume"]
+    manquantes = [c for c in cols_obligatoires if c not in ventes.columns]
+    if manquantes:
+        st.error(f"❌ Colonnes manquantes dans le fichier : {manquantes}")
+        st.info(f"Colonnes trouvées : {list(ventes.columns)}")
+        st.stop()
 
-    if mapr_bytes:
-        try:
-            mapr = pd.read_excel(BytesIO(mapr_bytes))
-        except Exception:
-            mapr = pd.read_csv(BytesIO(mapr_bytes))
-    else:
-        mapr = generer_mapping_demo()
-
-    if obj_bytes:
-        try:
-            obj = pd.read_excel(BytesIO(obj_bytes))
-        except Exception:
-            obj = pd.read_csv(BytesIO(obj_bytes))
-    else:
-        obj = generer_objectifs_demo()
-
-    ventes["Date"] = pd.to_datetime(ventes["Date"])
-    ventes["Mois"] = ventes["Date"].dt.month
+    # --- Normalisation Date ---
+    ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
+    ventes = ventes.dropna(subset=["Date"])
+    ventes["Mois"]  = ventes["Date"].dt.month
     ventes["Annee"] = ventes["Date"].dt.year
 
-    df = (ventes.merge(ref, on="Article", how="left")
-                .merge(mapr, on="Agence", how="left")
-                .merge(obj, on=["Article", "Agence"], how="left"))
+    # --- Référentiel intégré ---
+    ref = construire_referentiel_integre()
+
+    # --- Si le fichier contient déjà Positionnement/Occasion, on les garde ---
+    cols_ref = ["Article", "Positionnement", "Occasion", "Format",
+                "Contenance_cl", "Contenance_hl"]
+    ref_merge = ref[cols_ref].copy()
+
+    # --- Fusion ventes ↔ référentiel ---
+    df = ventes.merge(ref_merge, on="Article", how="left", suffixes=("", "_ref"))
+
+    # Si Positionnement/Occasion étaient déjà dans ventes, on garde la version du fichier
+    for col in ["Positionnement", "Occasion", "Format", "Contenance_cl", "Contenance_hl"]:
+        if col in ventes.columns and f"{col}_ref" in df.columns:
+            df[col] = df[col].fillna(df[f"{col}_ref"])
+            df.drop(columns=[f"{col}_ref"], inplace=True)
+        elif f"{col}_ref" in df.columns:
+            df[col] = df[f"{col}_ref"]
+            df.drop(columns=[f"{col}_ref"], inplace=True)
+
+    # --- Mapping région ---
+    agences = sorted(df["Agence"].dropna().unique().tolist())
+    if "Région" not in df.columns:
+        mapr = construire_mapping_auto(agences)
+        df = df.merge(mapr, on="Agence", how="left")
+
+    # --- Objectifs ---
+    if "Objectif_Annuel" not in df.columns:
+        mapr_used = df[["Agence", "Région"]].drop_duplicates() if "Région" in df.columns \
+                    else construire_mapping_auto(agences)
+        obj = generer_objectifs_auto(ref, mapr_used)
+        df = df.merge(obj, on=["Article", "Agence"], how="left")
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
+
     return df
 
 
@@ -255,7 +244,7 @@ def construire_matrice(df):
 
 
 # ============================================================
-# ÉTAPE 4 — PÉRIMÈTRE
+# ÉTAPE 4 — PÉRIMÈTRE (GLOBAL vs FILTRÉ)
 # ============================================================
 def get_perimetre(df, filtres):
     if all(len(f) == 0 for f in filtres.values()):
@@ -307,7 +296,7 @@ def calcul_sarr(df_per, indices):
 
 
 # ============================================================
-# ÉTAPE 8 — TENDANCE  (corrigée : cas vide)
+# ÉTAPE 8 — TENDANCE
 # ============================================================
 def calcul_tendance(df_sarr):
     grp = (df_sarr.groupby(["Article", "Agence", "Mois"], as_index=False)
@@ -316,18 +305,16 @@ def calcul_tendance(df_sarr):
     if grp.empty:
         return pd.DataFrame(columns=["Article", "Agence", "Tendance"])
     def _tend(s):
-        if len(s) < 4:
-            return 0.0
+        if len(s) < 4: return 0.0
         ec = s.diff().dropna()
-        if len(ec) < 3:
-            return 0.0
+        if len(ec) < 3: return 0.0
         return float(ec.mean())
     return (grp.groupby(["Article", "Agence"])["SARR"]
                .apply(_tend).reset_index(name="Tendance"))
 
 
 # ============================================================
-# ÉTAPE 9 — PRÉVISION  (corrigée : cas vide)
+# ÉTAPE 9 — PRÉVISION
 # ============================================================
 def calcul_prevision(df_sarr, tendance, indices, mois_clotures, horizon=12):
     if df_sarr.empty or "SARR" not in df_sarr.columns:
@@ -336,12 +323,7 @@ def calcul_prevision(df_sarr, tendance, indices, mois_clotures, horizon=12):
     rows = []
     for (art, ag), grp in df_sarr.groupby(["Article", "Agence"]):
         s = grp.sort_values("Mois")["SARR"].values
-        if len(s) >= 3:
-            base = max(s[-1], s[-3:].mean())
-        elif len(s) > 0:
-            base = s.mean()
-        else:
-            base = 0.0
+        base = max(s[-1], s[-3:].mean()) if len(s) >= 3 else (s.mean() if len(s) else 0)
         t = tendance.loc[(tendance["Article"] == art) &
                          (tendance["Agence"] == ag), "Tendance"]
         tv = float(t.iloc[0]) if len(t) else 0.0
@@ -354,7 +336,7 @@ def calcul_prevision(df_sarr, tendance, indices, mois_clotures, horizon=12):
 
 
 # ============================================================
-# ÉTAPE 10 — GAP  (corrigée : cas vides)
+# ÉTAPE 10 — GAP
 # ============================================================
 def calcul_gap(df_per, realise, prevision):
     obj = df_per.groupby(["Article", "Agence"], as_index=False).agg(
@@ -382,29 +364,16 @@ def calcul_gap(df_per, realise, prevision):
 
 
 # ============================================================
-# UPLOAD
+# UPLOAD — UN SEUL FICHIER
 # ============================================================
 def zone_upload():
-    st.sidebar.header("📤 1. Charger les fichiers")
-    st.sidebar.caption("Vide = référentiel intégré + démo")
+    st.sidebar.header("📤 1. Charger l'historique des ventes")
+    st.sidebar.caption("Un seul fichier Excel/CSV")
 
-    ventes_f = st.sidebar.file_uploader(
-        "📄 Ventes (Date, Article, Agence, Volume)",
-        type=["xlsx", "csv"], key="up_ventes")
-    mapr_f = st.sidebar.file_uploader(
-        "📄 Mapping Région (Agence, Région)",
-        type=["xlsx", "csv"], key="up_mapr")
-    obj_f = st.sidebar.file_uploader(
-        "📄 Objectifs (Article, Agence, Objectif_Annuel)",
-        type=["xlsx", "csv"], key="up_obj")
-    ref_f = st.sidebar.file_uploader(
-        "📄 Référentiel (optionnel — sinon intégré)",
-        type=["xlsx", "csv"], key="up_ref")
-
-    def _b(f):
-        return f.getvalue() if f else None
-
-    return _b(ventes_f), _b(ref_f), _b(mapr_f), _b(obj_f)
+    f = st.sidebar.file_uploader(
+        "📄 Historique des ventes (Date, Article, Agence, Volume)",
+        type=["xlsx", "csv"], key="up_hist")
+    return f
 
 
 # ============================================================
@@ -429,7 +398,7 @@ def construire_sidebar(df, mois_clotures):
 
 
 # ============================================================
-# DASHBOARD  (corrigé : cas gap vide)
+# DASHBOARD
 # ============================================================
 def afficher_dashboard(mode, df_per, realise, indices, sarr,
                        tendance, prevision, gap):
@@ -481,25 +450,54 @@ def main():
     if "mois_clotures" not in st.session_state:
         st.session_state.mois_clotures = DEFAUT_MOIS_CLOTURES
 
-    v_b, r_b, m_b, o_b = zone_upload()
-    df_brut = charger_donnees(v_b, r_b, m_b, o_b)
+    # --- Upload UNIQUE ---
+    fichier = zone_upload()
+
+    if fichier is None:
+        st.info("👈 Uploadez votre historique des ventes dans la sidebar pour démarrer.")
+        st.markdown("### 📋 Format attendu")
+        st.markdown("""
+        Un fichier **Excel** ou **CSV** avec au minimum ces colonnes :
+
+        | Date | Article | Agence | Volume |
+        |---|---|---|---|
+        | 2023-01-15 | Caprice Ananas 100 cl VER | Alger Centre | 1250 |
+        | 2023-01-15 | Caprice Ananas 100 cl VER | Oran | 980 |
+
+        **Colonnes optionnelles** (auto-complétées si absentes) :
+        - `Positionnement`, `Occasion` → déduits du référentiel intégré (69 SKU)
+        - `Format`, `Contenance_cl` → déduits du nom de l'article
+        - `Région` → généré automatiquement (mapping Agence → Région)
+        - `Objectif_Annuel` → généré automatiquement
+
+        **Le minimum absolu** : `Date`, `Article`, `Agence`, `Volume`.
+        """)
+        st.stop()
+
+    # --- Chargement + enrichissement ---
+    file_bytes = fichier.getvalue()
+    df_brut = charger_et_enrichir(file_bytes)
 
     with st.sidebar.expander("👁️ Aperçu des données"):
         st.write(f"**Lignes :** {len(df_brut):,}")
         st.write(f"**Colonnes :** {list(df_brut.columns)}")
         st.dataframe(df_brut.head(5), use_container_width=True)
 
+    # --- Matrice ---
     matrice = construire_matrice(df_brut)
 
+    # --- Filtres ---
     filtres, mois_clotures = construire_sidebar(
         df_brut, st.session_state.mois_clotures)
     st.session_state.mois_clotures = mois_clotures
 
+    # --- Périmètre ---
     df_per, mode = get_perimetre(df_brut, filtres)
     if df_per.empty:
         st.error("❌ Aucune donnée pour ce périmètre. Modifiez les filtres.")
         st.stop()
 
+    # --- Calculs ---
     realise   = calcul_realise_cumule(df_per, mois_clotures)
     indices   = calcul_indices(df_per)
     sarr      = calcul_sarr(df_per, indices)
@@ -507,6 +505,7 @@ def main():
     prevision = calcul_prevision(sarr, tendance, indices, mois_clotures)
     gap       = calcul_gap(df_per, realise, prevision)
 
+    # --- Dashboard ---
     afficher_dashboard(mode, df_per, realise, indices, sarr,
                        tendance, prevision, gap)
 

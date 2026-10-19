@@ -1,6 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# UN SEUL UPLOAD — LECTEUR ADAPTATIF (format reporting)
+# UN SEUL UPLOAD — LECTEUR SUR-MESURE
 # ============================================================
 
 import streamlit as st
@@ -118,11 +118,9 @@ def extraire_format(a):
     if "VER" in u:     return "VER"
     return "INCONNU"
 
-
 def extraire_contenance(a):
     m = re.search(r"(\d+)\s*C?L", str(a).upper())
     return int(m.group(1)) if m else None
-
 
 def construire_referentiel_integre():
     df = pd.DataFrame(REFERENTIEL_DATA,
@@ -132,13 +130,11 @@ def construire_referentiel_integre():
     df["Contenance_hl"] = df["Contenance_cl"].map(CONV_CL_HL)
     return df
 
-
 def construire_mapping_auto(agences):
     return pd.DataFrame({
         "Agence": agences,
         "Région": [REGIONS[i % len(REGIONS)] for i in range(len(agences))],
     })
-
 
 def generer_objectifs_auto(ref, mapr):
     np.random.seed(7)
@@ -148,9 +144,7 @@ def generer_objectifs_auto(ref, mapr):
     obj["Objectif_Annuel"] = np.random.randint(5000, 20000, size=len(obj))
     return obj
 
-
 def normaliser_mois(val):
-    """Convertit 'janvier', 'Jan', 'JANVIER', 'January' → 1..12."""
     if pd.isna(val):
         return None
     s = str(val).strip().upper()
@@ -158,244 +152,83 @@ def normaliser_mois(val):
         return MOIS_FR_INV[s]
     if s in MOIS_EN_INV:
         return MOIS_EN_INV[s]
-    # 'janv.', 'févr.', 'sept.' → 3 premières lettres
     s3 = s[:3]
     for k, v in MOIS_FR_INV.items():
         if k.startswith(s3):
             return v
     return None
 
-
 # ============================================================
-# DÉTECTION AUTOMATIQUE DE STRUCTURE
+# LECTEUR SUR-MESURE POUR VOTRE FICHIER
+# Format : Année | Mois | Catégorie | Sous-catégorie | Agence | Article | Volume
 # ============================================================
-def detecter_structure(raw: pd.DataFrame) -> dict:
-    """
-    Analyse les 30 premières lignes pour détecter :
-    - la ligne d'en-tête
-    - les colonnes Date / Article / Agence / Volume
-    - la structure verticale (mois en lignes) ou croisée (mois en colonnes)
-    """
-    resultat = {
-        "header_row": None,
-        "colonnes": {},
-        "structure": "inconnue",
-        "annees_detectees": [],
-        "mois_en_lignes": False,
-        "mois_en_colonnes": False,
-    }
-
-    # --- Chercher la ligne d'en-tête (mots-clés métier) ---
-    mots_cles = ["date", "article", "agence", "volume", "mois", "année",
-                 "annee", "produit", "sku", "magasin", "point de vente",
-                 "quantité", "quantite", "total", "qty", "year", "month",
-                 "product", "store", "region"]
-    best_row = None
-    best_score = 0
-    for i in range(min(30, len(raw))):
-        row_vals = [str(v).strip().lower() for v in raw.iloc[i].values]
-        score = sum(1 for v in row_vals if v in mots_cles or any(m in v for m in mots_cles))
-        if score > best_score:
-            best_score = score
-            best_row = i
-    if best_score >= 2:
-        resultat["header_row"] = best_row
-        resultat["colonnes"]["brut"] = [str(v).strip() for v in raw.iloc[best_row].values]
-
-    # --- Détection années (4 chiffres 2015–2030) ---
-    annees = set()
-    for i in range(min(50, len(raw))):
-        for v in raw.iloc[i].values:
-            s = str(v).strip()
-            if s.isdigit() and 2015 <= int(s) <= 2030:
-                annees.add(int(s))
-    resultat["annees_detectees"] = sorted(annees)
-
-    # --- Détection mois en lignes (colonne avec 'janvier', 'février'...) ---
-    for col in range(raw.shape[1]):
-        col_vals = [str(v).strip().upper() for v in raw.iloc[:, col].values if pd.notna(v)]
-        n_mois = sum(1 for v in col_vals if v in MOIS_FR_INV or v in MOIS_EN_INV)
-        if n_mois >= 6:
-            resultat["mois_en_lignes"] = True
-            break
-
-    # --- Détection mois en colonnes (header contient 'janvier', 'février'...) ---
-    for row in range(min(10, len(raw))):
-        row_vals = [str(v).strip().upper() for v in raw.iloc[row].values]
-        n_mois = sum(1 for v in row_vals if v in MOIS_FR_INV or v in MOIS_EN_INV)
-        if n_mois >= 6:
-            resultat["mois_en_colonnes"] = True
-            break
-
-    # --- Structure globale ---
-    if resultat["mois_en_colonnes"]:
-        resultat["structure"] = "CROISÉE (mois en colonnes)"
-    elif resultat["mois_en_lignes"]:
-        resultat["structure"] = "VERTICALE (mois en lignes)"
-    else:
-        resultat["structure"] = "INCONNUE"
-
-    return resultat
-
-
-# ============================================================
-# EXTRACTION INTELLIGENTE
-# ============================================================
-def extraire_ventes(raw: pd.DataFrame, struct: dict) -> pd.DataFrame:
-    """
-    Tente d'extraire une base plate (Date, Article, Agence, Volume)
-    depuis différents formats de reporting.
-    """
+def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
     rows = []
-
-    # --- Cas 1 : structure VERTICALE (mois + année + article + agence + volume en lignes) ---
-    if struct["structure"].startswith("VERTICALE"):
-        # Identifier les colonnes par mots-clés
-        header_idx = struct["header_row"] if struct["header_row"] is not None else 0
-        header = [str(v).strip().lower() for v in raw.iloc[header_idx].values]
-
-        def find_col(keywords):
-            for i, h in enumerate(header):
-                if any(k in h for k in keywords):
-                    return i
-            return None
-
-        col_date    = find_col(["date"])
-        col_annee   = find_col(["année", "annee", "year", "an"])
-        col_mois    = find_col(["mois", "month"])
-        col_article = find_col(["article", "produit", "sku", "product"])
-        col_agence  = find_col(["agence", "magasin", "store", "point", "pdv"])
-        col_volume  = find_col(["volume", "quantité", "quantite", "qty", "total", "qté"])
-
-        if col_article is not None and col_agence is not None and col_volume is not None:
-            for i in range(header_idx + 1, len(raw)):
-                try:
-                    art = raw.iloc[i, col_article]
-                    ag  = raw.iloc[i, col_agence]
-                    vol = raw.iloc[i, col_volume]
-                    if pd.isna(art) or pd.isna(ag) or pd.isna(vol):
-                        continue
-                    try:
-                        vol = float(vol)
-                    except (ValueError, TypeError):
-                        continue
-
-                    # Construire la date
-                    if col_date is not None and pd.notna(raw.iloc[i, col_date]):
-                        date_val = pd.to_datetime(raw.iloc[i, col_date], errors="coerce")
-                    elif col_annee is not None and col_mois is not None:
-                        annee = int(raw.iloc[i, col_annee]) if pd.notna(raw.iloc[i, col_annee]) else None
-                        mois_val = raw.iloc[i, col_mois]
-                        mois = normaliser_mois(mois_val) if isinstance(mois_val, str) else mois_val
-                        if annee and mois:
-                            date_val = pd.Timestamp(year=annee, month=int(mois), day=15)
-                        else:
-                            continue
-                    else:
-                        continue
-
-                    if pd.isna(date_val):
-                        continue
-
-                    rows.append({
-                        "Date": date_val,
-                        "Article": str(art).strip(),
-                        "Agence": str(ag).strip(),
-                        "Volume": vol,
-                    })
-                except Exception:
-                    continue
-
-            if rows:
-                return pd.DataFrame(rows)
-
-    # --- Cas 2 : structure CROISÉE (mois en colonnes) ---
-    if struct["structure"].startswith("CROISÉE"):
-        # Trouver la ligne d'en-tête qui contient les mois
-        header_idx = None
-        for i in range(min(10, len(raw))):
-            row_vals = [str(v).strip().upper() for v in raw.iloc[i].values]
-            if sum(1 for v in row_vals if v in MOIS_FR_INV or v in MOIS_EN_INV) >= 6:
-                header_idx = i
-                break
-
-        if header_idx is None:
-            return pd.DataFrame()
-
-        header = [str(v).strip() for v in raw.iloc[header_idx].values]
-
-        # Détecter les colonnes de mois
-        mois_cols = {}
-        for i, h in enumerate(header):
-            m = normaliser_mois(h)
-            if m:
-                mois_cols[i] = m
-
-        # Chercher les colonnes identifiantes (article, agence, année)
-        header_lower = [h.lower() for h in header]
-        col_annee   = next((i for i, h in enumerate(header_lower) if "ann" in h or "year" in h), None)
-        col_article = next((i for i, h in enumerate(header_lower) if "article" in h or "produit" in h), None)
-        col_agence  = next((i for i, h in enumerate(header_lower) if "agence" in h or "magasin" in h), None)
-
-        # Si pas trouvé, prendre les colonnes 0-3 comme identifiants
-        if col_article is None:
-            col_article = 3 if len(header) > 3 else 0
-        if col_agence is None:
-            col_agence = 4 if len(header) > 4 else 1
-
-        # Parcourir les lignes de données
-        for i in range(header_idx + 1, len(raw)):
-            annee = None
-            if col_annee is not None and pd.notna(raw.iloc[i, col_annee]):
-                try:
-                    annee = int(raw.iloc[i, col_annee])
-                except (ValueError, TypeError):
-                    pass
-            if annee is None:
-                # Fallback : prendre l'année détectée
-                annee = struct["annees_detectees"][0] if struct["annees_detectees"] else None
-
-            art = raw.iloc[i, col_article] if pd.notna(raw.iloc[i, col_article]) else None
-            ag  = raw.iloc[i, col_agence] if pd.notna(raw.iloc[i, col_agence]) else None
-
-            if art is None or ag is None or annee is None:
+    
+    for i in range(len(raw)):
+        try:
+            # Récupération par position (index de colonne)
+            annee_val   = raw.iloc[i, 0]
+            mois_val    = raw.iloc[i, 1]
+            agence_val  = raw.iloc[i, 4]
+            article_val = raw.iloc[i, 5]
+            volume_val  = raw.iloc[i, 6]
+            
+            # 1. Ignorer les lignes vides ou d'en-tête
+            if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val):
                 continue
-
-            for col_idx, mois in mois_cols.items():
-                try:
-                    vol = float(raw.iloc[i, col_idx])
-                except (ValueError, TypeError):
-                    continue
-                date_val = pd.Timestamp(year=annee, month=mois, day=15)
-                rows.append({
-                    "Date": date_val,
-                    "Article": str(art).strip(),
-                    "Agence": str(ag).strip(),
-                    "Volume": vol,
-                })
-
-        if rows:
-            return pd.DataFrame(rows)
-
-    return pd.DataFrame()
-
+                
+            # 2. Ignorer les lignes "Total" (pour éviter le double comptage)
+            if str(article_val).strip().upper() == "TOTAL":
+                continue
+                
+            # 3. Nettoyer et convertir le volume (ex: "3 776" -> 3776.0)
+            vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
+            try:
+                volume = float(vol_str)
+            except ValueError:
+                continue
+                
+            # 4. Convertir l'année
+            try:
+                annee = int(annee_val)
+            except ValueError:
+                continue
+                
+            # 5. Convertir le mois
+            mois = normaliser_mois(mois_val)
+            if not mois:
+                continue
+                
+            # 6. Construire la date
+            date_val = pd.Timestamp(year=annee, month=mois, day=15)
+            
+            # 7. Nettoyer le nom de l'article (enlever "190-", "189-", etc.)
+            art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
+            
+            rows.append({
+                "Date": date_val,
+                "Article": art_propre,
+                "Agence": str(agence_val).strip(),
+                "Volume": volume
+            })
+            
+        except Exception:
+            continue
+            
+    return pd.DataFrame(rows)
 
 # ============================================================
-# CHARGEMENT FINAL
+# CHARGEMENT ET ENRICHISSEMENT
 # ============================================================
 @st.cache_data(show_spinner="⏳ Chargement du fichier...")
-def charger_et_enrichir(file_bytes):
-    # Lecture brute
+def charger_brut(file_bytes):
     try:
-        raw = pd.read_excel(BytesIO(file_bytes), header=None)
+        return pd.read_excel(BytesIO(file_bytes), header=None)
     except Exception:
-        raw = pd.read_csv(BytesIO(file_bytes), header=None)
-
-    return raw
-
+        return pd.read_csv(BytesIO(file_bytes), header=None)
 
 def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
-    """Ajoute référentiel, région, objectifs."""
     # Normalisation
     ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
     ventes = ventes.dropna(subset=["Date"])
@@ -423,7 +256,6 @@ def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 # ============================================================
 # ÉTAPE 4 — PÉRIMÈTRE
 # ============================================================
@@ -436,7 +268,6 @@ def get_perimetre(df, filtres):
             masque &= df[col].isin(vals)
     return df[masque], "FILTRÉ"
 
-
 # ============================================================
 # CALCULS (étapes 5 → 10)
 # ============================================================
@@ -446,7 +277,6 @@ def calcul_realise_cumule(df_per, mois_clotures):
         return pd.DataFrame(columns=["Article", "Agence", "Réalisé"])
     return df_clot.groupby(["Article", "Agence"], as_index=False).agg(
         Réalisé=("Volume", "sum"))
-
 
 def calcul_indices(df_per):
     nb_annees = df_per["Annee"].nunique() if "Annee" in df_per.columns else 1
@@ -458,14 +288,12 @@ def calcul_indices(df_per):
     indices = pd.Series(1.0, index=moy_mois.index) if moy_ann == 0 else moy_mois / moy_ann
     return indices.rename("Indice").reset_index()
 
-
 def calcul_sarr(df_per, indices):
     ind = indices.set_index("Mois")["Indice"]
     df = df_per.copy()
     df["Indice"] = df["Mois"].map(ind).fillna(1.0)
     df["SARR"] = np.where(df["Indice"] == 0, 0.0, df["Volume"] / df["Indice"])
     return df
-
 
 def calcul_tendance(df_sarr):
     grp = (df_sarr.groupby(["Article", "Agence", "Mois"], as_index=False)
@@ -480,7 +308,6 @@ def calcul_tendance(df_sarr):
         return float(ec.mean())
     return (grp.groupby(["Article", "Agence"])["SARR"]
                .apply(_tend).reset_index(name="Tendance"))
-
 
 def calcul_prevision(df_sarr, tendance, indices, mois_clotures, horizon=12):
     if df_sarr.empty or "SARR" not in df_sarr.columns:
@@ -499,7 +326,6 @@ def calcul_prevision(df_sarr, tendance, indices, mois_clotures, horizon=12):
             rows.append({"Article": art, "Agence": ag,
                          "Mois_Futur": mois, "Prévision": prev})
     return pd.DataFrame(rows)
-
 
 def calcul_gap(df_per, realise, prevision):
     obj = df_per.groupby(["Article", "Agence"], as_index=False).agg(
@@ -520,36 +346,32 @@ def calcul_gap(df_per, realise, prevision):
                      np.where(res["GAP"] > 0, "🟠 SURPLUS", "✅ ATTEINT"))
     return res
 
-
 # ============================================================
-# INTERFACE — DIAGNOSTIC + MAPPING MANUEL
+# SIDEBAR
 # ============================================================
-def interface_diagnostic(raw: pd.DataFrame):
-    """Affiche le diagnostic et permet le mapping manuel si nécessaire."""
-    st.subheader("🔍 Diagnostic du fichier")
+def zone_upload():
+    st.sidebar.header("📤 1. Charger l'historique des ventes")
+    f = st.sidebar.file_uploader(
+        "📄 Fichier Excel/CSV",
+        type=["xlsx", "csv"], key="up_hist")
+    return f
 
-    # --- Stats ---
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Lignes", f"{raw.shape[0]:,}")
-    c2.metric("Colonnes", raw.shape[1])
-    c3.metric("Cellules non vides", f"{raw.notna().sum().sum():,}")
-
-    # --- Détection automatique ---
-    struct = detecter_structure(raw)
-
-    st.markdown("### 🤖 Détection automatique")
-    st.write(f"**Structure détectée :** `{struct['structure']}`")
-    st.write(f"**Ligne d'en-tête probable :** `{struct['header_row']}`")
-    st.write(f"**Années détectées :** `{struct['annees_detectees']}`")
-    if struct["colonnes"].get("brut"):
-        st.write(f"**Colonnes de la ligne d'en-tête :** `{struct['colonnes']['brut']}`")
-
-    # --- Aperçu brut ---
-    st.markdown("### 📋 Aperçu brut (30 premières lignes)")
-    st.dataframe(raw.head(30), use_container_width=True, height=400)
-
-    return struct
-
+def construire_sidebar(df, mois_clotures):
+    st.sidebar.header("🎛️ 2. Filtres")
+    st.sidebar.caption("Laisser vide = Mode GLOBAL")
+    axes = ["Région", "Agence", "Positionnement", "Occasion",
+            "Format", "Contenance_cl"]
+    filtres = {}
+    for col in axes:
+        if col in df.columns:
+            vals = sorted(df[col].dropna().unique().tolist())
+            filtres[col] = st.sidebar.multiselect(col, vals, default=[])
+        else:
+            filtres[col] = []
+    st.sidebar.divider()
+    st.sidebar.header("⚙️ 3. Paramètres")
+    new_mc = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, mois_clotures)
+    return filtres, new_mc
 
 # ============================================================
 # DASHBOARD
@@ -594,36 +416,6 @@ def afficher_dashboard(mode, df_per, realise, indices, sarr,
         a.columns = ["Alerte", "Nombre"]
         st.bar_chart(a.set_index("Alerte")["Nombre"])
 
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-def zone_upload():
-    st.sidebar.header("📤 1. Charger l'historique des ventes")
-    f = st.sidebar.file_uploader(
-        "📄 Fichier Excel/CSV (toutes années)",
-        type=["xlsx", "csv"], key="up_hist")
-    return f
-
-
-def construire_sidebar(df, mois_clotures):
-    st.sidebar.header("🎛️ 2. Filtres")
-    st.sidebar.caption("Laisser vide = Mode GLOBAL")
-    axes = ["Région", "Agence", "Positionnement", "Occasion",
-            "Format", "Contenance_cl"]
-    filtres = {}
-    for col in axes:
-        if col in df.columns:
-            vals = sorted(df[col].dropna().unique().tolist())
-            filtres[col] = st.sidebar.multiselect(col, vals, default=[])
-        else:
-            filtres[col] = []
-    st.sidebar.divider()
-    st.sidebar.header("⚙️ 3. Paramètres")
-    new_mc = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, mois_clotures)
-    return filtres, new_mc
-
-
 # ============================================================
 # MAIN
 # ============================================================
@@ -631,62 +423,37 @@ def main():
     if "mois_clotures" not in st.session_state:
         st.session_state.mois_clotures = DEFAUT_MOIS_CLOTURES
 
-    # --- Upload ---
     fichier = zone_upload()
 
     if fichier is None:
         st.title("📊 Moteur de pilotage des ventes")
         st.info("👈 Uploadez votre historique des ventes dans la sidebar pour démarrer.")
         st.markdown("""
-        ### 📋 Formats acceptés
-
-        L'application **détecte automatiquement** le format de votre fichier :
-
-        1. **Base plate** (recommandé) :
-           | Date | Article | Agence | Volume |
-           |---|---|---|---|
-
-        2. **Tableau croisé** (mois en colonnes) :
-           | Année | Article | Agence | Janvier | Février | ... |
-           |---|---|---|---|---|---|
-
-        3. **Tableau vertical** (mois en lignes) :
-           | Année | Mois | Article | Agence | Volume |
-           |---|---|---|---|---|
-
-        ### 🔍 Diagnostic automatique
-        Une fois le fichier uploadé, un **diagnostic complet** s'affiche pour vérifier la lecture.
+        ### 📋 Format attendu
+        Le fichier doit contenir les colonnes dans cet ordre :
+        `Année | Mois | Catégorie | Sous-catégorie | Agence | Article | Volume`
+        
+        L'application ignore automatiquement les lignes de type `Total` 
+        pour éviter les doubles comptages.
         """)
         st.stop()
 
     # --- Lecture brute ---
     file_bytes = fichier.getvalue()
-    raw = charger_et_enrichir(file_bytes)
+    raw = charger_brut(file_bytes)
 
-    # --- Diagnostic ---
-    struct = interface_diagnostic(raw)
-
-    # --- Extraction ---
+    # --- Extraction sur-mesure ---
     st.markdown("### ⚙️ Extraction des ventes")
-    ventes = extraire_ventes(raw, struct)
+    ventes = extraire_ventes_sur_mesure(raw)
 
     if ventes.empty:
-        st.error("❌ Impossible d'extraire les ventes au format (Date, Article, Agence, Volume).")
-        st.markdown("""
-        ### 🔧 Que faire ?
-
-        **Option 1 — Format standard** : convertissez votre fichier au format :
-
-        | Date | Article | Agence | Volume |
-        |---|---|---|---|
-        | 2024-01-15 | Caprice Ananas 100 cl VER | 01-Tanjombato | 1250 |
-
-        **Option 2 — Dites-moi la structure** : envoyez-moi les 10 premières lignes
-        de votre fichier (copier-coller) et j'adapte le lecteur précisément.
-        """)
+        st.error("❌ Impossible d'extraire les ventes. Vérifiez que votre fichier a bien 7 colonnes.")
+        with st.expander("👁️ Aperçu des 10 premières lignes brutes"):
+            st.dataframe(raw.head(10), use_container_width=True)
         st.stop()
 
     st.success(f"✅ {len(ventes):,} lignes extraites avec succès.")
+    
     with st.expander("👁️ Aperçu des ventes extraites"):
         st.dataframe(ventes.head(20), use_container_width=True)
 
@@ -715,7 +482,6 @@ def main():
     # --- Dashboard ---
     afficher_dashboard(mode, df_per, realise, indices, sarr,
                        tendance, prevision, gap)
-
 
 if __name__ == "__main__":
     main()

@@ -220,6 +220,27 @@ def _options_referentiel(col: str) -> list:
     valeurs = valeurs.loc[valeurs.ne("") & valeurs.str.lower().ne("nan")]
     return valeurs.drop_duplicates().tolist()
 
+
+def _normaliser_option(v, col: str):
+    """Convertit une option de filtre en valeur homogène (str ou float).
+
+    Évite les TypeError au tri quand options/options_ref mélangent str,
+    numpy.int64, float et NaN.
+    """
+    if v is None:
+        return None
+    try:
+        if isinstance(v, float) and pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, bool):
+        if col in {"contenance_ci", "contenance_hl"}:
+            return float(v)
+        return str(v)
+    s = str(v).strip()
+    return s if s and s.lower() not in {"nan", "none"} else None
+
 ALIAS_COLONNES = {
     "annee": "annee", "annees": "annee", "year": "annee", "years": "annee",
     "mois": "mois", "month": "mois", "months": "mois",
@@ -1391,7 +1412,6 @@ if df_brut is None or df_brut.empty:
                 st.error(f"Erreur pendant la lecture du fichier : {erreur_chargement}")
             if _diag:
                 st.write(f"**Fichier lu :** {_diag['nom_fichier'] or '(sans nom)'}")
-                # ✚ Diagnostic : nombre d'articles du référentiel
                 st.write(
                     f"**Référentiel Classeur2.xlsx :** "
                     f"{_diag.get('articles_referentiel', 0)} articles chargés"
@@ -1502,10 +1522,19 @@ for col, label in FILTRES:
         selections_filtres,
     )
 
-    # ✚ Injection du référentiel complet (Classeur2.xlsx) dans les filtres
+    # ✚ Normalisation défensive : évite le TypeError au tri quand options
+    # et options_ref mélangent str / numpy.int64 / float / NaN.
+    options = [
+        o for o in (_normaliser_option(v, col) for v in options) if o is not None
+    ]
     options_ref = _options_referentiel(col)
+    options_ref = [
+        o for o in (_normaliser_option(v, col) for v in options_ref) if o is not None
+    ]
+
     if options_ref:
-        options = sorted(set(options) | set(options_ref))
+        # Types homogènes (str, ou float pour contenance) : set() et sorted() sûrs
+        options = list(set(options) | set(options_ref))
 
     if col == "agence":
         agences_presentes = set(options)
@@ -1735,7 +1764,6 @@ def libelle_realise_annee(annee: int) -> str:
 col_realise_cumul = "Cumul réalisé à date"
 col_prevision_cumul = f"Prévision ({lib_periode_prevision})"
 col_total_cumul = "Cumul total"
-# ✚ Article en première colonne pour le tableau de détail
 dim_detail = ["article", "agence", "segment", "produit", "parfum", "format"]
 
 base_detail = d.loc[masque_realise_cumul | masque_prevision_cumul].copy()

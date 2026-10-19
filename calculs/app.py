@@ -15,12 +15,6 @@ import altair as alt
 
 try:
     # [MASQUÉ] article_detail et forecast_quality : ne servaient qu'aux affichages masqués
-    # from .article_detail import construire_courbe_article
-    # from .forecast_quality import (
-    #     calculer_indicateurs,
-    #     comparer_previsions_aux_realises,
-    #     detecter_ecarts_importants,
-    # )
     from .filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
     from .monthly_import import (
         normaliser_lignes_data_brut,
@@ -33,13 +27,6 @@ try:
         calculer_matrice_indices_saisonnalite,
     )
 except ImportError:  # pragma: no cover - script execution from the same folder
-    # [MASQUÉ] article_detail et forecast_quality : ne servaient qu'aux affichages masqués
-    # from article_detail import construire_courbe_article
-    # from forecast_quality import (
-    #     calculer_indicateurs,
-    #     comparer_previsions_aux_realises,
-    #     detecter_ecarts_importants,
-    # )
     try:
         from filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
         from monthly_import import (
@@ -53,7 +40,6 @@ except ImportError:  # pragma: no cover - script execution from the same folder
             calculer_matrice_indices_saisonnalite,
         )
     except ImportError as erreur_import:
-        # Message clair à la place d'un traceback masqué (Streamlit Cloud)
         import importlib.util
 
         dossier_app = Path(__file__).resolve().parent
@@ -207,6 +193,32 @@ CATALOGUE_PAR_ARTICLE = {
     meta["article"].lower().strip(): meta
     for meta in CATALOGUE.to_dict(orient="records")
 }
+
+# ✚ Référentiel complet exposé à l'import et aux filtres (Classeur2.xlsx)
+ARTICLES_REFERENTIEL = (
+    CATALOGUE["article"].dropna().astype(str).str.strip().tolist()
+    if not CATALOGUE.empty
+    else []
+)
+
+DIMENSIONS_REFERENTIEL = {
+    "article": "article",
+    "positionnement": "positionnement",
+    "occasion": "occasion",
+    "conditionnement": "conditionnement",
+    "contenance_ci": "contenance_ci",
+    "contenance_hl": "contenance_hl",
+}
+
+
+def _options_referentiel(col: str) -> list:
+    """Valeurs disponibles dans Classeur2.xlsx pour une dimension donnée."""
+    champ = DIMENSIONS_REFERENTIEL.get(col)
+    if champ is None or CATALOGUE.empty or champ not in CATALOGUE.columns:
+        return []
+    valeurs = CATALOGUE[champ].dropna().astype(str).str.strip()
+    valeurs = valeurs.loc[valeurs.ne("") & valeurs.str.lower().ne("nan")]
+    return valeurs.drop_duplicates().tolist()
 
 ALIAS_COLONNES = {
     "annee": "annee", "annees": "annee", "year": "annee", "years": "annee",
@@ -626,13 +638,16 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
                 df_raw = pd.read_excel(chemin_str, sheet_name=feuille, header=header_idx)
 
     df = (
-        normaliser_lignes_data_brut(df_raw)
+        normaliser_lignes_data_brut(
+            df_raw,
+            articles_referentiel=ARTICLES_REFERENTIEL,
+        )
         if est_data_brut
         else df_raw.copy()
     )
     df.columns = [str(c).strip() for c in df.columns]
-    colonnes_source = list(df.columns)  # diagnostic d'affichage uniquement
-    
+    colonnes_source = list(df.columns)
+
     col_map = {}
     real_cols = []
     for c in df.columns:
@@ -800,7 +815,6 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
     )
     df = df[masque_article_valide].copy()
 
-    # Diagnostic d'affichage uniquement (aucun effet sur les calculs)
     df.attrs["diagnostic_chargement"] = {
         "nom_fichier": nom_fichier,
         "est_data_brut": est_data_brut,
@@ -811,6 +825,7 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
         "lignes_avant_filtre_article": lignes_avant_filtre_article,
         "lignes_conservees": len(df),
         "exemples_articles": exemples_articles,
+        "articles_referentiel": len(ARTICLES_REFERENTIEL),
     }
     return df
 
@@ -840,7 +855,6 @@ def appliquer_projection_saar(
     annee_cible: int,
     taux_croissance: float,
 ) -> tuple[pd.DataFrame, int, int]:
-    # On applique la projection si l'année cible est >= à l'année de clôture
     if annee_cible < annee_cloture:
         return df, 0, 0
 
@@ -852,7 +866,6 @@ def appliquer_projection_saar(
         "conditionnement", "contenance_ci", "contenance_hl", "region"
     ]
 
-    # 1. Extraction du réalisé YTD à la date de clôture (ex: Janv à Sept 2026)
     realise_ytd = df.loc[
         (df["nature"] == "Réalisé")
         & (df["annee"] == annee_cloture)
@@ -868,7 +881,6 @@ def appliquer_projection_saar(
         .set_index(cles)
     )
 
-    # 2. Calcul des profils ou coefficients de référence basés sur 2024-2025
     annees_ref = [2024, 2025]
     df_ref = df.loc[df["annee"].isin(annees_ref) & (df["nature"] == "Réalisé")]
     
@@ -916,7 +928,6 @@ def appliquer_projection_saar(
     for cle, volumes in cumul_ytd.iterrows():
         cle = cle if isinstance(cle, tuple) else (cle,)
         
-        # Récupération du profil de référence (2024-2025)
         profil = profils_ref.get(cle)
         if profil is None or profil[:mois_cloture].sum() <= 0:
             profil = profils_ref.get((cle[1],))
@@ -936,17 +947,14 @@ def appliquer_projection_saar(
             profil = np.ones(12, dtype=float)
             profils_neutres += 1
 
-        # Somme des coefficients pour la période écoulée (ex: Janv à Sept)
         poids_ecoule = profil[:mois_cloture].sum()
         
-        # Niveau de base annuel calculé via le ratio cumul_réalisé / coeff_période_écoulée
         base_annuelle_hl = max(0.0, float(volumes["hl"]) / poids_ecoule * 12.0)
         base_annuelle_colis = max(0.0, float(volumes["colis"]) / poids_ecoule * 12.0)
         
         ligne_ref = derniere_ligne.loc[cle]
         
         for mois in range(1, 13):
-            # Si on est sur l'année de clôture, on ne projette que les mois futurs (> mois_cloture, ex: Oct, Nov, Déc)
             if annee_cible == annee_cloture and mois <= mois_cloture:
                 continue
 
@@ -974,7 +982,6 @@ def appliquer_projection_saar(
                     * profil[mois - 1] / 12.0
                 )
 
-            # Application de la projection pour les mois restants (Octobre, Novembre, Décembre...)
             ligne.update({
                 "annee": annee_cible,
                 "mois": mois,
@@ -999,7 +1006,6 @@ def appliquer_projection_saar(
 
     nouvelles_previsions = pd.DataFrame(projections).reindex(columns=df.columns)
     
-    # Nettoyage et remplacement propre de l'année cible dans le DataFrame global
     masque_existant = (df["annee"] == annee_cible) & (df["nature"] == "Prévision")
     if annee_cible == annee_cloture:
         masque_existant &= df["mois"].gt(mois_cloture)
@@ -1258,7 +1264,6 @@ col_c1, col_c2 = st.sidebar.columns(2)
 annee_cloture = col_c1.number_input("Année Clôture", min_value=2000, max_value=2036, value=2023)
 mois_cloture = col_c2.selectbox("Mois Pivot", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS[m-1]}")
 
-# --- AJOUT DES PARAMÈTRES MANQUANTS DANS LA BARRE LATÉRALE ---
 st.sidebar.markdown("---")
 st.sidebar.header("🎯 Année & Mois Cible")
 annee_cible = st.sidebar.number_input(
@@ -1296,7 +1301,6 @@ mode_affichage = st.sidebar.selectbox(
     options=["Tableau", "Courbes", "Histogramme"],
     index=0
 )
-# -------------------------------------------------------------
 
 df_brut = None
 erreur_chargement = None
@@ -1311,7 +1315,7 @@ try:
             int(annee_cloture), int(mois_cloture),
             (stat_fichier.st_mtime_ns, stat_fichier.st_size)
         )
-        if not historique.empty:  # un résultat vide n'est pas mémorisé
+        if not historique.empty:
             st.session_state["historique_cumule_mensuel"] = historique
 
     if importe is not None:
@@ -1324,7 +1328,6 @@ try:
                 int(annee_cloture), int(mois_cloture)
             )
             if nouvel_import.empty:
-                # Fichier lu mais aucune ligne exploitable : import ignoré, rien n'est mémorisé
                 import_ignore = True
                 diagnostic_import_vide = nouvel_import.attrs.get("diagnostic_chargement")
                 erreur_chargement = (
@@ -1359,7 +1362,7 @@ try:
 
         if import_ignore:
             if historique is not None and not historique.empty:
-                df_brut = historique.copy()  # l'historique déjà chargé reste utilisable
+                df_brut = historique.copy()
         else:
             df_brut = historique.copy()
             st.sidebar.success(
@@ -1376,7 +1379,6 @@ except Exception as e:
 
 if df_brut is None or df_brut.empty:
     st.warning("⚠️ Aucun fichier source trouvé. Veuillez importer un fichier CSV ou Excel via la barre latérale pour lancer le tableau de bord.")
-    # --- Diagnostic (affichage uniquement) : explique pourquoi rien n'est chargé ---
     _hist_diag = historique if isinstance(historique, pd.DataFrame) else st.session_state.get("historique_cumule_mensuel")
     _diag = diagnostic_import_vide or (
         _hist_diag.attrs.get("diagnostic_chargement")
@@ -1389,6 +1391,11 @@ if df_brut is None or df_brut.empty:
                 st.error(f"Erreur pendant la lecture du fichier : {erreur_chargement}")
             if _diag:
                 st.write(f"**Fichier lu :** {_diag['nom_fichier'] or '(sans nom)'}")
+                # ✚ Diagnostic : nombre d'articles du référentiel
+                st.write(
+                    f"**Référentiel Classeur2.xlsx :** "
+                    f"{_diag.get('articles_referentiel', 0)} articles chargés"
+                )
                 st.write(
                     "**Reconnu comme DATA_BRUT.xlsx :** "
                     + ("oui" if _diag["est_data_brut"] else
@@ -1494,6 +1501,12 @@ for col, label in FILTRES:
         FILTRES,
         selections_filtres,
     )
+
+    # ✚ Injection du référentiel complet (Classeur2.xlsx) dans les filtres
+    options_ref = _options_referentiel(col)
+    if options_ref:
+        options = sorted(set(options) | set(options_ref))
+
     if col == "agence":
         agences_presentes = set(options)
         options = [
@@ -1540,7 +1553,7 @@ if activer_saar:
     nb_couples_saar = 0
     nb_profils_neutres = 0
     if annee_cible >= annee_cloture:
-        for annee_projection in range(int(annee_cloture) + 1 , int(annee_cible) + 1):
+        for annee_projection in range(int(annee_cloture) + 1, int(annee_cible) + 1):
             df_brut, nb_couples_saar, nb_profils_neutres = appliquer_projection_saar(
                 df_brut,
                 int(annee_cloture),
@@ -1655,55 +1668,9 @@ else:
         "les indices de saisonnalité (année fin > année début)."
     )
 
-# [MASQUÉ] calcul réservé à l'onglet « Fiabilité & alertes » (masqué)
-# realises_pour_evaluation = d.loc[
-#     d["nature"].eq("Réalisé") & d["annee"].lt(annee_cloture)
-# ]
-# comparaison_qualite = comparer_previsions_aux_realises(
-#     realises_pour_evaluation,
-#     df_previsions_historiques,
-#     val,
-# )
-
-# 🔍 Lignes de diagnostic temporaires à insérer :
-# [MASQUÉ] diagnostic temporaire :
-# st.write("Années disponibles dans le DataFrame :", d["annee"].unique())
-# st.write("Nombre de lignes pour l'année cible (2024) :", len(d[d["annee"] == annee_cible]))
-
 d_cible = d[d["annee"] == annee_cible].copy()
 if mois_cible_num:
     d_cible = d_cible[d_cible["mois"] == mois_cible_num]
-
-# ── AFFICHAGE MASQUÉ — décommenter pour le réactiver ── avertissement « aucune donnée pour l'année cible »
-# if d_cible.empty:
-#     st.warning(
-#         f"Aucune donnée pour {annee_cible}"
-#         + (
-#             f", {MOIS_COMPLETS[mois_cible_num - 1]}"
-#             if mois_cible_num
-#             else ""
-#         )
-#         + " ne correspond aux filtres actifs."
-#     )
-#     filtres_actifs = [
-#         f"{label}: {', '.join(map(str, st.session_state.get(f'f_{col}', [])))}"
-#         for col, label in FILTRES
-#         if st.session_state.get(f"f_{col}")
-#     ]
-#     if recherche:
-#         filtres_actifs.append(f"Recherche article: {recherche}")
-#     if filtres_actifs:
-#         st.info(
-#             "Filtres sélectionnés : " + " ; ".join(filtres_actifs)
-#             + ". Essayez de les retirer ou cliquez sur « Réinitialiser les filtres »."
-#         )
-#     else:
-#         annees_source = sorted(df_brut["annee"].unique())
-#         st.info(
-#             "Aucun filtre produit/agence n'est actif. Vérifiez l'année cible, "
-#             "le mois pivot et l'activation du calcul SAAR. "
-#             f"Années source : {annees_source[0]}–{annees_source[-1]}."
-#         )
 
 vol_prev_cible = d_cible[val].sum()
 vol_cumul_realise = d[(d["annee"] == annee_cloture) & (d["mois"] <= mois_cloture) & (d["nature"] == "Réalisé")][val].sum()
@@ -1711,18 +1678,6 @@ vol_cumul_realise = d[(d["annee"] == annee_cloture) & (d["mois"] <= mois_cloture
 lib_p = f"Année entière {annee_cible}" if mois_cible_str == "Tous les mois" else f"{mois_cible_str} {annee_cible}"
 lib_cumul = f"Cumul Réalisé YTD (Janv - {MOIS[mois_cloture-1].upper()} {annee_cloture})"
 
-# ── AFFICHAGE MASQUÉ — décommenter pour le réactiver ── anciens indicateurs (prévision cible, statut, agences, articles)
-# c1, c2, c3, c4, c5 = st.columns(5)
-# c1.metric(f"Prévision ({lib_p})", f"{nombre(vol_prev_cible, dec)} {lib}")
-# c2.metric(lib_cumul, f"{nombre(vol_cumul_realise, dec)} {lib}")
-# c3.metric("Statut Période", "Prévision Pure" if annee_cible > annee_cloture else "Atterrissage Réalisé")
-# c4.metric("Agences actives", d_cible["agence"].nunique())
-# c5.metric("Articles", d_cible["article"].nunique())
-
-# ── Cumuls affichés (affichage uniquement : aucun calcul SAAR modifié) ─────────
-# 1) Réalisé à date : ANNEE_DEBUT_CUMUL → mois pivot de l'année de clôture
-# 2) Prévision      : mois restants de l'année de clôture (ex. oct → déc 2026)
-# 3) Total          : 1) + 2)
 ANNEE_DEBUT_CUMUL = 2024
 
 masque_realise_cumul = (
@@ -1772,7 +1727,6 @@ st.caption(
     "Total = réalisé à date + prévision."
 )
 
-# Détail par agence / article pour l'onglet « Détail des cumuls & prévisions »
 def libelle_realise_annee(annee: int) -> str:
     if annee < annee_cloture:
         return f"Réalisé {annee}"
@@ -1781,7 +1735,8 @@ def libelle_realise_annee(annee: int) -> str:
 col_realise_cumul = "Cumul réalisé à date"
 col_prevision_cumul = f"Prévision ({lib_periode_prevision})"
 col_total_cumul = "Cumul total"
-dim_detail = ["agence", "segment", "produit", "parfum", "format", "article"]
+# ✚ Article en première colonne pour le tableau de détail
+dim_detail = ["article", "agence", "segment", "produit", "parfum", "format"]
 
 base_detail = d.loc[masque_realise_cumul | masque_prevision_cumul].copy()
 if base_detail.empty:
@@ -1818,18 +1773,6 @@ else:
 
 st.markdown("---")
 
-# ── AFFICHAGE MASQUÉ — décommenter pour le réactiver ── ancienne liste de 8 onglets
-# tab_comp, tab_annuel, tab_mensuel, tab_a, tab_v, tab_d, tab_qualite, tab_saisonnalite = st.tabs([
-#     " Prévision vs Historique",
-#     " Évolution Annuelle",
-#     " Évolution Mensuelle",
-#     " Volumes Annuels & Atterrissage",
-#     " Ventilations Métiers",
-#     " Détail par article",
-#     " Fiabilité & alertes",
-#     " Indice saisonnier",
-# ])
-# Deux onglets seulement : indice saisonnier + détail des cumuls et prévisions
 tab_saisonnalite, tab_d = st.tabs([
     " Indice saisonnier",
     " Détail des cumuls & prévisions",
@@ -1837,7 +1780,6 @@ tab_saisonnalite, tab_d = st.tabs([
 
 piv_comp = pd.DataFrame()
 if not d_tendance.empty:
-    # --- CORRECTION DE LA SYNTAXE DU PIVOT TABLE (SUPPRESSION DES :=) ---
     piv_comp = d_tendance.pivot_table(
         index=["segment", "produit", "article"],
         columns=["annee", "nature"],
@@ -1859,700 +1801,6 @@ if not d_tendance.empty:
         piv_comp[f"Écart vs {annee_reference}"] = piv_comp[col_prev] - piv_comp[col_ref]
         piv_comp["Évolution (%)"] = variation(piv_comp[col_ref], piv_comp[col_prev])
 
-# ── AFFICHAGE MASQUÉ — décommenter pour le réactiver ── onglets : Prévision vs Historique, Évolution Annuelle,
-# Évolution Mensuelle, Volumes Annuels & Atterrissage, Ventilations Métiers
-# with tab_comp:
-#     st.subheader(f" Projection pour {lib_p} vs Historique Réalisé")
-#     if afficher_previsions_historiques and not df_previsions_historiques.empty:
-#         st.caption(
-#             "La série Prévision relie les projections futures aux prévisions historiques reconstituées "
-#             "par SAAR ; ces dernières sont des simulations, pas des prévisions archivées."
-#         )
-#     if not piv_comp.empty:
-#         if mode_affichage == "Tableau":
-#             tableau(piv_comp.round(dec))
-#         else:
-#             realise_comparaison = d.loc[
-#                 d["nature"].eq("Réalisé")
-#                 & (
-#                     d["annee"].lt(annee_cloture)
-#                     | (
-#                         d["annee"].eq(annee_cloture)
-#                         & d["mois"].le(mois_cloture)
-#                         & (mois_cloture == 12)
-#                     )
-#                 )
-#             ].groupby("annee")[val].sum()
-#             prevision_comparaison = (
-#                 d_tendance.loc[d_tendance["nature"].eq("Prévision")]
-#                 .groupby("annee")[val]
-#                 .sum()
-#                 .astype(float)
-#             )
-#             if annee_cloture in prevision_comparaison.index:
-#                 prevision_comparaison.loc[annee_cloture] = float(
-#                     d.loc[
-#                         d["annee"].eq(annee_cloture)
-#                         & d["nature"].eq("Réalisé")
-#                     ][val].sum()
-#                     + prevision_comparaison.loc[annee_cloture]
-#                 )
-#             croissance_minimale = 1.0 + max(taux_croissance_saar, 1.0) / 100.0
-#             derniere_prevision = None
-#             for annee in prevision_comparaison.sort_index().index:
-#                 volume = float(prevision_comparaison.loc[annee])
-#                 if derniere_prevision is not None:
-#                     volume = max(volume, derniere_prevision * croissance_minimale)
-#                     prevision_comparaison.loc[annee] = volume
-#                 derniere_prevision = volume
-#             comparaison = pd.DataFrame(
-#                 {
-#                     "Réalisé": realise_comparaison,
-#                     "Prévision": prevision_comparaison,
-#                 }
-#             ).sort_index()
-#             comparaison.index = comparaison.index.map(str)
-#             st.caption(
-#                 f"Comparaison annuelle sur des années complètes : le réalisé de {annee_cloture} "
-#                 f"est disponible jusqu'à {MOIS[mois_cloture - 1]} seulement et n'est donc pas "
-#                 "comparé comme un total annuel. La prévision de cette année inclut le réalisé "
-#                 "à date et les mois restants. La courbe Prévision respecte aussi une hausse "
-#                 f"minimale de {max(taux_croissance_saar, 1.0):g} % par an."
-#             )
-#             afficher_vue(comparaison, mode_affichage, dec)
-#     else:
-#         st.info("Aucune donnée disponible.")
-
-# with tab_annuel:
-#     if mois_cible_num:
-#         lib_mois_selectionne = MOIS[mois_cible_num - 1]
-#         st.subheader(
-#             f"Comparaison de {lib_mois_selectionne} par année "
-#             "(réalisé et prévision)"
-#         )
-#     else:
-#         st.subheader("Comparaison mensuelle des réalisés et prévisions (janvier à décembre)")
-
-#     if mois_cible_num:
-#         realise_mois = d.loc[
-#             d["mois"].eq(mois_cible_num)
-#             & d["nature"].eq("Réalisé")
-#             & (
-#                 d["annee"].lt(annee_cloture)
-#                 | (
-#                     d["annee"].eq(annee_cloture)
-#                     & (mois_cible_num <= mois_cloture)
-#                 )
-#             )
-#         ]
-#         prevision_simulee_mois = d_previsions_courbes.loc[
-#             d_previsions_courbes["mois"].eq(mois_cible_num)
-#             & d_previsions_courbes["annee"].le(annee_cible)
-#         ]
-#         if mois_cible_num > mois_cloture:
-#             prevision_simulee_mois = prevision_simulee_mois.loc[
-#                 prevision_simulee_mois["annee"].ne(annee_cloture)
-#             ]
-#         prevision_future_mois = d.loc[
-#             d["mois"].eq(mois_cible_num)
-#             & d["nature"].eq("Prévision")
-#             & d["annee"].le(annee_cible)
-#             & (
-#                 d["annee"].gt(annee_cloture)
-#                 | (
-#                     d["annee"].eq(annee_cloture)
-#                     & (mois_cible_num > mois_cloture)
-#                 )
-#             )
-#         ]
-#         valeurs_reelles = realise_mois.groupby("annee")[val].sum()
-#         valeurs_prevision = pd.concat(
-#             [
-#                 prevision_simulee_mois,
-#                 prevision_future_mois,
-#             ],
-#             ignore_index=True,
-#         ).groupby("annee")[val].sum()
-#         chrono = pd.DataFrame(
-#             {
-#                 f"Réalisé - {lib_mois_selectionne}": valeurs_reelles,
-#                 f"Prévision - {lib_mois_selectionne}": valeurs_prevision,
-#             }
-#         ).sort_index()
-#         if not chrono.empty:
-#             chrono.index = chrono.index.map(str)
-#             chrono.index.name = "Année"
-#             st.caption(
-#                 f"Comparaison de {lib_mois_selectionne} de toutes les années disponibles "
-#                 f"jusqu'à {annee_cible} : réalisés connus et prévisions "
-#                 "historiques simulées ou futures."
-#             )
-#             afficher_vue(chrono, mode_affichage, dec)
-#         else:
-#             st.info(
-#                 f"Aucune donnée disponible pour {lib_mois_selectionne} "
-#                 "avec les filtres actifs."
-#             )
-
-#         donnees_prevision_cible = pd.concat(
-#             [
-#                 prevision_simulee_mois.loc[
-#                     prevision_simulee_mois["annee"].eq(annee_cible)
-#                 ],
-#                 prevision_future_mois.loc[
-#                     prevision_future_mois["annee"].eq(annee_cible)
-#                 ],
-#             ],
-#             ignore_index=True,
-#         )
-#         if not donnees_prevision_cible.empty:
-#             volume_mois_cible = donnees_prevision_cible[val].sum()
-#             st.info(
-#                 f"Conclusion — Pour {lib_mois_selectionne} {annee_cible}, "
-#                 f"le volume prévisionnel est de "
-#                 f"{nombre(volume_mois_cible, dec)} {lib}. "
-#                 "Les prévisions des années passées sont des simulations SAAR."
-#             )
-#         elif annee_cible == annee_cloture and mois_cible_num <= mois_cloture:
-#             volume_realise_cible = realise_mois.loc[
-#                 realise_mois["annee"].eq(annee_cible), val
-#             ].sum()
-#             st.info(
-#                 f"Conclusion — {lib_mois_selectionne} {annee_cible} est déjà réalisé : "
-#                 f"{nombre(volume_realise_cible, dec)} {lib}."
-#             )
-#     else:
-#         st.caption(
-#             "Évolution des profils mensuels par année ; les réalisés sont en bleu "
-#             "et les prévisions en rouge."
-#         )
-
-#         courbes_mensuelles = {}
-#         for annee, donnees_annee in d.loc[
-#             d["annee"].lt(annee_cloture) & d["nature"].eq("Réalisé")
-#         ].groupby("annee"):
-#             courbes_mensuelles.setdefault(int(annee), {})["Réalisé"] = (
-#                 donnees_annee.groupby("mois")[val].sum().reindex(range(1, 13))
-#             )
-
-#         for annee, donnees_annee in df_previsions_historiques.groupby("annee"):
-#             courbes_mensuelles.setdefault(int(annee), {})["Prévision simulée"] = (
-#                 donnees_annee.groupby("mois")[val].sum().reindex(range(1, 13))
-#             )
-
-#         donnees_annee_cloture = d.loc[d["annee"].eq(annee_cloture)]
-#         donnees_realisees = donnees_annee_cloture.loc[
-#             donnees_annee_cloture["nature"].eq("Réalisé")
-#         ]
-#         if not donnees_realisees.empty:
-#             courbes_mensuelles.setdefault(int(annee_cloture), {})["Réalisé"] = (
-#                 donnees_realisees.groupby("mois")[val]
-#                 .sum()
-#                 .reindex(range(1, 13))
-#             )
-
-#         prevision_annee_cloture = d_previsions_courbes.loc[
-#             d_previsions_courbes["annee"].eq(annee_cloture)
-#         ]
-#         serie_prevision = (
-#             prevision_annee_cloture.groupby("mois")[val]
-#             .sum()
-#             .reindex(range(1, 13))
-#             .astype(float)
-#         )
-#         prevision_a_jour = donnees_annee_cloture.loc[
-#             donnees_annee_cloture["nature"].eq("Prévision")
-#         ].groupby("mois")[val].sum()
-#         serie_prevision.loc[prevision_a_jour.index] = prevision_a_jour
-#         if serie_prevision.notna().any():
-#             courbes_mensuelles.setdefault(int(annee_cloture), {})["Prévision"] = (
-#                 serie_prevision
-#             )
-
-#         previsions_futures = d.loc[
-#             d["annee"].gt(annee_cloture) & d["nature"].eq("Prévision")
-#         ]
-#         for annee, donnees_annee in previsions_futures.groupby("annee"):
-#             courbes_mensuelles.setdefault(int(annee), {})["Prévision"] = (
-#                 donnees_annee.groupby("mois")[val].sum().reindex(range(1, 13))
-#             )
-
-#         if courbes_mensuelles:
-#             index_mois = pd.CategoricalIndex(
-#                 MOIS_COMPLETS,
-#                 categories=MOIS_COMPLETS,
-#                 ordered=True,
-#                 name="Mois",
-#             )
-#             courbe_cible = courbes_mensuelles.get(int(annee_cible))
-#             courbes_historiques = {
-#                 annee: series
-#                 for annee, series in courbes_mensuelles.items()
-#                 if annee != int(annee_cible)
-#             }
-#             if mode_affichage == "Tableau":
-#                 if courbe_cible:
-#                     st.markdown(f"#### Année sélectionnée : {annee_cible}")
-#                     tableau_cible = pd.DataFrame(courbe_cible).reindex(range(1, 13))
-#                     tableau_cible.index = index_mois
-#                     afficher_vue(tableau_cible, mode_affichage, dec)
-#                 if courbes_historiques:
-#                     with st.expander("Historique des autres années"):
-#                         tableau_historique = pd.DataFrame(
-#                             {
-#                                 f"{annee} - {libelle}": serie
-#                                 for annee, series_annee in courbes_historiques.items()
-#                                 for libelle, serie in series_annee.items()
-#                             }
-#                         ).reindex(range(1, 13))
-#                         tableau_historique.index = index_mois
-#                         afficher_vue(tableau_historique, mode_affichage, dec)
-#             else:
-#                 st.caption(
-#                     f"L'année sélectionnée ({annee_cible}) a son propre graphique ; "
-#                     "les années historiques restent accessibles séparément ci-dessous."
-#                 )
-#                 prevision_courante = (
-#                     courbe_cible.get("Prévision")
-#                     if courbe_cible and annee_cible == annee_cloture
-#                     else None
-#                 )
-#                 if (
-#                     prevision_courante is not None
-#                     and prevision_courante.iloc[:mois_cloture].notna().any()
-#                 ):
-#                     st.caption(
-#                         f"Prévision {annee_cloture} : simulation SAAR depuis janvier, "
-#                         "remplacée par la projection à jour pour les mois restants."
-#                     )
-#                 elif annee_cloture in courbes_mensuelles:
-#                     st.caption(
-#                         f"Simulation annuelle SAAR indisponible pour {annee_cloture} ; "
-#                         "la prévision affichée couvre les mois restants."
-#                     )
-#                 if courbe_cible:
-#                     st.markdown(f"#### Année sélectionnée : {annee_cible}")
-#                     graphique_cible = pd.DataFrame(courbe_cible).reindex(range(1, 13))
-#                     graphique_cible.index = index_mois
-#                     couleurs_cible = [
-#                         COULEUR_REALISE if serie == "Réalisé" else COULEUR_PREVISION
-#                         for serie in graphique_cible.columns
-#                     ]
-#                     afficher_vue(
-#                         graphique_cible,
-#                         mode_affichage,
-#                         dec,
-#                         couleurs_cible,
-#                     )
-#                 else:
-#                     st.info(
-#                         f"Aucune donnée disponible pour l'année sélectionnée {annee_cible}."
-#                     )
-#                 if courbes_historiques:
-#                     with st.expander("Historique des autres années"):
-#                         annees_historiques = sorted(courbes_historiques)
-#                         for debut in range(0, len(annees_historiques), 2):
-#                             colonnes = st.columns(2)
-#                             for colonne, annee in zip(
-#                                 colonnes, annees_historiques[debut : debut + 2]
-#                             ):
-#                                 with colonne:
-#                                     st.markdown(f"#### {annee}")
-#                                     st.caption(
-#                                         "Séries affichées : "
-#                                         + " et ".join(courbes_historiques[annee])
-#                                     )
-#                                     graphique_annee = pd.DataFrame(
-#                                         courbes_historiques[annee]
-#                                     ).reindex(range(1, 13))
-#                                     graphique_annee.index = index_mois
-#                                     couleurs_series = [
-#                                         COULEUR_REALISE
-#                                         if serie == "Réalisé"
-#                                         else COULEUR_PREVISION
-#                                         for serie in graphique_annee.columns
-#                                     ]
-#                                     afficher_vue(
-#                                         graphique_annee,
-#                                         mode_affichage,
-#                                         dec,
-#                                         couleurs_series,
-#                                     )
-
-#             donnees_prevision_cible = d_tendance.loc[
-#                 d_tendance["annee"].eq(annee_cible)
-#                 & d_tendance["nature"].eq("Prévision")
-#             ]
-#             if annee_cible < annee_cloture:
-#                 donnees_prevision_cible = df_previsions_historiques.loc[
-#                     df_previsions_historiques["annee"].eq(annee_cible)
-#                 ]
-#             elif annee_cible == annee_cloture:
-#                 donnees_prevision_cible = d.loc[d["annee"].eq(annee_cible)]
-
-#             if not donnees_prevision_cible.empty:
-#                 volumes_mensuels_cible = (
-#                     donnees_prevision_cible.groupby("mois")[val]
-#                     .sum()
-#                     .reindex(range(1, 13))
-#                 )
-#                 mois_pic = int(volumes_mensuels_cible.idxmax())
-#                 volume_pic = float(volumes_mensuels_cible.loc[mois_pic])
-#                 volume_annuel_cible = float(volumes_mensuels_cible.sum())
-#                 lib_type_prevision = (
-#                     "atterrissage estimé"
-#                     if annee_cible == annee_cloture
-#                     else "prévision simulée"
-#                     if annee_cible < annee_cloture
-#                     else "prévision"
-#                 )
-#                 st.info(
-#                     f"Conclusion — Pour la sélection actuelle, le volume prévu en "
-#                     f"{annee_cible} ({lib_type_prevision}) est de "
-#                     f"{nombre(volume_annuel_cible, dec)} {lib}. "
-#                     f"Le mois le plus élevé est {MOIS[mois_pic - 1]} "
-#                     f"({nombre(volume_pic, dec)} {lib}). "
-#                     "Les courbes distinguent les réalisés des prévisions ; "
-#                     "les prévisions des années passées sont des simulations SAAR."
-#                 )
-#         else:
-#             st.info("Aucune donnée mensuelle disponible pour les filtres actifs.")
-
-# with tab_mensuel:
-#     mois_a_afficher = (
-#         [mois_cible_num] if mois_cible_num else list(range(1, 13))
-#     )
-#     st.subheader(
-#         f"Évolution de {MOIS_COMPLETS[mois_cible_num - 1]} entre les années"
-#         if mois_cible_num
-#         else "Comparaison de chaque mois entre les années"
-#     )
-#     realise_mensuel = d.loc[d["nature"].eq("Réalisé")]
-#     prevision_simulee = d_previsions_courbes.copy()
-#     prevision_simulee["nature"] = "Prévision"
-#     prevision_courante = d.loc[d["nature"].eq("Prévision")]
-#     if not prevision_courante.empty:
-#         cles_mois_prevision = pd.MultiIndex.from_frame(
-#             prevision_courante[["annee", "mois"]].drop_duplicates()
-#         )
-#         index_mois_simules = pd.MultiIndex.from_frame(
-#             prevision_simulee[["annee", "mois"]]
-#         )
-#         prevision_simulee = prevision_simulee.loc[
-#             ~index_mois_simules.isin(cles_mois_prevision)
-#         ]
-#     donnees_evolution_mensuelle = pd.concat(
-#         [realise_mensuel, prevision_simulee, prevision_courante],
-#         ignore_index=True,
-#     )
-#     if mois_cible_num:
-#         donnees_evolution_mensuelle = donnees_evolution_mensuelle.loc[
-#             donnees_evolution_mensuelle["mois"].eq(mois_cible_num)
-#         ]
-#     if not donnees_evolution_mensuelle.empty:
-#         evolution_mensuelle = donnees_evolution_mensuelle.pivot_table(
-#             index="annee",
-#             columns=["mois", "nature"],
-#             values=val,
-#             aggfunc="sum",
-#         ).sort_index()
-#         evolution_mensuelle.columns = [
-#             f"{MOIS[int(mois) - 1]} - {nature}"
-#             for mois, nature in evolution_mensuelle.columns
-#         ]
-#         evolution_mensuelle.index = evolution_mensuelle.index.map(str)
-#         evolution_mensuelle.index.name = "Année"
-#         st.caption(
-#             (
-#                 f"Évolution de {MOIS_COMPLETS[mois_cible_num - 1]} entre les années ; "
-#                 if mois_cible_num
-#                 else "Un graphique par mois compare les années ; "
-#             )
-#             + "Réalisé en bleu et Prévision en rouge. "
-#             "Les prévisions historiques sont des simulations SAAR."
-#         )
-#         if mode_affichage == "Tableau":
-#             afficher_vue(evolution_mensuelle, mode_affichage, dec)
-#         else:
-#             annees_mensuelles = sorted(
-#                 donnees_evolution_mensuelle["annee"].dropna().unique()
-#             )
-#             for debut in range(0, len(mois_a_afficher), 2):
-#                 colonnes_mois = st.columns(2)
-#                 for colonne, mois in zip(
-#                     colonnes_mois, mois_a_afficher[debut : debut + 2]
-#                 ):
-#                     with colonne:
-#                         st.markdown(f"#### {MOIS_COMPLETS[mois - 1].capitalize()}")
-#                         donnees_mois = donnees_evolution_mensuelle.loc[
-#                             donnees_evolution_mensuelle["mois"].eq(mois)
-#                         ]
-#                         graphique_mois = donnees_mois.pivot_table(
-#                             index="annee",
-#                             columns="nature",
-#                             values=val,
-#                             aggfunc="sum",
-#                         ).reindex(annees_mensuelles)
-#                         graphique_mois.index = graphique_mois.index.map(str)
-#                         graphique_mois.index.name = "Année"
-#                         afficher_vue(
-#                             graphique_mois,
-#                             mode_affichage,
-#                             dec,
-#                             hauteur=260,
-#                         )
-#     else:
-#         st.info("Aucune donnée mensuelle disponible pour les filtres actifs.")
-
-# with tab_a:
-#     st.subheader(f"Volumes annuels et atterrissage ({lib})")
-#     if not d_tendance.empty:
-#         an_tot = d_tendance.pivot_table(
-#             index="annee", columns="nature", values=val, aggfunc="sum"
-#         )
-#         volumes_realises_annuels = (
-#             d.loc[d["nature"].eq("Réalisé")]
-#             .groupby("annee")[val]
-#             .sum()
-#         )
-#         volumes_prevision_annuels = (
-#             d_tendance.loc[d_tendance["nature"].eq("Prévision")]
-#             .groupby("annee")[val]
-#             .sum()
-#         )
-#         an_tot["Atterrissage estimé"] = np.nan
-#         if annee_cloture in an_tot.index:
-#             an_tot.loc[annee_cloture, "Atterrissage estimé"] = (
-#                 volumes_realises_annuels.get(annee_cloture, 0.0)
-#                 + volumes_prevision_annuels.get(annee_cloture, 0.0)
-#             )
-#         an_tot["Total Volume"] = (
-#             d.groupby("annee")[val].sum().reindex(an_tot.index, fill_value=0.0)
-#         )
-#         if mode_affichage == "Tableau":
-#             tableau(an_tot.fillna(0.0).round(dec))
-#         else:
-#             volumes_annuels = pd.DataFrame(
-#                 {
-#                     "Réalisé": volumes_realises_annuels,
-#                     "Prévision / atterrissage": volumes_prevision_annuels,
-#                 }
-#             )
-#             if annee_cloture in volumes_annuels.index:
-#                 volumes_annuels.loc[annee_cloture, "Prévision / atterrissage"] = (
-#                     volumes_realises_annuels.get(annee_cloture, 0.0)
-#                     + volumes_prevision_annuels.get(annee_cloture, 0.0)
-#                 )
-#             volumes_annuels = volumes_annuels.sort_index()
-#             volumes_annuels.index = volumes_annuels.index.map(str)
-#             st.caption(
-#                 f"Pour {annee_cloture}, « Prévision / atterrissage » additionne le réalisé "
-#                 f"jusqu'à {MOIS[mois_cloture - 1]} et la prévision pour les mois restants."
-#             )
-#             afficher_vue(volumes_annuels, mode_affichage, dec)
-#     else:
-#         st.info("Aucun cumul annuel.")
-
-# with tab_v:
-#     st.subheader("Répartition du volume par dimension métier")
-#     axe_nom = st.selectbox("Dimension à analyser :", list(AXES), index=0)
-#     axe = AXES[axe_nom]
-#     annee_terminee = (
-#         annee_cible < annee_cloture
-#         or (annee_cible == annee_cloture and mois_cloture == 12)
-#     )
-#     mois_realise_annee_courante = (
-#         annee_cible == annee_cloture
-#         and mois_cible_num is not None
-#         and mois_cible_num <= mois_cloture
-#     )
-#     comparer_prevision_simulee = (
-#         annee_terminee or mois_realise_annee_courante
-#     )
-#     prevision_ventilation_disponible = True
-#     if annee_terminee:
-#         donnees_ventilation = d.loc[d["annee"].eq(annee_cible)].copy()
-#     else:
-#         donnees_ventilation = d_tendance.loc[
-#             d_tendance["annee"].eq(annee_cible)
-#         ].copy()
-
-#     if comparer_prevision_simulee:
-#         previsions_ventilation = reconstituer_previsions_historiques(
-#             df_brut,
-#             int(annee_cible) + 1,
-#             float(taux_croissance_saar),
-#         )
-#         previsions_ventilation = previsions_ventilation.loc[
-#             previsions_ventilation["annee"].eq(annee_cible)
-#         ].copy()
-#         if mois_realise_annee_courante:
-#             previsions_ventilation = previsions_ventilation.loc[
-#                 previsions_ventilation["mois"].eq(mois_cible_num)
-#             ]
-#         for col, _ in FILTRES:
-#             choix = st.session_state.get(f"f_{col}", [])
-#             if choix:
-#                 previsions_ventilation = previsions_ventilation.loc[
-#                     previsions_ventilation[col].isin(choix)
-#                 ]
-#         if recherche:
-#             previsions_ventilation = previsions_ventilation.loc[
-#                 previsions_ventilation["article"].str.contains(
-#                     recherche, case=False, na=False, regex=False
-#                 )
-#             ]
-#         previsions_ventilation["nature"] = "Prévision"
-#         donnees_ventilation = pd.concat(
-#             [donnees_ventilation, previsions_ventilation],
-#             ignore_index=True,
-#         )
-#     if mois_cible_num:
-#         donnees_ventilation = donnees_ventilation.loc[
-#             donnees_ventilation["mois"].eq(mois_cible_num)
-#         ]
-#     if comparer_prevision_simulee:
-#         prevision_ventilation_disponible = donnees_ventilation["nature"].eq(
-#             "Prévision"
-#         ).any()
-
-#     if not donnees_ventilation.empty:
-#         donnees_ventilation[axe] = (
-#             donnees_ventilation[axe].fillna("Non renseigné").astype(str)
-#         )
-#         piv_v = donnees_ventilation.pivot_table(
-#             index=axe,
-#             columns="nature",
-#             values=val,
-#             aggfunc="sum",
-#             fill_value=0.0,
-#         ).reindex(columns=["Réalisé", "Prévision"], fill_value=0.0)
-#         if comparer_prevision_simulee:
-#             piv_v = piv_v.sort_values("Réalisé", ascending=False)
-#         else:
-#             piv_v["Total période"] = piv_v[["Réalisé", "Prévision"]].sum(axis=1)
-#             piv_v = piv_v.sort_values("Total période", ascending=False)
-#         lib_periode_ventilation = (
-#             f"{MOIS_COMPLETS[mois_cible_num - 1]} {annee_cible}"
-#             if mois_cible_num
-#             else f"l'année {annee_cible}"
-#         )
-#         if comparer_prevision_simulee:
-#             st.caption(
-#                 f"Comparaison par {axe_nom.lower()} pour {lib_periode_ventilation} : "
-#                 "réalisé observé et prévision SAAR simulée affichés côte à côte. "
-#                 "La prévision est une simulation, pas une archive."
-#             )
-#             st.caption(
-#                 f"Réalisé : {nombre(piv_v['Réalisé'].sum(), dec)} {lib} · "
-#                 f"Prévision simulée : {nombre(piv_v['Prévision'].sum(), dec)} {lib}"
-#             )
-#             if not prevision_ventilation_disponible:
-#                 st.info(
-#                     "La prévision simulée n'est pas disponible pour cette année "
-#                     "(données de l'année précédente incomplètes ou insuffisantes)."
-#                 )
-#         else:
-#             st.caption(
-#                 f"Volumes par {axe_nom.lower()} pour {lib_periode_ventilation}, "
-#                 "avec réalisé et prévision séparés. Le total période correspond à "
-#                 "l'atterrissage pour l'année de clôture."
-#             )
-#             st.caption(
-#                 f"Réalisé : {nombre(piv_v['Réalisé'].sum(), dec)} {lib} · "
-#                 f"Prévision : {nombre(piv_v['Prévision'].sum(), dec)} {lib} · "
-#                 f"Total période : {nombre(piv_v['Total période'].sum(), dec)} {lib}"
-#             )
-#         if mode_affichage == "Tableau":
-#             tableau(piv_v.round(dec))
-#         elif mode_affichage == "Courbes":
-#             limite_graphique = 20
-#             categories_graphique = piv_v.index[:limite_graphique]
-#             donnees_courbes = (
-#                 donnees_ventilation.loc[
-#                     donnees_ventilation[axe].isin(categories_graphique)
-#                 ]
-#                 .groupby([axe, "mois", "nature"], as_index=False, dropna=False)[val]
-#                 .sum()
-#             )
-#             donnees_courbes["Mois"] = donnees_courbes["mois"].map(
-#                 lambda mois: MOIS_COMPLETS[int(mois) - 1]
-#             )
-#             graphique = (
-#                 alt.Chart(donnees_courbes)
-#                 .mark_line(
-#                     point=alt.OverlayMarkDef(filled=True, size=45),
-#                     strokeWidth=2,
-#                 )
-#                 .encode(
-#                     x=alt.X(
-#                         "Mois:N",
-#                         sort=MOIS_COMPLETS,
-#                         title="Mois",
-#                     ),
-#                     y=alt.Y(f"{val}:Q", title=f"Volume ({lib})"),
-#                     color=alt.Color(
-#                         f"{axe}:N",
-#                         scale=alt.Scale(scheme="turbo"),
-#                         legend=alt.Legend(title=axe_nom),
-#                     ),
-#                     strokeDash=alt.StrokeDash(
-#                         "nature:N",
-#                         scale=alt.Scale(
-#                             domain=["Réalisé", "Prévision"],
-#                             range=[[1, 0], [6, 3]],
-#                         ),
-#                         legend=alt.Legend(title="Type de donnée"),
-#                     ),
-#                     detail=alt.Detail(f"{axe}:N"),
-#                     tooltip=[
-#                         alt.Tooltip(f"{axe}:N", title=axe_nom),
-#                         alt.Tooltip("Mois:N"),
-#                         alt.Tooltip("nature:N", title="Type"),
-#                         alt.Tooltip(f"{val}:Q", title=f"Volume ({lib})", format=",.0f"),
-#                     ],
-#                 )
-#                 .properties(height=440)
-#             )
-#             st.altair_chart(graphique, width="stretch")
-#             if mois_cible_num:
-#                 st.caption(
-#                     "Un seul mois est sélectionné : les valeurs apparaissent sous "
-#                     "forme de points. Choisissez « Tous les mois » pour voir une "
-#                     "courbe mensuelle par catégorie."
-#                 )
-#             if len(piv_v) > limite_graphique:
-#                 st.caption(
-#                     f"Courbes limitées aux {limite_graphique} premières catégories "
-#                     "par volume ; le tableau contient toutes les catégories."
-#                 )
-#         else:
-#             limite_graphique = 20
-#             donnees_graphique = piv_v[["Réalisé", "Prévision"]].head(
-#                 limite_graphique
-#             )
-#             afficher_vue(
-#                 donnees_graphique,
-#                 mode_affichage,
-#                 dec,
-#                 hauteur=400,
-#             )
-#             if len(piv_v) > limite_graphique:
-#                 st.caption(
-#                     f"Affichage limité aux {limite_graphique} premières catégories "
-#                     "par volume ; le tableau contient toutes les catégories."
-#                 )
-#     else:
-#         st.info(
-#             f"Aucune donnée disponible pour {annee_cible}"
-#             + (
-#                 f", {MOIS_COMPLETS[mois_cible_num - 1]}"
-#                 if mois_cible_num
-#                 else ""
-#             )
-#             + " avec les filtres actifs."
-#         )
-
 with tab_d:
     st.subheader("Détail des cumuls et prévisions par article et agence")
     if detail_cumuls.empty:
@@ -2567,8 +1815,6 @@ with tab_d:
         )
         tableau(detail_cumuls.round(dec), height=520, hide_index=True)
 
-    # Calcul conservé tel quel : « large » alimente l'export Excel (feuille « Détail Volumes »).
-    # Seul son affichage mensuel (ancien contenu de l'onglet) est masqué.
     if not d_cible.empty:
         dim = ["agence", "segment", "produit", "parfum", "format", "article"]
         large = d_cible.pivot_table(index=dim, columns="periode", values=val, aggfunc="sum").fillna(0.0)
@@ -2576,201 +1822,9 @@ with tab_d:
         large = large.reindex(columns=periodes_ordonnees, fill_value=0.0)
         large.columns = [etiquette(p) for p in large.columns]
         large = large.reset_index()
-        # [MASQUÉ] ancien affichage mensuel (Tableau / Courbes / Histogramme) :
-   
-#         if mode_affichage == "Tableau":
-#             tableau(large.round(dec), height=520)
-#         elif mode_affichage == "Courbes":
-#             articles_disponibles = sorted(d_cible["article"].dropna().unique())
-#             if articles_disponibles:
-#                 article_courbe = st.selectbox(
-#                     "Article à afficher dans la courbe "
-#                     "(toutes les agences sélectionnées) :",
-#                     articles_disponibles,
-#                     key="article_courbe_detail",
-#                 )
-#                 donnees_article = d.loc[
-#                     d["annee"].eq(annee_cible)
-#                     & d["article"].eq(article_courbe)
-#                 ]
-#                 previsions_article = d_previsions_courbes.loc[
-#                     d_previsions_courbes["annee"].eq(annee_cible)
-#                     & d_previsions_courbes["article"].eq(article_courbe)
-#                 ].copy()
-#                 courbe_article, estimation_depuis_realise = construire_courbe_article(
-#                     donnees_article,
-#                     previsions_article,
-#                     int(annee_cible),
-#                     val,
-#                     d.loc[d["article"].eq(article_courbe)],
-#                     int(mois_cloture),
-#                 )
-#                 courbe_article.index = pd.Index(
-#                     MOIS_COMPLETS,
-#                     name="Mois",
-#                 )
-#                 st.caption(
-#                     f"Évolution sur toute l'année {annee_cible}, "
-#                     "agrégée sur les agences sélectionnées. Pour une année passée, "
-#                     "la série Prévision est une simulation SAAR reconstituée."
-#                 )
-#                 if estimation_depuis_realise:
-#                     st.info(
-#                         (
-#                             "Prévision janvier–décembre estimée de façon cohérente "
-#                             "à partir du cumul réalisé jusqu’au mois pivot et du "
-#                             "profil saisonnier historique."
-#                             if annee_cible == annee_cloture
-#                             else "Les mois dont la prévision était nulle sont estimés "
-#                             "à partir du réalisé jusqu’au mois pivot."
-#                         )
-#                     )
-#                 afficher_vue(courbe_article, mode_affichage, dec)
-#         else:
-#             volumes_periode = d_cible.pivot_table(
-#                 index="periode",
-#                 columns="nature",
-#                 values=val,
-#                 aggfunc="sum",
-#                 fill_value=0.0,
-#             ).sort_index()
-#             afficher_vue(volumes_periode, mode_affichage, dec)
-#     else:
-#         st.info("Aucun détail tableur disponible.")
-
-# ── AFFICHAGE MASQUÉ — décommenter pour le réactiver ── onglet : Fiabilité & alertes
-# with tab_qualite:
-#     st.subheader("Précision des prévisions et alertes d'écart")
-#     st.caption(
-#         "L'évaluation compare les réalisés aux prévisions SAAR simulées pour les années "
-#         "passées. Elle mesure le comportement du modèle sur l'historique, pas la précision "
-#         "d'anciennes prévisions archivées."
-#     )
-#     seuil_alerte = st.slider(
-#         "Seuil d'alerte sur l'écart au réalisé (%)",
-#         min_value=5,
-#         max_value=100,
-#         value=20,
-#         step=5,
-#         help=(
-#             "Une alerte apparaît si l'écart absolu prévision/réalisé dépasse ce "
-#             "pourcentage du réalisé. Un réalisé nul avec une prévision non nulle "
-#             "est également signalé."
-#         ),
-#     )
-
-#     if not activer_saar or not afficher_previsions_historiques:
-#         st.info(
-#             "Activez SAAR et l'affichage des prévisions historiques reconstituées "
-#             "dans la barre latérale pour évaluer les prévisions."
-#         )
-#     elif comparaison_qualite.empty:
-#         st.info(
-#             "Aucune paire prévision/réalisé comparable n'est disponible avec "
-#             "les filtres actifs. Il faut des réalisés historiques et des "
-#             "prévisions SAAR simulées pour les mêmes mois, agences et articles."
-#         )
-#     else:
-#         indicateurs = calculer_indicateurs(comparaison_qualite)
-#         kpi_wape, kpi_biais, kpi_nb = st.columns(3)
-#         kpi_wape.metric(
-#             "Erreur absolue pondérée (WAPE)",
-#             (
-#                 f"{indicateurs['wape_pct']:.1f} %"
-#                 if indicateurs["wape_pct"] is not None
-#                 else "N/D"
-#             ),
-#             help=(
-#                 "Somme des écarts absolus divisée par le volume total réalisé. "
-#                 "Plus le WAPE est bas, plus les prévisions sont proches du réalisé."
-#             ),
-#         )
-#         kpi_biais.metric(
-#             "Biais global",
-#             (
-#                 f"{indicateurs['biais_pct']:+.1f} %"
-#                 if indicateurs["biais_pct"] is not None
-#                 else "N/D"
-#             ),
-#             help=(
-#                 "Biais positif : les prévisions surestiment globalement le réalisé. "
-#                 "Biais négatif : elles le sous-estiment."
-#             ),
-#         )
-#         kpi_nb.metric("Comparaisons mensuelles", f"{len(comparaison_qualite):,}")
-
-#         lignes_annuelles = []
-#         for annee, donnees_annee in comparaison_qualite.groupby("annee"):
-#             indicateurs_annee = calculer_indicateurs(donnees_annee)
-#             lignes_annuelles.append(
-#                 {
-#                     "Année": int(annee),
-#                     "WAPE (%)": indicateurs_annee["wape_pct"],
-#                     "Biais (%)": indicateurs_annee["biais_pct"],
-#                     "Paires comparées": len(donnees_annee),
-#                 }
-#             )
-#         st.markdown("#### Indicateurs par année")
-#         tableau(
-#             pd.DataFrame(lignes_annuelles).round(
-#                 {"WAPE (%)": 1, "Biais (%)": 1}
-#             ),
-#             hide_index=True,
-#         )
-
-#         alertes = detecter_ecarts_importants(comparaison_qualite, seuil_alerte)
-#         st.markdown(f"#### Alertes — écart supérieur à {seuil_alerte} %")
-#         if alertes.empty:
-#             st.success("Aucun écart ne dépasse le seuil choisi.")
-#         else:
-#             alertes_affichage = alertes[
-#                 [
-#                     "annee",
-#                     "mois",
-#                     "agence",
-#                     "article",
-#                     "realise",
-#                     "prevision",
-#                     "ecart",
-#                     "ecart_relatif_pct",
-#                     "alerte",
-#                 ]
-#             ].rename(
-#                 columns={
-#                     "annee": "Année",
-#                     "mois": "Mois",
-#                     "agence": "Agence",
-#                     "article": "Article",
-#                     "realise": f"Réalisé ({lib})",
-#                     "prevision": f"Prévision simulée ({lib})",
-#                     "ecart": f"Écart ({lib})",
-#                     "ecart_relatif_pct": "Écart relatif (%)",
-#                     "alerte": "Motif",
-#                 }
-#             )
-#             alertes_affichage["Mois"] = alertes_affichage["Mois"].map(
-#                 lambda mois: MOIS_COMPLETS[int(mois) - 1]
-#             )
-#             alertes_affichage["Écart relatif (%)"] = (
-#                 alertes_affichage["Écart relatif (%)"].round(1)
-#             )
-#             st.warning(
-#                 f"{len(alertes):,} écart(s) détecté(s). "
-#                 "Les lignes affichées sont triées par volume d'écart absolu."
-#             )
-#             tableau(alertes_affichage.head(100), height=520, hide_index=True)
-#             if len(alertes_affichage) > 100:
-#                 st.caption(
-#                     f"Affichage des 100 premières alertes sur {len(alertes_affichage):,}."
-#                 )
 
 with tab_saisonnalite:
     st.subheader("Indice de saisonnalité par mois")
-    # [ANCIENNE LÉGENDE]
-    # st.caption(
-    #     "Pour chaque mois : ventes moyennes de ce mois sur les années sélectionnées, "
-    #     "divisées par le total réalisé sur ces années et les 12 mois, puis multipliées par 100."
-    # )
     st.caption(
         "Coefficient = volume moyen du mois (années complètes retenues) ÷ volume "
         "mensuel moyen de ces années (12 mois). La moyenne des 12 coefficients vaut 1 ; "
@@ -2790,7 +1844,7 @@ with tab_saisonnalite:
             categories=donnees_graphique_indice.index.tolist(),
             ordered=True,
             name="Mois",
-        )  # ordre janv → déc (sinon Streamlit trie les mois par ordre alphabétique)
+        )
         st.bar_chart(donnees_graphique_indice, height=400)
         
         st.markdown("#### Tableau détaillé des indices saisonniers")

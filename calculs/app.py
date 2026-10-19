@@ -72,10 +72,9 @@ TYPES = {
 }
 
 # ==============================================================================
-# 2. RÉFÉRENTIEL EN DUR (Indépendant de Classeur2.xlsx)
+# 2. RÉFÉRENTIEL EN DUR
 # ==============================================================================
 
-# On définit ici les règles par défaut selon les gammes
 def _generer_catalogue_manuel():
     articles = [
         "Booster Appel-Mix 50CL VER", "Booster Tornado 50CL VER VER",
@@ -107,57 +106,39 @@ def _generer_catalogue_manuel():
     data = []
     for art in articles:
         art_lower = art.lower()
-        
-        # Déduction du Segment
-        if "cristal" in art_lower or "eau" in art_lower:
-            segment = "EAUX"
-        elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]):
-            segment = "BIERES"
-        else:
-            segment = "BOISSONS"
+        if "cristal" in art_lower or "eau" in art_lower: segment = "EAUX"
+        elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]): segment = "BIERES"
+        else: segment = "BOISSONS"
             
-        # Déduction du Positionnement (Standard / Premium / Économique)
         if segment == "EAUX": pos = "Standard"
         elif "gold" in art_lower or "queen" in art_lower or "thb" in art_lower: pos = "Premium"
         else: pos = "Économique"
         
-        # Déduction de l'Occasion
         if "pet" in art_lower or "can" in art_lower or "ver" in art_lower: occ = "À emporter"
         else: occ = "Sur place"
         
-        # Format & Contenance
         fmt = art.split()[-1].upper() if art.split()[-1].upper() in ["VER", "PET", "CAN"] else "VER"
         if "WOCO" in art_lower: fmt = "VER"
         if "BOB" in art_lower: fmt = "VER"
         
-        # Extraction de la contenance (chiffre avant cl)
         match = re.search(r'(\d+)\s*cl', art_lower)
         c_cl = int(match.group(1)) if match else 50
         c_hl = c_cl * 0.0001
         
         data.append({
-            "article": art,
-            "segment": segment,
-            "produit": art.split()[0], # ex: Caprice, World, Gold
-            "parfum": art,
-            "positionnement": pos,
-            "occasion": occ,
-            "conditionnement": fmt,
-            "format": f"{c_cl} cl {fmt}",
-            "contenance_ci": c_cl,
-            "contenance_hl": c_hl,
-            "type_format": occ,
-            "type_format_lib": occ
+            "article": art, "segment": segment, "produit": art.split()[0], "parfum": art,
+            "positionnement": pos, "occasion": occ, "conditionnement": fmt,
+            "format": f"{c_cl} cl {fmt}", "contenance_ci": c_cl, "contenance_hl": c_hl,
+            "type_format": occ, "type_format_lib": occ
         })
     return pd.DataFrame(data)
 
-# On génère le catalogue en dur
 CATALOGUE = _generer_catalogue_manuel()
 CATALOGUE_PAR_ARTICLE = {meta["article"].lower().strip(): meta for meta in CATALOGUE.to_dict(orient="records")}
 ARTICLES_REFERENTIEL = CATALOGUE["article"].tolist()
 
 # ==============================================================================
-# 3. FONCTIONS UTILITAIRES & FILTRES
+# 3. UTILITAIRES & FILTRES
 # ==============================================================================
 
 def _sans_accents(texte: str) -> str:
@@ -197,12 +178,9 @@ def options_filtre_cascade(df: pd.DataFrame, col: str, filtres: list, selections
     for c, _ in filtres:
         if c != col and selections.get(c) and c in df_filtre.columns:
             df_filtre = df_filtre[df_filtre[c].isin(selections[c])]
-    
-    # Si on est sur un filtre du catalogue, on s'assure que les options viennent du catalogue + des données
     options = df_filtre[col].dropna().unique().tolist()
     if col in ["article", "positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl"]:
         options = list(set(options) | set(CATALOGUE[col].dropna().unique().tolist()))
-        
     return options
 
 # ==============================================================================
@@ -530,14 +508,10 @@ if st.sidebar.button("🔄 Réinitialiser les filtres"):
 selections_filtres = {col: st.session_state.get(f"f_{col}", []) for col, _ in FILTRES}
 for col, label in FILTRES:
     if col not in df_brut.columns: continue
-    
-    # Les options viennent des données ET du catalogue en dur
     options = options_filtre_cascade(df_brut, col, FILTRES, selections_filtres)
     options = [o for o in options if pd.notna(o) and str(o).strip().lower() not in ("", "nan", "none")]
-    
     if col == "agence": options = [a for a in AGENCES_REFERENCE if a in set(options)]
     else: options = trier(options, col)
-    
     if not options: continue
     cle = f"f_{col}"
     if cle in st.session_state: st.session_state[cle] = [v for v in st.session_state[cle] if v in options]
@@ -585,21 +559,51 @@ k3.metric("Cumul total (Réalisé + Prév)", f"{nombre(vol_real + vol_prev, dec)
 st.markdown("---")
 tab_comp, tab_detail, tab_is = st.tabs(["📊 Prévision vs Réalisé", "🔍 Détail des cumuls", "📈 Indice saisonnier"])
 
+# ==============================================================================
+# ONGLET 1 : PRÉVISION VS RÉALISÉ (Vue Globale par Année)
+# ==============================================================================
 with tab_comp:
-    st.subheader(f"Comparaison mensuelle : Prévision vs Réalisé ({annee_cible})")
-    df_annee_cible = d_tendance[d_tendance["annee"] == annee_cible].copy()
-    if df_annee_cible.empty:
-        st.info("Aucune donnée pour cette année.")
+    st.subheader(f"Historique des volumes : Réalisé vs Prévision (Cible : {annee_cible})")
+    
+    # On prépare les données de TOUTES les années (passées, présente, futures)
+    df_comp = d_tendance.groupby(["annee", "nature"])[val_choix].sum().unstack("nature").fillna(0.0)
+    
+    # S'assurer que les colonnes existent
+    if "Réalisé" not in df_comp.columns: df_comp["Réalisé"] = 0.0
+    if "Prévision" not in df_comp.columns: df_comp["Prévision"] = 0.0
+    
+    # On filtre pour ne garder que les années pertinentes (<= année cible)
+    df_comp = df_comp[df_comp.index <= annee_cible]
+    df_comp.index.name = "Année"
+    df_comp = df_comp.reset_index()
+    df_comp["Année"] = df_comp["Année"].astype(str)
+    
+    st.caption(
+        "Ce graphique compare le volume global de chaque année. "
+        "Le 'Réalisé' montre les années clôturées. Pour l'année en cours, la barre 'Prévision' montre l'atterrissage. "
+        "Les années futures (ex: 2027) affichent la projection SAAR."
+    )
+    
+    if mode_affichage == "Tableau":
+        st.dataframe(df_comp.set_index("Année").round(dec), width="stretch")
     else:
-        pivot_mensuel = df_annee_cible.pivot_table(index="mois", columns="nature", values=val_choix, aggfunc="sum").fillna(0.0)
-        pivot_mensuel = pivot_mensuel.reindex(range(1, 13), fill_value=0.0)
-        pivot_mensuel.index = [MOIS_NOMS[m - 1] for m in pivot_mensuel.index]
-        pivot_mensuel.index.name = "Mois"
-        for col in ["Réalisé", "Prévision"]:
-            if col not in pivot_mensuel.columns: pivot_mensuel[col] = 0.0
-        st.caption("La courbe 'Réalisé' montre les ventes effectives. La courbe 'Prévision' montre l'atterrissage estimé.")
-        afficher_vue(pivot_mensuel[["Réalisé", "Prévision"]], mode_affichage, dec, couleur=[COULEUR_REALISE, COULEUR_PREVISION], hauteur=400)
+        # On crée un graphique à barres groupées
+        df_melt = df_comp.melt(id_vars="Année", var_name="Type", value_name="Volume")
+        chart = alt.Chart(df_melt).mark_bar().encode(
+            x=alt.X("Année:N", sort=df_comp["Année"].tolist(), title="Année"),
+            y=alt.Y("Volume:Q", title=f"Volume total ({val_choix})"),
+            color=alt.Color("Type:N", scale=alt.Scale(
+                domain=["Réalisé", "Prévision"], 
+                range=[COULEUR_REALISE, COULEUR_PREVISION]
+            ), legend=alt.Legend(title="Type de donnée")),
+            xOffset="Type:N", # Barres côte à côte
+            tooltip=["Année", "Type", alt.Tooltip("Volume:Q", format=",.0f")]
+        )
+        st.altair_chart(chart.properties(height=400), width="stretch")
 
+# ==============================================================================
+# ONGLET 2 : DÉTAIL DES CUMULS
+# ==============================================================================
 with tab_detail:
     st.subheader("Détail par article et agence")
     dims = ["article", "agence", "segment", "produit"]
@@ -615,6 +619,9 @@ with tab_detail:
     else:
         st.info("Aucune donnée pour les filtres actifs.")
 
+# ==============================================================================
+# ONGLET 3 : INDICE SAISONNIER
+# ==============================================================================
 with tab_is:
     st.subheader("Indice de saisonnalité par mois")
     annees_reelles = sorted(int(a) for a in df_brut.loc[df_brut["nature"].eq("Réalisé"), "annee"].unique())

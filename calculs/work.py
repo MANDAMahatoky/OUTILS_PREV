@@ -1,3 +1,8 @@
+# ============================================================
+# MOTEUR DE PILOTAGE DES VENTES — Streamlit
+# Version FINALE : Lecture complète (1538 lignes) + Diagnostic
+# ============================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,7 +15,7 @@ DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
 
 # ============================================================
-# MAPPING DES RÉGIONS
+# MAPPING DES RÉGIONS (15 Agences)
 # ============================================================
 AGENCES_DATA = [
     ("01-Tanjombato", "Centre"), ("11-Andranomahery", "Centre"), ("12-Antsirabe", "Centre"),
@@ -38,14 +43,21 @@ def extraire_contenance(article: str) -> int:
     return int(m.group(1)) if m else 0
 
 # ============================================================
-# LECTEUR ULTRA-PERMISSIF
+# LECTEUR STRICT (7 COLONNES) ET EXHAUSTIF
 # ============================================================
 def extraire_ventes_sur_mesure(raw: pd.DataFrame):
     rows = []
-    stats = {"total_lignes": len(raw), "ignorees_vides": 0, "ignorees_totaux": 0, "ignorees_erreurs": 0, "valides": 0}
+    stats = {
+        "total_lignes_fichier": len(raw), 
+        "ignorees_vides": 0, 
+        "ignorees_totaux": 0, 
+        "ignorees_erreurs": 0,
+        "valides": 0
+    }
     
     for i in range(len(raw)):
         try:
+            # On ne lit QUE les 7 premières colonnes (A à G)
             annee_val   = raw.iloc[i, 0]
             mois_val    = raw.iloc[i, 1]
             cat_val     = raw.iloc[i, 2]
@@ -54,24 +66,19 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
             article_val = raw.iloc[i, 5]
             volume_val  = raw.iloc[i, 6]
 
-            # 1. Lignes vides (pas d'année ou pas de volume)
-            if pd.isna(annee_val) or pd.isna(volume_val):
+            # 1. Si l'année, le mois, l'article ou le volume est vide
+            if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val) or pd.isna(volume_val):
                 stats["ignorees_vides"] += 1
                 continue
 
-            # 2. Lignes de Totaux (on ignore)
+            # 2. Ignorer les lignes "Total"
             str_art = str(article_val).strip().upper()
             str_ag = str(agence_val).strip().upper()
             if str_art == "TOTAL" or str_ag == "TOTAL":
                 stats["ignorees_totaux"] += 1
                 continue
 
-            # 3. Article ou Agence vide
-            if pd.isna(article_val) or pd.isna(agence_val):
-                stats["ignorees_vides"] += 1
-                continue
-
-            # 4. Volume (gestion des espaces, virgules, etc.)
+            # 3. Nettoyage du volume
             vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
             try:
                 volume = float(vol_str)
@@ -79,21 +86,20 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
                 stats["ignorees_erreurs"] += 1
                 continue
 
-            # 5. Année
+            # 4. Année
             try:
                 annee = int(annee_val)
             except ValueError:
                 stats["ignorees_erreurs"] += 1
                 continue
 
-            # 6. Mois
+            # 5. Mois (tolérant)
             if isinstance(mois_val, str):
                 mois_str = mois_val.strip().upper()
                 mois = MOIS_FR_INV.get(mois_str)
-                # Si le mois n'est pas reconnu, on tente de le convertir
                 if not mois:
                     try: mois = int(mois_val)
-                    except: mois = 1 # Par défaut
+                    except: mois = 1
             else:
                 try: mois = int(mois_val)
                 except: mois = 1
@@ -101,11 +107,11 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
             if not mois or mois < 1 or mois > 12:
                 mois = 1
 
-            # 7. Date et Article (on ne rejette plus si l'article n'est pas dans le référentiel)
+            # 6. Date
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
+
+            # 7. Nettoyage de l'article et des catégories
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
-            
-            # Gestion des valeurs catégorielles
             cat_propre = re.sub(r"^\d+-", "", str(cat_val).strip()).upper() if not pd.isna(cat_val) else "INCONNU"
             marque_propre = re.sub(r"^\d+-", "", str(marque_val).strip()).upper() if not pd.isna(marque_val) else "INCONNU"
 
@@ -118,7 +124,7 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
                 "Marque": marque_propre
             })
             stats["valides"] += 1
-        except Exception as e:
+        except Exception:
             stats["ignorees_erreurs"] += 1
             continue
 
@@ -129,9 +135,8 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
 # ENRICHISSEMENT
 # ============================================================
 def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
-    # On s'assure que la date est bien convertie
     ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
-    # On ne supprime PAS les NaT, on les garde
+    # On garde les NaT pour ne pas perdre de lignes
     ventes["Mois"]  = ventes["Date"].dt.month.fillna(1).astype(int)
     ventes["Annee"] = ventes["Date"].dt.year.fillna(2024).astype(int)
 
@@ -143,7 +148,6 @@ def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
     df["Région"] = df["Région"].fillna("Inconnu")
 
     np.random.seed(7)
-    # Objectif fictif
     df["Objectif_Annuel"] = df.groupby(["Article", "Agence"])["Volume"].transform("sum") * 1.1
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
     return df
@@ -230,9 +234,10 @@ def main():
 
     if uploaded_file is not None:
         try:
-            raw = pd.read_excel(BytesIO(uploaded_file.getvalue()), header=None)
+            # Lecture limitée aux 7 premières colonnes pour éviter les parasites Excel
+            raw = pd.read_excel(BytesIO(uploaded_file.getvalue()), header=None, usecols=range(7))
         except Exception:
-            raw = pd.read_csv(BytesIO(uploaded_file.getvalue()), header=None)
+            raw = pd.read_csv(BytesIO(uploaded_file.getvalue()), header=None, usecols=range(7))
         
         with st.spinner("Extraction des données en cours..."):
             ventes, stats = extraire_ventes_sur_mesure(raw)
@@ -243,20 +248,17 @@ def main():
             
         df_brut = enrichir_ventes(ventes)
         
-        # --- DIAGNOSTIC ---
+        # --- DIAGNOSTIC DANS LA SIDEBAR ---
         st.sidebar.success("✅ Fichier chargé !")
-        with st.sidebar.expander("🔍 DIAGNOSTIC DE LECTURE"):
-            st.write(f"**Lignes brutes dans le fichier :** {stats['total_lignes']:,}")
+        with st.sidebar.expander("🔍 DIAGNOSTIC EXACT"):
+            st.write(f"**Lignes dans le fichier Excel :** {stats['total_lignes_fichier']:,}")
             st.write(f"**Lignes vides (ignorées) :** {stats['ignorees_vides']:,}")
             st.write(f"**Lignes 'Total' (ignorées) :** {stats['ignorees_totaux']:,}")
             st.write(f"**Lignes avec erreurs :** {stats['ignorees_erreurs']:,}")
-            st.success(f"**Lignes valides conservées :** {stats['valides']:,}")
+            st.success(f"**Lignes VALIDES conservées :** {stats['valides']:,}")
             
-            st.markdown("#### Articles trouvés")
-            st.write(df_brut["Article"].value_counts())
-            
-            st.markdown("#### Agences trouvées")
-            st.write(df_brut["Agence"].value_counts())
+            st.markdown("#### Somme totale des volumes lus :")
+            st.write(f"{df_brut['Volume'].sum():,.2f}")
 
     else:
         df_brut = pd.DataFrame()
@@ -326,6 +328,8 @@ def main():
 
     st.title("📊 Moteur de pilotage des ventes")
     badge = "🟢 MODE GLOBAL" if mode == "GLOBAL" else "🟣 MODE FILTRÉ"
+    
+    # Affichage du vrai nombre de lignes analysées
     st.subheader(f"{badge} — {len(df_per):,} lignes de détail analysées")
 
     c1, c2, c3, c4 = st.columns(4)
@@ -351,7 +355,7 @@ def main():
     )
 
     st.divider()
-    st.markdown("### 📋 Détail complet des données lues")
+    st.markdown("### 📋 Détail complet des données lues (Preuve de lecture)")
     with st.expander("Cliquez pour afficher toutes les lignes extraites"):
         st.dataframe(
             df_per[["Date", "Segment", "Marque", "Article", "Agence", "Format", "Contenance", "Volume"]]

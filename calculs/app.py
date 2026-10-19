@@ -14,7 +14,6 @@ import streamlit as st
 import altair as alt
 
 try:
-    # [MASQUÉ] article_detail et forecast_quality : ne servaient qu'aux affichages masqués
     from .filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
     from .monthly_import import (
         normaliser_lignes_data_brut,
@@ -26,7 +25,7 @@ try:
         calculer_indices_saisonnalite,
         calculer_matrice_indices_saisonnalite,
     )
-except ImportError:  # pragma: no cover - script execution from the same folder
+except ImportError:
     try:
         from filter_dimensions import assurer_dimensions_filtres, options_filtre_cascade
         from monthly_import import (
@@ -93,8 +92,9 @@ FICHIERS_CANDIDATS = [
     "DATA_BRUT.xlsx",
 ]
 
+# ✚ "region" ajouté à la liste des colonnes conservées
 COLONNES = [
-    "annee", "mois", "periode", "agence", "segment", "produit", "parfum", "format",
+    "annee", "mois", "periode", "agence", "region", "segment", "produit", "parfum", "format",
     "type_format", "article", "nature", "origine", "colis", "hl",
     "coeff_janvier", "coeff_fevrier", "coeff_mars", "coeff_avril", "coeff_mai",
     "coeff_juin", "coeff_juillet", "coeff_aout", "coeff_septembre",
@@ -147,9 +147,28 @@ AGENCES_REFERENCE = [
     "18-Ambanja",
     "19-Sambava",
     "21-Nosy-be",
-    "23-Morondava",
+    "23-Morondova",
     "24-Fort-Dauphin",
 ]
+
+# ✚ Région par agence (filtre 🗺️ Région)
+REGION_PAR_AGENCE = {
+    "01-Tanjombato": "Centre",
+    "03-Usine-Diego": "Nord",
+    "04-Tulear": "Sud",
+    "05-Fianarantsoa": "Sud",
+    "06-Ihosy": "Sud",
+    "07-Majunga": "Nord",
+    "08-Manakara": "Sud",
+    "09-Tamatave": "Est",
+    "11-Andranomahery": "Centre",
+    "12-Antsirabe": "Centre",
+    "18-Ambanja": "Nord",
+    "19-Sambava": "Nord",
+    "21-Nosy-be": "Nord",
+    "23-Morondova": "Nord",
+    "24-Fort-Dauphin": "Sud",
+}
 
 TYPES = {
     "SS": "SS (Single serve)", "CU": "CU (Convivial Units)",
@@ -194,7 +213,6 @@ CATALOGUE_PAR_ARTICLE = {
     for meta in CATALOGUE.to_dict(orient="records")
 }
 
-# ✚ Référentiel complet exposé à l'import et aux filtres (Classeur2.xlsx)
 ARTICLES_REFERENTIEL = (
     CATALOGUE["article"].dropna().astype(str).str.strip().tolist()
     if not CATALOGUE.empty
@@ -208,6 +226,7 @@ DIMENSIONS_REFERENTIEL = {
     "conditionnement": "conditionnement",
     "contenance_ci": "contenance_ci",
     "contenance_hl": "contenance_hl",
+    # ⚠️ PAS "region" ici : fourni par REGION_PAR_AGENCE, pas par Classeur2.xlsx
 }
 
 
@@ -222,11 +241,7 @@ def _options_referentiel(col: str) -> list:
 
 
 def _normaliser_option(v, col: str):
-    """Convertit une option de filtre en valeur homogène (str ou float).
-
-    Évite les TypeError au tri quand options/options_ref mélangent str,
-    numpy.int64, float et NaN.
-    """
+    """Convertit une option en valeur homogène (str ou float) pour set()/sorted()."""
     if v is None:
         return None
     try:
@@ -247,6 +262,7 @@ ALIAS_COLONNES = {
     "periode": "periode", "period": "periode", "période": "periode",
     "date": "date",
     "agence": "agence", "agences": "agence", "agency": "agence",
+    "region": "region", "région": "region", "regions": "region", "régions": "region",
     "segment": "segment", "segments": "segment",
     "produit": "produit", "produits": "produit", "product": "produit", "marque": "produit",
     "parfum": "parfum", "parfums": "parfum", "flavour": "parfum", "flavor": "parfum",
@@ -527,6 +543,8 @@ AGENCES_PAR_CLE.update(
             "Toliara": "04-Tulear",
             "Mahajanga": "07-Majunga",
             "Toamasina": "09-Tamatave",
+            "Nosy-Be": "21-Nosy-be",
+            "Nosy Be": "21-Nosy-be",
         }.items()
     }
 )
@@ -548,6 +566,13 @@ def normaliser_agence(valeur: object) -> str:
             nom,
         )
     return nom
+
+
+def region_depuis_agence(valeur: object) -> str:
+    """Retourne la région (Nord/Sud/Est/Centre) d'une agence."""
+    agence_normalisee = normaliser_agence(valeur)
+    return REGION_PAR_AGENCE.get(agence_normalisee, "Non renseigné")
+
 
 def extraire_decalage_reel(col_name: str) -> int | None:
     s = normaliser_nom(col_name)
@@ -770,7 +795,8 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
 
     defaut_valeurs = {
         "annee": 2026, "mois": 1, "periode": "2026-01",
-        "agence": "Non renseigné", "segment": "Non renseigné", "produit": "Non renseigné",
+        "agence": "Non renseigné", "region": "Non renseigné",
+        "segment": "Non renseigné", "produit": "Non renseigné",
         "parfum": "Non renseigné", "format": "Non renseigné", "type_format": "Non renseigné",
         "article": "Non renseigné", "nature": "Prévision", "colis": 0.0, "hl": 0.0,
         "origine": "Donnée source",
@@ -790,7 +816,7 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
     dimensions_catalogue = [
         "segment", "produit", "parfum", "format", "type_format",
         "positionnement", "occasion", "conditionnement",
-        "contenance_ci", "contenance_hl", "region"
+        "contenance_ci", "contenance_hl"
     ]
     for c_dim in dimensions_catalogue:
         if c_dim not in df.columns:
@@ -814,12 +840,16 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
     for c in COEFFICIENTS_SAISONNIERS:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(1.0)
 
-    for c in ["agence", "segment", "produit", "parfum", "format", "type_format", "article", "nature", "origine", "periode"]:
+    for c in ["agence", "region", "segment", "produit", "parfum", "format", "type_format", "article", "nature", "origine", "periode"]:
         df[c] = df[c].fillna("Non renseigné").astype(str)
 
     df["agence"] = df["agence"].map(normaliser_agence)
+    # ✚ Remplit region à partir de l'agence (filtre 🗺️ Région)
+    df["region"] = df["agence"].map(region_depuis_agence)
     df["nature"] = df["nature"].replace("", "Prévision")
     df = assurer_dimensions_filtres(df, CATALOGUE_PAR_ARTICLE, TYPES)
+    # ✚ Sécurité : réinjecte region au cas où assurer_dimensions_filtres l'aurait perdue
+    df["region"] = df["agence"].map(region_depuis_agence)
 
     articles_nettoyes = df["article"].astype(str).str.strip().str.lower()
     articles_exclus = ["eaux (gaz)", "eaux (plate)", "bieres", "energy", "alcomix", "bg"]
@@ -880,11 +910,15 @@ def appliquer_projection_saar(
         return df, 0, 0
 
     df = assurer_dimensions_filtres(df, CATALOGUE_PAR_ARTICLE, TYPES)
+    # ✚ Sécurité : conserve region dans les dimensions
+    if "region" not in df.columns:
+        df["region"] = df["agence"].map(region_depuis_agence)
+
     cles = ["agence", "article"]
     dimensions = [
-        "agence", "segment", "produit", "parfum", "format",
+        "agence", "region", "segment", "produit", "parfum", "format",
         "type_format", "article", "origine", "positionnement", "occasion",
-        "conditionnement", "contenance_ci", "contenance_hl", "region"
+        "conditionnement", "contenance_ci", "contenance_hl"
     ]
 
     realise_ytd = df.loc[
@@ -1448,6 +1482,9 @@ if df_brut is None or df_brut.empty:
     st.stop()
 
 df_brut = assurer_dimensions_filtres(df_brut, CATALOGUE_PAR_ARTICLE, TYPES)
+# ✚ Sécurité finale : region toujours présente dans df_brut
+df_brut["region"] = df_brut["agence"].map(region_depuis_agence)
+
 csv_cumule = df_brut.to_csv(index=False).encode("utf-8-sig")
 st.sidebar.download_button(
     "Télécharger l’historique cumulé (.csv)",
@@ -1522,8 +1559,6 @@ for col, label in FILTRES:
         selections_filtres,
     )
 
-    # ✚ Normalisation défensive : évite le TypeError au tri quand options
-    # et options_ref mélangent str / numpy.int64 / float / NaN.
     options = [
         o for o in (_normaliser_option(v, col) for v in options) if o is not None
     ]
@@ -1533,7 +1568,6 @@ for col, label in FILTRES:
     ]
 
     if options_ref:
-        # Types homogènes (str, ou float pour contenance) : set() et sorted() sûrs
         options = list(set(options) | set(options_ref))
 
     if col == "agence":
@@ -1590,6 +1624,8 @@ if activer_saar:
                 annee_projection,
                 float(taux_croissance_saar),
             )
+            # ✚ Réinjecte region après projection
+            df_brut["region"] = df_brut["agence"].map(region_depuis_agence)
     if annee_cible < annee_cloture:
         st.sidebar.warning("La projection SAAR s'applique à l'année de clôture ou aux années futures.")
     elif annee_cible == annee_cloture and mois_cloture == 12:

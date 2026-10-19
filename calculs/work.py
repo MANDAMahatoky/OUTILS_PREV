@@ -1,6 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Référentiel complet : 69 SKU × 15 Agences
+# Version FINALE : Filtres complets + Correction des données
 # ============================================================
 
 import streamlit as st
@@ -9,21 +9,14 @@ import numpy as np
 import re
 from io import BytesIO
 
-st.set_page_config(
-    page_title="Moteur Ventes",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Moteur Ventes", page_icon="📊", layout="wide")
 
-# ============================================================
-# PARAMÈTRES GLOBAUX
-# ============================================================
+# --- PARAMÈTRES ---
 DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
 
 # ============================================================
-# RÉFÉRENTIEL INTÉGRÉ (Les 69 SKU du PDF Classeur2)
+# RÉFÉRENTIEL INTÉGRÉ (69 SKU)
 # ============================================================
 REFERENTIEL_DATA = [
     ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
@@ -97,9 +90,6 @@ REFERENTIEL_DATA = [
     ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
 ]
 
-# ============================================================
-# MAPPING AGENCES (Les 15 agences du PDF)
-# ============================================================
 AGENCES_MADAGASCAR = [
     "01-Tanjombato", "03-Diego", "04-Tulear", "05-Fianarantsoa", 
     "06-Ihosy", "07-Majunga", "08-Manakara", "09-Tamatave", 
@@ -115,41 +105,19 @@ MOIS_FR_INV = {
 }
 
 # ============================================================
-# GÉNÉRATION DE DONNÉES DÉMO (Si aucun fichier)
+# FONCTIONS UTILITAIRES
 # ============================================================
-def generer_donnees_demo():
-    """Génère des fausses données pour peupler l'interface et les filtres."""
-    np.random.seed(42)
-    ref = pd.DataFrame(REFERENTIEL_DATA, columns=["Article", "Positionnement", "Occasion"])
-    
-    rows = []
-    # On prend 5 articles au hasard parmi les 69 pour la démo
-    articles_demo = ref["Article"].sample(5, random_state=1).tolist()
-    
-    for art in articles_demo:
-        for ag in AGENCES_MADAGASCAR:
-            for annee in [2023, 2024, 2025]:
-                for mois in range(1, 13):
-                    saison = 1 + 0.3 * np.sin((mois - 3) / 12 * 2 * np.pi)
-                    vol = max(0, int(np.random.randint(500, 2000) * saison))
-                    date_val = pd.Timestamp(year=annee, month=mois, day=15)
-                    rows.append({
-                        "Date": date_val, "Article": art, "Agence": ag, "Volume": vol
-                    })
-    df = pd.DataFrame(rows)
-    
-    # Mapping et Objectifs
-    df = df.merge(ref, on="Article", how="left")
-    df = df.merge(construire_mapping_auto(), on="Agence", how="left")
-    df["Mois"] = df["Date"].dt.month
-    df["Annee"] = df["Date"].dt.year
-    
-    # Objectif fictif = somme annuelle * 1.1
-    df["Objectif_Annuel"] = df.groupby(["Article", "Agence"])["Volume"].transform("sum") * 1.1
-    return df
+def construire_referentiel():
+    return pd.DataFrame(REFERENTIEL_DATA, columns=["Article", "Positionnement", "Occasion"])
+
+def construire_mapping_auto():
+    return pd.DataFrame({
+        "Agence": AGENCES_MADAGASCAR,
+        "Région": [REGIONS[i % len(REGIONS)] for i in range(len(AGENCES_MADAGASCAR))],
+    })
 
 # ============================================================
-# LECTEUR SUR-MESURE
+# LECTEUR SUR-MESURE (Correction de la jointure)
 # ============================================================
 def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
     rows = []
@@ -161,23 +129,26 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
             article_val = raw.iloc[i, 5]
             volume_val  = raw.iloc[i, 6]
             
+            # Ignorer vides et "Total"
             if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val) or pd.isna(volume_val):
                 continue
-                
             if str(article_val).strip().upper() == "TOTAL" or str(agence_val).strip().upper() == "TOTAL":
                 continue
                 
+            # Nettoyer le volume
             vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
             try:
                 volume = float(vol_str)
             except ValueError:
                 continue
                 
+            # Année
             try:
                 annee = int(annee_val)
             except ValueError:
                 continue
                 
+            # Mois
             mois_str = str(mois_val).strip().upper()
             mois = MOIS_FR_INV.get(mois_str)
             if not mois:
@@ -185,10 +156,14 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
                 
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
             
+            # CORRECTION : On nettoie l'article AVANT de le stocker
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
             
             rows.append({
-                "Date": date_val, "Article": art_propre, "Agence": str(agence_val).strip(), "Volume": volume
+                "Date": date_val, 
+                "Article": art_propre, 
+                "Agence": str(agence_val).strip(), 
+                "Volume": volume
             })
         except Exception:
             continue
@@ -198,26 +173,20 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 # ENRICHISSEMENT
 # ============================================================
-def construire_referentiel():
-    return pd.DataFrame(REFERENTIEL_DATA, columns=["Article", "Positionnement", "Occasion"])
-
-def construire_mapping_auto():
-    return pd.DataFrame({
-        "Agence": AGENCES_MADAGASCAR,
-        "Région": [REGIONS[i % len(REGIONS)] for i in range(len(AGENCES_MADAGASCAR))],
-    })
-
 def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
     ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
     ventes = ventes.dropna(subset=["Date"])
     ventes["Mois"]  = ventes["Date"].dt.month
     ventes["Annee"] = ventes["Date"].dt.year
 
+    # Jointure avec le référentiel (les noms correspondent maintenant !)
     ref = construire_referentiel()
     df = ventes.merge(ref, on="Article", how="left")
 
+    # Mapping agences
     df = df.merge(construire_mapping_auto(), on="Agence", how="left")
 
+    # Objectifs fictifs
     np.random.seed(7)
     df["Objectif_Annuel"] = df.groupby(["Article", "Agence"])["Volume"].transform("sum") * 1.1
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
@@ -300,9 +269,11 @@ def calcul_gap(df_per, realise, prevision):
 # MAIN
 # ============================================================
 def main():
+    # --- SIDEBAR : UPLOAD ---
     st.sidebar.header("📤 1. Charger le fichier")
     uploaded_file = st.sidebar.file_uploader("Format Excel / CSV", type=["xlsx", "csv"])
 
+    # --- CHARGEMENT ---
     if uploaded_file is not None:
         try:
             raw = pd.read_excel(BytesIO(uploaded_file.getvalue()), header=None)
@@ -313,37 +284,43 @@ def main():
             ventes = extraire_ventes_sur_mesure(raw)
             
         if ventes.empty:
-            st.sidebar.error("❌ Erreur de lecture du fichier.")
+            st.sidebar.error("❌ Erreur de lecture du fichier. Vérifiez les colonnes.")
             st.stop()
             
         df_brut = enrichir_ventes(ventes)
         st.sidebar.success("✅ Fichier chargé avec succès !")
     else:
-        # Mode démo pour afficher les filtres
-        df_brut = generer_donnees_demo()
-        st.sidebar.warning("⚠️ Mode Démo (Uploadez un fichier pour voir vos vraies données)")
+        # Mode démo minimal pour afficher les filtres
+        df_brut = enrichir_ventes(pd.DataFrame({
+            "Date": [pd.Timestamp(2024,1,15)], "Article": ["Cristalline 100 cl PET"], 
+            "Agence": ["01-Tanjombato"], "Volume": [0]
+        }))
+        st.sidebar.warning("⚠️ Mode Démo (Veuillez uploader un fichier)")
 
-    # --- FILTRES (Affichés dans tous les cas) ---
+    # --- SIDEBAR : FILTRES ---
     st.sidebar.header("🎛️ 2. Filtres")
     st.sidebar.caption("Laisser vide = Mode GLOBAL")
     filtres = {}
     
-    for col in ["Région", "Agence", "Positionnement", "Occasion"]:
-        if col in df_brut.columns:
-            # On récupère TOUTES les valeurs uniques, même si la démo/le fichier n'en a qu'une partie
-            if col == "Agence":
-                vals = sorted(AGENCES_MADAGASCAR)
-            elif col == "Région":
-                vals = sorted(REGIONS)
-            elif col == "Positionnement":
-                vals = ["ENTREE", "MILIEU", "PREMIUM"]
-            elif col == "Occasion":
-                vals = ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"]
-            else:
-                vals = sorted(df_brut[col].dropna().unique().tolist())
-                
-            filtres[col] = st.sidebar.multiselect(col, vals, default=[])
+    # Liste complète des articles du référentiel
+    articles_dispo = [x[0] for x in REFERENTIEL_DATA]
+    
+    for col in ["Région", "Agence", "Positionnement", "Occasion", "Article"]:
+        if col == "Article":
+            vals = sorted(articles_dispo) # Filtre SKU
+        elif col == "Agence":
+            vals = sorted(AGENCES_MADAGASCAR)
+        elif col == "Région":
+            vals = sorted(REGIONS)
+        elif col == "Positionnement":
+            vals = ["ENTREE", "MILIEU", "PREMIUM"]
+        elif col == "Occasion":
+            vals = ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"]
+        else:
+            vals = sorted(df_brut[col].dropna().unique().tolist()) if col in df_brut else []
             
+        filtres[col] = st.sidebar.multiselect(col, vals, default=[])
+        
     mois_clotures = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, DEFAUT_MOIS_CLOTURES)
 
     # --- CALCULS ---

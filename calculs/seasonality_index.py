@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import numpy as np
 
 MOIS_NOMS = [
     "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
@@ -15,11 +16,7 @@ def annees_completes_saisonnalite(
     annee_cloture: int | None = None,
     mois_cloture: int | None = None,
 ) -> list[int]:
-    """Années réalisées complètes (les 12 mois présents) entre annee_debut et annee_fin.
-
-    Une année n'est retenue que si elle contient réellement les 12 mois
-    en nature "Réalisé". L'année de clôture arrêtée avant décembre est exclue.
-    """
+    """Années réalisées réellement complètes (les 12 mois présents)."""
     realise = donnees.loc[
         donnees["nature"].eq("Réalisé") & donnees["mois"].between(1, 12)
     ]
@@ -60,11 +57,11 @@ def calculer_indices_saisonnalite(
     annee_cloture: int | None = None,
     mois_cloture: int | None = None,
 ) -> pd.DataFrame:
-    """Coefficients saisonniers mensuels, moyenne 1,00 sur les 12 mois.
+    """Calcule l'IS avec la méthode Excel (moyenne des ratios annuels).
 
-    Coefficient du mois = volume moyen du mois / volume mensuel moyen global.
-    Les années incomplètes (moins de 12 mois réalisés) sont exclues.
-    La renormalisation finale garantit que sum(IS) = 12 et mean(IS) = 1.
+    1. Pour chaque année, on calcule le ratio de chaque mois par rapport à 
+       la moyenne mensuelle de CETTE année.
+    2. On fait la moyenne de ces ratios pour chaque mois sur les années retenues.
     """
     if annee_fin <= annee_debut:
         raise ValueError("L’année de fin doit être supérieure à l’année de début.")
@@ -97,51 +94,39 @@ def calculer_indices_saisonnalite(
         & donnees["mois"].between(1, 12)
     ]
 
-    # Somme par (année, mois), années × mois en lignes
-    volumes_mensuels = (
+    # Volume par (année, mois)
+    volumes = (
         selection.groupby(["annee", "mois"])[valeur]
         .sum()
-        .reindex(
-            pd.MultiIndex.from_product(
-                [annees, grille_mois], names=["annee", "mois"]
-            ),
-            fill_value=0.0,
-        )
-        .rename("volume")
-        .reset_index()
+        .unstack("mois")
+        .reindex(index=annees, columns=range(1, 13))
+        .fillna(0.0)
     )
 
-    nombre_annees = len(annees)
-    ventes_mensuelles_moyennes = (
-        volumes_mensuels.groupby("mois")["volume"].sum().div(nombre_annees)
-    ).reindex(grille_mois)
+    # 1. Moyenne mensuelle par année (pour calculer les ratios)
+    moyennes_annuelles = volumes.sum(axis=1) / 12.0
+    # On évite la division par zéro
+    moyennes_annuelles = moyennes_annuelles.replace(0, np.nan)
 
-    moyenne_mensuelle_globale = volumes_mensuels["volume"].sum() / (
-        nombre_annees * 12
-    )
+    # 2. Ratios par année (Volume du mois / Moyenne de l'année)
+    ratios = volumes.div(moyennes_annuelles, axis=0)
 
-    if moyenne_mensuelle_globale <= 0:
-        return pd.DataFrame(
-            {
-                "Mois": MOIS_NOMS,
-                "Volume moyen": ventes_mensuelles_moyennes.to_numpy(),
-                "Nombre de périodes": nombre_annees,
-                "Indice saisonnier": float("nan"),
-            }
-        )
-
-    indices = ventes_mensuelles_moyennes.div(moyenne_mensuelle_globale)
-
-    # ✚ Renormalisation finale : moyenne des 12 IS = 1,00 exactement
+    # 3. Moyenne des ratios sur les années retenues (méthode Excel)
+    indices = ratios.mean(axis=0).fillna(0.0)
+    
+    # 4. Petite normalisation de sécurité pour que la somme fasse exactement 12 (moyenne = 1.0)
     somme_indices = float(indices.sum())
     if somme_indices > 0:
         indices = indices * 12.0 / somme_indices
+
+    # Volumes moyens (pour l'affichage)
+    ventes_mensuelles_moyennes = volumes.mean(axis=0)
 
     return pd.DataFrame(
         {
             "Mois": MOIS_NOMS,
             "Volume moyen": ventes_mensuelles_moyennes.to_numpy(),
-            "Nombre de périodes": nombre_annees,
+            "Nombre de périodes": len(annees),
             "Indice saisonnier": indices.to_numpy(),
         }
     )
@@ -152,10 +137,7 @@ def calculer_matrice_indices_saisonnalite(
     valeur: str,
     annees: list[int],
 ) -> pd.DataFrame:
-    """Coefficients mensuels par année (une colonne par année).
-
-    Normalise chaque année indépendamment : moyenne = 1 par année.
-    """
+    """Coefficients mensuels par année."""
     colonnes_requises = {"annee", "mois", "nature", valeur}
     manquantes = colonnes_requises.difference(donnees.columns)
     if manquantes:
@@ -166,35 +148,26 @@ def calculer_matrice_indices_saisonnalite(
 
     annees_ordonnees = sorted(set(annees))
     grille_mois = pd.Index(range(1, 13), name="mois")
-    grille = pd.MultiIndex.from_product(
-        [annees_ordonnees, grille_mois],
-        names=["annee", "mois"],
-    )
     selection = donnees.loc[
         donnees["nature"].eq("Réalisé")
         & donnees["annee"].isin(annees_ordonnees)
         & donnees["mois"].between(1, 12)
     ]
-    volumes_mensuels = (
+    
+    volumes = (
         selection.groupby(["annee", "mois"])[valeur]
         .sum()
-        .reindex(grille, fill_value=0.0)
-        .unstack("annee")
-        .reindex(columns=annees_ordonnees)
+        .unstack("mois")
+        .reindex(index=annees_ordonnees, columns=range(1, 13))
+        .fillna(0.0)
     )
-    moyennes_annuelles = volumes_mensuels.sum(axis=0).div(12)
-    indices = volumes_mensuels.div(
-        moyennes_annuelles.where(moyennes_annuelles.gt(0)),
-        axis="columns",
-    )
-
-    # ✚ Renormalisation par année : moyenne = 1,00 par colonne
-    for annee in indices.columns:
-        col = indices[annee]
-        if col.notna().any() and float(col.sum()) > 0:
-            indices[annee] = col * 12.0 / float(col.sum())
-
-    indices.index = [MOIS_NOMS[mois - 1] for mois in indices.index]
-    indices.index.name = "Mois"
-    indices.columns = [str(annee) for annee in indices.columns]
-    return indices.reset_index()
+    
+    moyennes = volumes.sum(axis=1) / 12.0
+    indices = volumes.div(moyennes.replace(0, np.nan), axis=0).fillna(0.0)
+    
+    indices.index = [str(annee) for annee in indices.index]
+    indices.columns = [MOIS_NOMS[m - 1] for m in indices.columns]
+    indices.index.name = "Année"
+    
+    # On transpose pour avoir les mois en lignes et les années en colonnes
+    return indices.T.reset_index().rename(columns={"index": "Mois"})

@@ -1,6 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Version FINALE : Filtres en cascade (Région -> Agence, Segment -> Article)
+# Version FINALE : Filtres en cascade (Région, Agence, Segment, Article, Format, Contenance)
 # ============================================================
 
 import streamlit as st
@@ -16,10 +16,14 @@ DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
 
 # ============================================================
-# RÉFÉRENTIEL INTÉGRÉ (69 SKU + SEGMENT/MARQUE)
-# ============================================================
+# RÉFÉRENTIEL INTÉGRÉ (69 SKU)
 # Format : (Article, Positionnement, Occasion, Segment)
+# ============================================================
 REFERENTIEL_DATA = [
+    # --- BOOSTER ---
+    ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)", "BOOSTER"),
+    ("Booster Tornado 50CL VER",   "PREMIUM", "CU (Convivial Units)", "BOOSTER"),
+    
     # --- CAPRICE ---
     ("Caprice Ananas 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
     ("Caprice Ananas 150 cl PET", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
@@ -46,34 +50,39 @@ REFERENTIEL_DATA = [
     ("Caprice Citron 150 cl PET", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
     ("Caprice Citron 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
     ("Caprice Citron 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+
     # --- WORLD COLA / TONIC ---
     ("World Cola 100cl VER", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
-    ("World Cola 100cl WOCOVER", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
+    ("World Cola 100cl WOCCO VER", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
     ("World Cola 150cl PET", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
     ("World Cola 30cl VER", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
-    ("World Cola 30cl WOCOVER", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
+    ("World Cola 30cl WOCCO VER", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
     ("World Cola 33 cl CAN", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
     ("World Cola 35cl PET", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
     ("World Cola 50cl PET", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
     ("Tonic 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
     ("Tonic 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
-    # --- EAUX (CRISTALLINE / EAU VIVE / FOSA) ---
+
+    # --- EAUX ---
     ("Cristalline 100 cl PET", "MILIEU", "IC (Individual/Immediate Consumption)", "EAUX"),
     ("Cristalline 200 cl PET", "MILIEU", "FC (Family/Future Consumption)", "EAUX"),
     ("Eau vive 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)", "EAUX"),
     ("Eau vive 50 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)", "EAUX"),
     ("Eau vive 50 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "EAUX"),
     ("FOSA 50 cl CAN", "PREMIUM", "IC (Individual/Immediate Consumption)", "EAUX"),
-    # --- BOOSTER ---
-    ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)", "BOOSTER"),
-    ("Booster Tornado 50CL VER",   "PREMIUM", "CU (Convivial Units)", "BOOSTER"),
-    # --- BIERES (THB / GOLD / QUEEN / BEAUFORT / FRESH) ---
+    
+    # --- BIERES (BEAUFORT / THB / QUEEN) ---
+    ("Beaufort 33 CL CAN", "PREMIUM", "SS (Single serve)", "BEAUFORT"),
+    ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)", "BEAUFORT"),
+    ("FRESH 33 cl CAN", "ENTREE", "IC (Individual/Immediate Consumption)", "THB"),
+    ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)", "THB"),
+    ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)", "THB"),
     ("THB Pilsener 33 cl VER", "MILIEU", "SS (Single serve)", "THB"),
     ("THB Pilsener 50 cl CAN", "MILIEU", "SS (Single serve)", "THB"),
     ("THB Pilsener 65 cl VER", "MILIEU", "CU (Convivial Units)", "THB"),
-    ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)", "THB"),
-    ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)", "THB"),
-    ("FRESH 33 cl CAN", "ENTREE", "IC (Individual/Immediate Consumption)", "THB"),
+    ("Queen s 65 cl VER", "ENTREE", "CU (Convivial Units)", "QUEEN"),
+
+    # --- GOLD ---
     ("Gold 8 50 cl CAN", "PREMIUM", "SS (Single serve)", "GOLD"),
     ("Gold 8 50 cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
     ("Gold Blanche 33cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
@@ -83,9 +92,7 @@ REFERENTIEL_DATA = [
     ("Gold Blonde 50 cl CAN", "PREMIUM", "SS (Single serve)", "GOLD"),
     ("Gold Blonde 50 cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
     ("Gold Blonde 65 cl VER", "PREMIUM", "CU (Convivial Units)", "GOLD"),
-    ("Beaufort 33 CL CAN", "PREMIUM", "SS (Single serve)", "BEAUFORT"),
-    ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)", "BEAUFORT"),
-    ("Queen s 65 cl VER", "ENTREE", "CU (Convivial Units)", "QUEEN"),
+
     # --- CRISTAL / XXL ---
     ("Cristal 100 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "CRISTAL"),
     ("Cristal 150 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)", "CRISTAL"),
@@ -107,15 +114,15 @@ AGENCES_DATA = [
     ("09-Tamatave", "Est"),
     ("18-Ambanja", "Est"),
     ("19-Sambava", "Est"),
+    ("08-Manakara", "Est"),
     ("07-Majunga", "Ouest"),
     ("23-Morondava", "Ouest"),
     ("24-Fort Dauphin", "Sud"),
-    ("21-NosyBe", "Nord"),
-    ("03-Diego", "Nord"),
     ("04-Tulear", "Sud"),
     ("05-Fianarantsoa", "Sud"),
     ("06-Ihosy", "Sud"),
-    ("08-Manakara", "Est"),
+    ("21-NosyBe", "Nord"),
+    ("03-Diego", "Nord"),
 ]
 
 MOIS_FR_INV = {
@@ -125,11 +132,29 @@ MOIS_FR_INV = {
 }
 
 # ============================================================
+# FONCTIONS D'EXTRACTION D'ATTRIBUTS (Format, Contenance)
+# ============================================================
+def extraire_format(article: str) -> str:
+    a = str(article).upper()
+    if "CAN" in a: return "CAN"
+    if "PET" in a: return "PET"
+    if "VER" in a: return "VER"
+    return "AUTRE"
+
+def extraire_contenance(article: str) -> int:
+    # Cherche un nombre suivi de "cl" ou "CL" (ex: "100 cl", "50CL")
+    m = re.search(r"(\d+)\s*C?L", str(article).upper())
+    return int(m.group(1)) if m else 0
+
+# ============================================================
 # FONCTIONS UTILITAIRES
 # ============================================================
 def construire_referentiel():
-    # On ajoute le Segment à la fin
-    return pd.DataFrame(REFERENTIEL_DATA, columns=["Article", "Positionnement", "Occasion", "Segment"])
+    df = pd.DataFrame(REFERENTIEL_DATA, columns=["Article", "Positionnement", "Occasion", "Segment"])
+    # Ajout dynamique des colonnes Format et Contenance
+    df["Format"] = df["Article"].apply(extraire_format)
+    df["Contenance"] = df["Article"].apply(extraire_contenance)
+    return df
 
 def construire_mapping_auto():
     return pd.DataFrame(AGENCES_DATA, columns=["Agence", "Région"])
@@ -171,7 +196,7 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
 
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
             
-            # Nettoyer le préfixe de l'article (ex: "190-Cristalline..." -> "Cristalline...")
+            # Nettoyer l'article (enlever le préfixe type "190-")
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
 
             rows.append({
@@ -323,14 +348,28 @@ def main():
     tous_les_segments = sorted(list(set([x[3] for x in REFERENTIEL_DATA])))
     sel_segments = st.sidebar.multiselect("Segment (Marque)", tous_les_segments, default=[])
     
-    # 4. Filtre Article (dépend du Segment)
+    # 4. Filtre Format (dépend du Segment)
+    referentiel_complet = construire_referentiel()
     if len(sel_segments) > 0:
-        articles_dispo = [art for art, pos, occ, seg in REFERENTIEL_DATA if seg in sel_segments]
+        formats_dispo = sorted(referentiel_complet[referentiel_complet["Segment"].isin(sel_segments)]["Format"].unique().tolist())
     else:
-        articles_dispo = [art for art, pos, occ, seg in REFERENTIEL_DATA]
-    sel_articles = st.sidebar.multiselect("Article (SKU)", sorted(articles_dispo), default=[])
+        formats_dispo = sorted(referentiel_complet["Format"].unique().tolist())
+    sel_formats = st.sidebar.multiselect("Format (Emballage)", formats_dispo, default=[])
 
-    # 5. Filtres restants
+    # 5. Filtre Contenance (dépend du Segment et du Format)
+    df_filtré = referentiel_complet.copy()
+    if len(sel_segments) > 0: df_filtré = df_filtré[df_filtré["Segment"].isin(sel_segments)]
+    if len(sel_formats) > 0: df_filtré = df_filtré[df_filtré["Format"].isin(sel_formats)]
+    contenances_dispo = sorted(df_filtré["Contenance"].unique().tolist())
+    sel_contenances = st.sidebar.multiselect("Contenance (cl)", contenances_dispo, default=[])
+
+    # 6. Filtre Article (dépend de tous les filtres précédents)
+    df_filtré_article = df_filtré.copy()
+    if len(sel_contenances) > 0: df_filtré_article = df_filtré_article[df_filtré_article["Contenance"].isin(sel_contenances)]
+    articles_dispo = sorted(df_filtré_article["Article"].unique().tolist())
+    sel_articles = st.sidebar.multiselect("Article (SKU)", articles_dispo, default=[])
+
+    # 7. Filtres restants (non liés à la hiérarchie produit)
     sel_positionnements = st.sidebar.multiselect("Positionnement", ["ENTREE", "MILIEU", "PREMIUM"], default=[])
     sel_occasions = st.sidebar.multiselect("Occasion", ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"], default=[])
 
@@ -341,6 +380,8 @@ def main():
         "Région": sel_regions,
         "Agence": sel_agences,
         "Segment": sel_segments,
+        "Format": sel_formats,
+        "Contenance": sel_contenances,
         "Article": sel_articles,
         "Positionnement": sel_positionnements,
         "Occasion": sel_occasions

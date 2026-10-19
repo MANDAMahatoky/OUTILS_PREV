@@ -72,49 +72,40 @@ TYPES = {
 }
 
 # ==============================================================================
-# 2. RÉFÉRENTIEL EXACT (Basé sur l'image fournie)
+# 2. RÉFÉRENTIEL EXACT
 # ==============================================================================
 
 def _generer_catalogue_exact():
-    # Liste des articles avec leur Positionnement et Occasion EXACTS
     data_raw = [
-        # Booster
         ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
         ("Booster Tornado 50CL VER VER", "PREMIUM", "CU (Convivial Units)"),
-        # Caprice Ananas
         ("Caprice Ananas 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
         ("Caprice Ananas 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
         ("Caprice Ananas 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # Caprice Bonbon Anglais
         ("Caprice Bonbon Anglais 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
         ("Caprice Bonbon Anglais 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
         ("Caprice Bonbon Anglais 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Bonbon Anglais 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Bonbon Anglais 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Bonbon Anglais 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # Caprice Grenadine
         ("Caprice Grenadine 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
         ("Caprice Grenadine 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
         ("Caprice Grenadine 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Grenadine 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Grenadine 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Grenadine 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # Caprice Orange
         ("Caprice Orange 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
         ("Caprice Orange 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
         ("Caprice Orange 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Orange 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Orange 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Orange 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # Caprice Citron
         ("Caprice Citron 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
         ("Caprice Citron 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
         ("Caprice Citron 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Caprice Citron 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # Tonic
         ("Tonic 100 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Tonic 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # World Cola
         ("World Cola 100cl VER", "MILIEU", "FC (Family/Future Consumption)"),
         ("World Cola 100cl WOCO VER", "MILIEU", "FC (Family/Future Consumption)"),
         ("World Cola 150cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
@@ -123,14 +114,11 @@ def _generer_catalogue_exact():
         ("World Cola 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("World Cola 35cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("World Cola 50cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # Beaufort
         ("Beaufort 33 CL CAN", "MILIEU", "SS (Single serve)"),
         ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)"),
-        # FRESH
         ("FRESH 33 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)"),
         ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)"),
-        # Gold
         ("Gold 8 50 cl CAN", "PREMIUM", "SS (Single serve)"),
         ("Gold 8 50 cl VER", "PREMIUM", "SS (Single serve)"),
         ("Gold Blanche 33cl VER", "PREMIUM", "SS (Single serve)"),
@@ -140,27 +128,20 @@ def _generer_catalogue_exact():
         ("Gold Blonde 50 cl CAN", "PREMIUM", "SS (Single serve)"),
         ("Gold Blonde 50 cl VER", "PREMIUM", "SS (Single serve)"),
         ("Gold Blonde 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
-        # Queen
         ("Queen s 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
-        # THB
         ("THB Pilsener 33 cl VER", "MILIEU", "SS (Single serve)"),
         ("THB Pilsener 50 cl CAN", "MILIEU", "CU (Convivial Units)"),
         ("THB Pilsener 65 cl VER", "MILIEU", "CU (Convivial Units)"),
-        # Cristal
         ("Cristal 100 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("Cristal 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
         ("Cristal 30 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("Cristal 50 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
-        # Cristalline
         ("Cristalline 100 cl PET", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("Cristalline 200 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
-        # Eau vive
         ("Eau vive 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
         ("Eau vive 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
         ("Eau vive 50 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
-        # FOSA
         ("FOSA 50 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
-        # XXL
         ("XXL 30cl BOB VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("XXL 30cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("XXL 33 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
@@ -170,18 +151,14 @@ def _generer_catalogue_exact():
     data = []
     for art, pos, occ in data_raw:
         art_lower = art.lower()
-        
-        # Déduction Segment
         if "cristal" in art_lower or "eau" in art_lower: segment = "EAUX"
         elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]): segment = "BIERES"
         else: segment = "BOISSONS"
         
-        # Format
         fmt = art.split()[-1].upper() if art.split()[-1].upper() in ["VER", "PET", "CAN"] else "VER"
         if "WOCO" in art_lower: fmt = "VER"
         if "BOB" in art_lower: fmt = "VER"
         
-        # Contenance
         match = re.search(r'(\d+)\s*cl', art_lower)
         c_cl = int(match.group(1)) if match else 50
         c_hl = c_cl * 0.0001
@@ -334,7 +311,7 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
     return df
 
 # ==============================================================================
-# 5. SAISONNALITÉ & SAAR
+# 5. MOTEUR DE CALCUL AJUSTÉ (SAAR & Saisonnalité)
 # ==============================================================================
 
 def annees_completes_saisonnalite(donnees: pd.DataFrame, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int) -> list[int]:
@@ -359,72 +336,72 @@ def calculer_indices_saisonnalite(donnees: pd.DataFrame, valeur: str, annee_debu
     if float(indices.sum()) > 0: indices = indices * 12.0 / float(indices.sum())
     return pd.DataFrame({"Mois": MOIS_NOMS, "Volume moyen": volumes.mean(axis=0).to_numpy(), "Nombre de périodes": len(annees), "Indice saisonnier": indices.to_numpy()})
 
-@st.cache_data(show_spinner="Calcul des prévisions SAAR...")
-def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture: int, annee_cible: int, taux_croissance: float) -> pd.DataFrame:
+@st.cache_data(show_spinner="Calcul des prévisions SAAR (Ajusté sur le réel)...")
+def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture: int, annee_cible: int, taux_croissance_force: float) -> pd.DataFrame:
     if annee_cible < annee_cloture: return df
+    
     cles = ["agence", "article"]
     dimensions = ["agence", "region", "segment", "produit", "parfum", "format", "type_format", "article", "origine", "positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl"]
-    realise_ytd = df.loc[(df["nature"] == "Réalisé") & (df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture)]
     
-    if annee_cible > annee_cloture:
-        base_df = df.loc[(df["annee"] == annee_cloture) & (df["nature"].isin(["Réalisé", "Prévision"]))]
-        if base_df.empty: return df
-        cumul_base = base_df.groupby(cles)[["hl", "colis"]].sum()
-        derniere_ligne = base_df.sort_values(["annee", "mois"]).drop_duplicates(cles, keep="last").set_index(cles)
-    else:
-        if realise_ytd.empty: return df
-        cumul_base = realise_ytd.groupby(cles)[["hl", "colis"]].sum()
-        derniere_ligne = realise_ytd.sort_values(["annee", "mois"]).drop_duplicates(cles, keep="last").set_index(cles)
+    # 1. Base de calcul : le réalisé de l'année de clôture (YTD)
+    realise_ytd = df.loc[(df["nature"] == "Réalisé") & (df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture)]
+    if realise_ytd.empty: return df
+    
+    cumul_ytd = realise_ytd.groupby(cles)[["hl", "colis"]].sum()
+    derniere_ligne = realise_ytd.sort_values(["annee", "mois"]).drop_duplicates(cles, keep="last").set_index(cles)
 
-    df_ref = df.loc[df["annee"].isin([2024, 2025]) & (df["nature"] == "Réalisé")]
+    # 2. Profils saisonniers basés sur N-1 et N-2
+    df_ref = df.loc[df["annee"].isin([annee_cible - 1, annee_cible - 2]) & (df["nature"] == "Réalisé")]
     profils_ref = {}
     if not df_ref.empty:
         volumes_mensuels = df_ref.groupby([*cles, "mois"])["hl"].sum().unstack("mois").fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0).clip(lower=0.0)
         totaux = volumes_mensuels.sum(axis=1)
         profils_ref = {c: p.to_numpy(dtype=float) for c, p in volumes_mensuels.div(totaux.where(totaux > 0), axis=0).mul(12.0).iterrows() if totaux.loc[c] > 0}
 
-    volumes_annee_precedente = df.loc[df["annee"] == annee_cible - 1].groupby([*cles, "mois"])[["hl", "colis"]].sum()
-    taux_annuel = 1.0 + max(taux_croissance, 1.0) / 100.0
-    facteur_croissance = taux_annuel ** (annee_cible - annee_cloture)
+    # 3. Calcul du taux de croissance
+    real_n_1 = df[(df["annee"] == annee_cible - 1) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
+    real_n_2 = df[(df["annee"] == annee_cible - 2) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
+    croissance_observee = (real_n_1 / real_n_2.replace(0, np.nan)).fillna(1.0)
+    taux_croissance_couple = np.maximum(croissance_observee, 1.0 + max(taux_croissance_force, 1.0) / 100.0)
+    taux_croissance_couple = np.minimum(taux_croissance_couple, 1.5) 
     
     projections = []
-    for cle, volumes in cumul_base.iterrows():
+    for cle, volumes in cumul_ytd.iterrows():
         cle = cle if isinstance(cle, tuple) else (cle,)
+        
         profil = profils_ref.get(cle, np.ones(12, dtype=float))
         if profil[:mois_cloture].sum() <= 0: profil = np.ones(12, dtype=float)
         
+        # Annualisation basée sur le profil
         poids_ecoule = profil[:mois_cloture].sum()
-        base_hl = max(0.0, float(volumes["hl"]) / poids_ecoule * 12.0)
-        base_colis = max(0.0, float(volumes["colis"]) / poids_ecoule * 12.0)
+        base_hl_ytd = max(0.0, float(volumes["hl"]) / poids_ecoule * 12.0)
+        base_colis_ytd = max(0.0, float(volumes["colis"]) / poids_ecoule * 12.0)
         
-        if annee_cible > annee_cloture:
-            base_hl *= taux_annuel ** (annee_cible - annee_cloture - 1)
-            base_colis *= taux_annuel ** (annee_cible - annee_cloture - 1)
-            
+        taux = taux_croissance_couple.get(cle, 1.0)
+        facteur = taux ** (annee_cible - annee_cloture)
+        
+        base_hl_target = base_hl_ytd * facteur
+        base_colis_target = base_colis_ytd * facteur
+        
         ligne_ref = derniere_ligne.loc[cle]
 
         for mois in range(1, 13):
             if annee_cible == annee_cloture and mois <= mois_cloture: continue
+            
             facteur_mois = HAUSSE_SAISONNIERE_PREVISION.get(mois, 1.0)
             ligne = {col: cle[cles.index(col)] if col in cles else ligne_ref[col] for col in dimensions}
             
-            if (*cle, mois) in volumes_annee_precedente.index and volumes_annee_precedente.loc[(*cle, mois)]["hl"] > 0:
-                plancher = volumes_annee_precedente.loc[(*cle, mois)]
-                vol_hl_min, vol_colis_min = max(0.0, float(plancher["hl"])), max(0.0, float(plancher["colis"]))
-                vol_hl_min *= taux_annuel
-                vol_colis_min *= taux_annuel
-            else:
-                vol_hl_min = base_hl * profil[mois - 1] / 12.0
-                vol_colis_min = base_colis * profil[mois - 1] / 12.0
+            vol_hl = base_hl_target * profil[mois - 1] / 12.0 * facteur_mois
+            vol_colis = base_colis_target * profil[mois - 1] / 12.0 * facteur_mois
 
-            ligne.update({"annee": annee_cible, "mois": mois, "periode": f"{annee_cible}-{mois:02d}", "nature": "Prévision",
-                          "hl": max(vol_hl_min, base_hl * profil[mois - 1] / 12.0) * facteur_mois,
-                          "colis": max(vol_colis_min, base_colis * profil[mois - 1] / 12.0) * facteur_mois})
+            ligne.update({"annee": annee_cible, "mois": mois, "periode": f"{annee_cible}-{mois:02d}", "nature": "Prévision", "hl": vol_hl, "colis": vol_colis})
             projections.append(ligne)
 
     if not projections: return df
+    
     masque_existant = (df["annee"] == annee_cible) & (df["nature"] == "Prévision")
     if annee_cible == annee_cloture: masque_existant &= df["mois"].gt(mois_cloture)
+    
     return pd.concat([df.loc[~masque_existant], pd.DataFrame(projections).reindex(columns=df.columns)], ignore_index=True)
 
 @st.cache_data(show_spinner="Reconstitution des prévisions historiques...")
@@ -621,16 +598,29 @@ st.markdown("---")
 tab_comp, tab_detail, tab_is = st.tabs(["📊 Prévision vs Réalisé", "🔍 Détail des cumuls", "📈 Indice saisonnier"])
 
 # ==============================================================================
-# ONGLET 1 : PRÉVISION VS RÉALISÉ (Vue Globale par Année en Courbes)
+# ONGLET 1 : PRÉVISION VS RÉALISÉ
 # ==============================================================================
 with tab_comp:
     st.subheader(f"Historique des volumes : Réalisé vs Prévision (Cible : {annee_cible})")
     
+    # On prépare les données
     df_comp = d_tendance.groupby(["annee", "nature"])[val_choix].sum().unstack("nature").fillna(0.0)
+    
+    # On s'assure que toutes les années jusqu'à annee_cible sont présentes
+    toutes_annees = list(range(int(df_comp.index.min()), int(annee_cible) + 1))
+    df_comp = df_comp.reindex(toutes_annees).fillna(0.0)
+    
     if "Réalisé" not in df_comp.columns: df_comp["Réalisé"] = 0.0
     if "Prévision" not in df_comp.columns: df_comp["Prévision"] = 0.0
     
-    df_comp = df_comp[df_comp.index <= annee_cible]
+    # On remplace les 0 par des NaN pour les périodes où il n'y a pas de donnée
+    # (sinon la ligne tombe à zéro)
+    for idx in df_comp.index:
+        if idx < annee_cloture and df_comp.loc[idx, "Prévision"] == 0:
+            df_comp.loc[idx, "Prévision"] = np.nan
+        if idx > annee_cloture and df_comp.loc[idx, "Réalisé"] == 0:
+            df_comp.loc[idx, "Réalisé"] = np.nan
+            
     df_comp.index.name = "Année"
     df_comp = df_comp.reset_index()
     df_comp["Année"] = df_comp["Année"].astype(str)
@@ -645,6 +635,7 @@ with tab_comp:
         st.dataframe(df_comp.set_index("Année").round(dec), width="stretch")
     else:
         df_melt = df_comp.melt(id_vars="Année", var_name="Type", value_name="Volume")
+        df_melt = df_melt.dropna(subset=["Volume"]) # On retire les NaN pour le graphique
         
         chart = alt.Chart(df_melt).mark_line(
             interpolate="monotone", 

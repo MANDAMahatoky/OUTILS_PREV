@@ -1,6 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Version FINALE (Référentiel 69 SKU intégré + Lecture 100%)
+# Version FINALE (Lecture 100% garantie avec Barre de Progression)
 # ============================================================
 
 import streamlit as st
@@ -89,7 +89,6 @@ REFERENTIEL_DATA = [
     ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
 ]
 
-# Dictionnaire pour une recherche ultra-rapide
 REF_DICT = {art: (pos, occ) for art, pos, occ in REFERENTIEL_DATA}
 
 # ============================================================
@@ -121,7 +120,7 @@ def extraire_contenance(article: str) -> int:
     return int(m.group(1)) if m else 0
 
 # ============================================================
-# LECTEUR EXHAUSTIF (100% GARANTI SANS PERTE)
+# LECTEUR AVEC BARRE DE PROGRESSION
 # ============================================================
 def extraire_ventes_sur_mesure(raw: pd.DataFrame):
     rows = []
@@ -133,9 +132,13 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
         "valides": 0
     }
     
+    progress_bar = st.progress(0, text="Lecture des données en cours...")
+    
     for i in range(len(raw)):
+        if i % 100 == 0:
+            progress_bar.progress(i / len(raw), text=f"Lecture ligne {i:,} / {len(raw):,}...")
+            
         try:
-            # Lecture stricte des 7 colonnes A à G
             annee_val   = raw.iloc[i, 0]
             mois_val    = raw.iloc[i, 1]
             cat_val     = raw.iloc[i, 2]
@@ -144,17 +147,14 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
             article_val = raw.iloc[i, 5]
             volume_val  = raw.iloc[i, 6]
 
-            # 1. Lignes vides
             if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val) or pd.isna(volume_val):
                 stats["ignorees_vides"] += 1
                 continue
 
-            # 2. Totaux
             if str(article_val).strip().upper() == "TOTAL" or str(agence_val).strip().upper() == "TOTAL":
                 stats["ignorees_totaux"] += 1
                 continue
 
-            # 3. Volume
             vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
             try:
                 volume = float(vol_str)
@@ -162,14 +162,12 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
                 stats["ignorees_erreurs"] += 1
                 continue
 
-            # 4. Année
             try:
                 annee = int(annee_val)
             except ValueError:
                 stats["ignorees_erreurs"] += 1
                 continue
 
-            # 5. Mois
             if isinstance(mois_val, str):
                 mois_str = mois_val.strip().upper()
                 mois = MOIS_FR_INV.get(mois_str)
@@ -185,15 +183,11 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
 
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
 
-            # 6. Nettoyage du nom de l'article pour le faire correspondre au référentiel
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
-            
-            # 7. Récupération du Positionnement et Occasion
             pos_occ = REF_DICT.get(art_propre, ("INCONNU", "INCONNU"))
             positionnement = pos_occ[0]
             occasion = pos_occ[1]
 
-            # On récupère le Segment (colonne C) et la Marque (colonne D)
             segment = re.sub(r"^\d+-", "", str(cat_val).strip()).upper() if not pd.isna(cat_val) else "INCONNU"
             marque = re.sub(r"^\d+-", "", str(marque_val).strip()).upper() if not pd.isna(marque_val) else "INCONNU"
 
@@ -212,6 +206,7 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
             stats["ignorees_erreurs"] += 1
             continue
 
+    progress_bar.empty()
     df = pd.DataFrame(rows)
     return df, stats
 
@@ -224,7 +219,6 @@ def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
     df["Format"] = df["Article"].apply(extraire_format)
     df["Contenance"] = df["Article"].apply(extraire_contenance)
     
-    # Mapping Région sans merge (pour ne pas perdre de lignes)
     map_region = dict(AGENCES_DATA)
     df["Région"] = df["Agence"].map(map_region).fillna("Inconnu")
     
@@ -320,12 +314,12 @@ def main():
 
     if uploaded_file is not None:
         try:
-            raw = pd.read_excel(BytesIO(uploaded_file.getvalue()), header=None, usecols=range(7))
+            # On lit TOUT sans rien supposer
+            raw = pd.read_excel(BytesIO(uploaded_file.getvalue()), header=None)
         except Exception:
-            raw = pd.read_csv(BytesIO(uploaded_file.getvalue()), header=None, usecols=range(7))
+            raw = pd.read_csv(BytesIO(uploaded_file.getvalue()), header=None)
         
-        with st.spinner("Extraction des données en cours..."):
-            ventes, stats = extraire_ventes_sur_mesure(raw)
+        ventes, stats = extraire_ventes_sur_mesure(raw)
             
         if ventes.empty:
             st.sidebar.error("❌ Aucune donnée valide extraite.")
@@ -333,7 +327,6 @@ def main():
             
         df_brut = enrichir_ventes(ventes)
         
-        # --- DIAGNOSTIC DANS LA SIDEBAR ---
         st.sidebar.success("✅ Fichier chargé !")
         with st.sidebar.expander("🔍 DIAGNOSTIC EXACT"):
             st.write(f"**Lignes dans le fichier Excel :** {stats['total_lignes_fichier']:,}")
@@ -384,7 +377,6 @@ def main():
     else:
         sel_segments, sel_marques, sel_formats, sel_contenances, sel_articles = [], [], [], [], []
 
-    # Filtres Positionnement et Occasion (issus du PDF)
     sel_positionnements = st.sidebar.multiselect("Positionnement", ["ENTREE", "MILIEU", "PREMIUM"], default=[])
     sel_occasions = st.sidebar.multiselect("Occasion", ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"], default=[])
 

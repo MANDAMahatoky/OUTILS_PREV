@@ -560,15 +560,12 @@ st.markdown("---")
 tab_comp, tab_detail, tab_is = st.tabs(["📊 Prévision vs Réalisé", "🔍 Détail des cumuls", "📈 Indice saisonnier"])
 
 # ==============================================================================
-# ONGLET 1 : PRÉVISION VS RÉALISÉ (Vue Globale par Année)
+# ONGLET 1 : PRÉVISION VS RÉALISÉ (Vue Globale par Année en Courbes)
 # ==============================================================================
 with tab_comp:
     st.subheader(f"Historique des volumes : Réalisé vs Prévision (Cible : {annee_cible})")
     
-    # On prépare les données de TOUTES les années (passées, présente, futures)
     df_comp = d_tendance.groupby(["annee", "nature"])[val_choix].sum().unstack("nature").fillna(0.0)
-    
-    # S'assurer que les colonnes existent
     if "Réalisé" not in df_comp.columns: df_comp["Réalisé"] = 0.0
     if "Prévision" not in df_comp.columns: df_comp["Prévision"] = 0.0
     
@@ -580,26 +577,36 @@ with tab_comp:
     
     st.caption(
         "Ce graphique compare le volume global de chaque année. "
-        "Le 'Réalisé' montre les années clôturées. Pour l'année en cours, la barre 'Prévision' montre l'atterrissage. "
+        "Le 'Réalisé' montre les années clôturées. Pour l'année en cours, la courbe 'Prévision' montre l'atterrissage. "
         "Les années futures (ex: 2027) affichent la projection SAAR."
     )
     
     if mode_affichage == "Tableau":
         st.dataframe(df_comp.set_index("Année").round(dec), width="stretch")
     else:
-        # On crée un graphique à barres groupées
         df_melt = df_comp.melt(id_vars="Année", var_name="Type", value_name="Volume")
-        chart = alt.Chart(df_melt).mark_bar().encode(
+        
+        # Création du graphique en courbes avec Altair
+        chart = alt.Chart(df_melt).mark_line(
+            interpolate="monotone", 
+            point=alt.OverlayMarkDef(filled=True, size=80)
+        ).encode(
             x=alt.X("Année:N", sort=df_comp["Année"].tolist(), title="Année"),
             y=alt.Y("Volume:Q", title=f"Volume total ({val_choix})"),
             color=alt.Color("Type:N", scale=alt.Scale(
                 domain=["Réalisé", "Prévision"], 
                 range=[COULEUR_REALISE, COULEUR_PREVISION]
             ), legend=alt.Legend(title="Type de donnée")),
-            xOffset="Type:N", # Barres côte à côte
+            strokeDash=alt.StrokeDash("Type:N", legend=None),
             tooltip=["Année", "Type", alt.Tooltip("Volume:Q", format=",.0f")]
         )
-        st.altair_chart(chart.properties(height=400), width="stretch")
+        
+        # Application de la couleur en fonction de la nature (Réalisé = trait plein, Prévision = pointillés)
+        chart = chart.encode(
+            strokeDash=alt.StrokeDash("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[[1, 0], [5, 5]]), legend=None)
+        )
+        
+        st.altair_chart(chart.properties(height=450, width="container"), use_container_width=True)
 
 # ==============================================================================
 # ONGLET 2 : DÉTAIL DES CUMULS

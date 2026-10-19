@@ -72,55 +72,116 @@ TYPES = {
 }
 
 # ==============================================================================
-# 2. RÉFÉRENTIEL EN DUR
+# 2. RÉFÉRENTIEL EXACT (Basé sur l'image fournie)
 # ==============================================================================
 
-def _generer_catalogue_manuel():
-    articles = [
-        "Booster Appel-Mix 50CL VER", "Booster Tornado 50CL VER VER",
-        "Caprice Ananas 100 cl VER", "Caprice Ananas 150 cl PET", "Caprice Ananas 30 cl VER",
-        "Caprice Bonbon Anglais 100 cl VER", "Caprice Bonbon Anglais 150 cl PET", "Caprice Bonbon Anglais 30 cl VER",
-        "Caprice Bonbon Anglais 35 cl PET", "Caprice Bonbon Anglais 50 cl PET", "Caprice Bonbon Anglais 33 cl CAN",
-        "Caprice Grenadine 100 cl VER", "Caprice Grenadine 150 cl PET", "Caprice Grenadine 30 cl VER",
-        "Caprice Grenadine 33 cl CAN", "Caprice Grenadine 35 cl PET", "Caprice Grenadine 50 cl PET",
-        "Caprice Orange 100 cl VER", "Caprice Orange 150 cl PET", "Caprice Orange 30 cl VER",
-        "Caprice Orange 33 cl CAN", "Caprice Orange 35 cl PET", "Caprice Orange 50 cl PET",
-        "Caprice Citron 100 cl VER", "Caprice Citron 150 cl PET", "Caprice Citron 30 cl VER", "Caprice Citron 50 cl PET",
-        "Tonic 100 cl VER", "Tonic 30 cl VER",
-        "World Cola 100cl VER", "World Cola 100cl WOCO VER", "World Cola 150cl PET", "World Cola 30cl VER",
-        "World Cola 30cl WOCO VER", "World Cola 33 cl CAN", "World Cola 35cl PET", "World Cola 50cl PET",
-        "Beaufort 33 CL CAN", "Beaufort 33CL VER",
-        "FRESH 33 cl CAN", "THB Fresh 33 cl VER", "THB Fresh 65 cl VER",
-        "Gold 8 50 cl CAN", "Gold 8 50 cl VER",
-        "Gold Blanche 33cl VER", "Gold Blanche 50 cl CAN", "Gold Blanche 50 cl VER",
-        "Gold Blonde 33 cl VER", "Gold Blonde 50 cl CAN", "Gold Blonde 50 cl VER", "Gold Blonde 65 cl VER",
-        "Queen s 65 cl VER",
-        "THB Pilsener 33 cl VER", "THB Pilsener 50 cl CAN", "THB Pilsener 65 cl VER",
-        "Cristal 100 cl VER", "Cristal 150 cl PET", "Cristal 30 cl VER", "Cristal 50 cl VER",
-        "Cristalline 100 cl PET", "Cristalline 200 cl PET",
-        "Eau vive 150 cl PET", "Eau vive 50 cl PET", "Eau vive 50 cl VER",
-        "FOSA 50 cl CAN",
-        "XXL 30cl BOB VER", "XXL 30cl VER", "XXL 33 cl CAN", "XXL 35cl PET"
+def _generer_catalogue_exact():
+    # Liste des articles avec leur Positionnement et Occasion EXACTS
+    data_raw = [
+        # Booster
+        ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
+        ("Booster Tornado 50CL VER VER", "PREMIUM", "CU (Convivial Units)"),
+        # Caprice Ananas
+        ("Caprice Ananas 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Ananas 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Ananas 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # Caprice Bonbon Anglais
+        ("Caprice Bonbon Anglais 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Bonbon Anglais 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Bonbon Anglais 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Bonbon Anglais 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Bonbon Anglais 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Bonbon Anglais 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # Caprice Grenadine
+        ("Caprice Grenadine 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Grenadine 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Grenadine 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Grenadine 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Grenadine 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Grenadine 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # Caprice Orange
+        ("Caprice Orange 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Orange 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Orange 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Orange 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Orange 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Orange 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # Caprice Citron
+        ("Caprice Citron 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Citron 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Citron 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Citron 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # Tonic
+        ("Tonic 100 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Tonic 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # World Cola
+        ("World Cola 100cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("World Cola 100cl WOCO VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("World Cola 150cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("World Cola 30cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 30cl WOCO VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 35cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 50cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # Beaufort
+        ("Beaufort 33 CL CAN", "MILIEU", "SS (Single serve)"),
+        ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)"),
+        # FRESH
+        ("FRESH 33 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)"),
+        ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)"),
+        # Gold
+        ("Gold 8 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+        ("Gold 8 50 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blanche 33cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blanche 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blanche 50 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 33 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 50 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
+        # Queen
+        ("Queen s 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
+        # THB
+        ("THB Pilsener 33 cl VER", "MILIEU", "SS (Single serve)"),
+        ("THB Pilsener 50 cl CAN", "MILIEU", "CU (Convivial Units)"),
+        ("THB Pilsener 65 cl VER", "MILIEU", "CU (Convivial Units)"),
+        # Cristal
+        ("Cristal 100 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("Cristal 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Cristal 30 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("Cristal 50 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        # Cristalline
+        ("Cristalline 100 cl PET", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("Cristalline 200 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        # Eau vive
+        ("Eau vive 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Eau vive 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Eau vive 50 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        # FOSA
+        ("FOSA 50 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        # XXL
+        ("XXL 30cl BOB VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("XXL 30cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("XXL 33 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediat Consumption)")
     ]
     
     data = []
-    for art in articles:
+    for art, pos, occ in data_raw:
         art_lower = art.lower()
+        
+        # Déduction Segment
         if "cristal" in art_lower or "eau" in art_lower: segment = "EAUX"
         elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]): segment = "BIERES"
         else: segment = "BOISSONS"
-            
-        if segment == "EAUX": pos = "Standard"
-        elif "gold" in art_lower or "queen" in art_lower or "thb" in art_lower: pos = "Premium"
-        else: pos = "Économique"
         
-        if "pet" in art_lower or "can" in art_lower or "ver" in art_lower: occ = "À emporter"
-        else: occ = "Sur place"
-        
+        # Format
         fmt = art.split()[-1].upper() if art.split()[-1].upper() in ["VER", "PET", "CAN"] else "VER"
         if "WOCO" in art_lower: fmt = "VER"
         if "BOB" in art_lower: fmt = "VER"
         
+        # Contenance
         match = re.search(r'(\d+)\s*cl', art_lower)
         c_cl = int(match.group(1)) if match else 50
         c_hl = c_cl * 0.0001
@@ -133,7 +194,7 @@ def _generer_catalogue_manuel():
         })
     return pd.DataFrame(data)
 
-CATALOGUE = _generer_catalogue_manuel()
+CATALOGUE = _generer_catalogue_exact()
 CATALOGUE_PAR_ARTICLE = {meta["article"].lower().strip(): meta for meta in CATALOGUE.to_dict(orient="records")}
 ARTICLES_REFERENTIEL = CATALOGUE["article"].tolist()
 
@@ -569,7 +630,6 @@ with tab_comp:
     if "Réalisé" not in df_comp.columns: df_comp["Réalisé"] = 0.0
     if "Prévision" not in df_comp.columns: df_comp["Prévision"] = 0.0
     
-    # On filtre pour ne garder que les années pertinentes (<= année cible)
     df_comp = df_comp[df_comp.index <= annee_cible]
     df_comp.index.name = "Année"
     df_comp = df_comp.reset_index()
@@ -586,7 +646,6 @@ with tab_comp:
     else:
         df_melt = df_comp.melt(id_vars="Année", var_name="Type", value_name="Volume")
         
-        # Création du graphique en courbes avec Altair
         chart = alt.Chart(df_melt).mark_line(
             interpolate="monotone", 
             point=alt.OverlayMarkDef(filled=True, size=80)
@@ -597,13 +656,8 @@ with tab_comp:
                 domain=["Réalisé", "Prévision"], 
                 range=[COULEUR_REALISE, COULEUR_PREVISION]
             ), legend=alt.Legend(title="Type de donnée")),
-            strokeDash=alt.StrokeDash("Type:N", legend=None),
+            strokeDash=alt.StrokeDash("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[[1, 0], [5, 5]]), legend=None),
             tooltip=["Année", "Type", alt.Tooltip("Volume:Q", format=",.0f")]
-        )
-        
-        # Application de la couleur en fonction de la nature (Réalisé = trait plein, Prévision = pointillés)
-        chart = chart.encode(
-            strokeDash=alt.StrokeDash("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[[1, 0], [5, 5]]), legend=None)
         )
         
         st.altair_chart(chart.properties(height=450, width="container"), use_container_width=True)

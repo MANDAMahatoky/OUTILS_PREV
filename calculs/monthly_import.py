@@ -1,13 +1,25 @@
 """Lecture / import mensuel : mois, lignes brutes DATA_BRUT, remplacement de périodes.
 
-Reconstitué à partir de l'usage dans app.py.
+Deux formats de fichier sont acceptés :
+
+A) Format "long" classique
+   Une ligne d'en-tête nommée (Article, Agence, Segment, Mois, Année, HL, ...)
+   est repérée dans les 25 premières lignes puis promue en en-tête de colonnes.
+   Comportement d'origine, conservé à l'identique.
+
+B) Format "pivoté sans en-tête" (cas de DATA_BRUT.xlsx, feuille « Export »)
+   7 colonnes positionnelles sans ligne d'en-tête :
+       [annee, mois, segment, produit, agence, nature, hl]
+   Converti en format long, avec ajout des colonnes attendues en aval
+   (periode, colis, article, origine).
+
 - normaliser_mois : noms de mois (fr/en, abrégés, accents) ou numéros -> numéro de mois.
   Les nombres sont renvoyés tels quels (app.nettoyer_annees_mois repère ensuite les
   colonnes annee/mois inversées, par ex. mois = 2026).
-- normaliser_lignes_data_brut : feuille « Export » de DATA_BRUT.xlsx lue SANS en-tête ->
-  tableau avec la bonne ligne d'en-tête, sans lignes vides ni lignes de total.
-  ⚠ À valider avec le vrai DATA_BRUT.xlsx (mise en page non vue lors de l'écriture).
-- remplacer_periodes_importees : un import remplace ses périodes (annee, mois) et conserve le reste.
+- normaliser_lignes_data_brut : point d'entrée unique. Détecte le format puis
+  délègue à la branche A ou B.
+- remplacer_periodes_importees : un import remplace ses périodes (annee, mois)
+  et conserve le reste.
 """
 from __future__ import annotations
 
@@ -16,6 +28,11 @@ import unicodedata
 
 import numpy as np
 import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# Normalisation des mois
+# ---------------------------------------------------------------------------
 
 _MOIS = {
     "janvier": 1, "janv": 1, "jan": 1, "january": 1,
@@ -67,6 +84,10 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
     return pd.Series([_mois_valeur(v) for v in serie], index=serie.index, dtype=float)
 
 
+# ---------------------------------------------------------------------------
+# Format A : en-tête nommé (comportement d'origine)
+# ---------------------------------------------------------------------------
+
 _LIBELLES_ENTETE = {
     "agence", "agences", "segment", "segments", "marque", "marques",
     "produit", "produits", "article", "articles", "format", "parfum",
@@ -86,7 +107,7 @@ def _libelle_colonne(valeur: object, position: int) -> str:
     return texte if texte else f"colonne_{position}"
 
 
-def normaliser_lignes_data_brut(df_raw: pd.DataFrame) -> pd.DataFrame:
+def _normaliser_format_entete(df_raw: pd.DataFrame) -> pd.DataFrame:
     """Repère la ligne d'en-tête, la promeut, retire lignes vides et lignes de total."""
     brut = df_raw.reset_index(drop=True)
     meilleur_idx, meilleur_score = 0, 0
@@ -116,6 +137,164 @@ def normaliser_lignes_data_brut(df_raw: pd.DataFrame) -> pd.DataFrame:
         donnees = donnees.loc[~est_total]
     return donnees.reset_index(drop=True)
 
+
+# ---------------------------------------------------------------------------
+# Format B : pivoté sans en-tête (DATA_BRUT.xlsx, feuille « Export »)
+# ---------------------------------------------------------------------------
+
+# Ordre positionnel attendu des colonnes (0..6)
+_COLONNES_PIVOT = ["annee", "mois", "segment", "produit", "agence", "nature", "hl"]
+
+# Alias de "nature" -> valeurs canoniques de l'app
+_NATURE_MAP = {
+    "total": "Réalisé",
+    "realise": "Réalisé", "reel": "Réalisé", "actual": "Réalisé",
+    "prevision": "Prévision", "prev": "Prévision", "forecast": "Prévision",
+    "budget": "Prévision", "objectif": "Prévision",
+}
+
+
+def _cle_nature(valeur: object) -> str:
+    """Clé normalisée de 'nature' : minuscule, sans accents, sans séparateurs."""
+    s = _sans_accents(str(valeur).strip().lower())
+    return re.sub(r"[^a-z]", "", s)
+
+
+def _detecter_format_pivote(brut: pd.DataFrame) -> bool:
+    """Heuristique : pas d'en-tête nommé + colonnes 0/1/6 typiques du pivot."""
+    if brut.empty or brut.shape[1] < 7:
+        return False
+
+    # La première ligne ne doit pas contenir de libellé d'en-tête connu
+    premiere = {_nom_simple(c) for c in brut.iloc[0].tolist()}
+    if premiere & _LIBELLES_ENTETE:
+        return False
+
+    # Colonne 0 : années plausibles
+    annee0 = pd.to_numeric(brut.iloc[:, 0], errors="coerce")
+    if annee0.between(1990, 2100).sum() < max(1, int(len(brut) * 0.3)):
+        return False
+
+    # Colonne 1 : mois lisibles
+    mois1 = normaliser_mois(brut.iloc[:, 1])
+    if mois1.notna().sum() < max(1, int(len(brut) * 0.3)):
+        return False
+
+    # Colonne 6 : numérique
+    hl6 = pd.to_numeric(brut.iloc[:, 6], errors="coerce")
+    if hl6.notna().sum() < max(1, int(len(brut) * 0.3)):
+        return False
+
+    return True
+
+
+def _normaliser_format_pivote(brut: pd.DataFrame) -> pd.DataFrame:
+    """[annee, mois, segment, produit, agence, nature, hl] -> format long."""
+    # Renommage positionnel
+    rename = {
+        brut.columns[i]: col
+        for i, col in enumerate(_COLONNES_PIVOT[: brut.shape[1]])
+    }
+    df = brut.rename(columns=rename).copy()
+
+    # Si `hl` n'est pas numérique, on tente de repérer la bonne colonne
+    if "hl" not in df.columns or pd.to_numeric(df.get("hl"), errors="coerce").notna().sum() == 0:
+        candidates = [
+            c for c in df.columns
+            if c not in {"annee", "mois", "segment", "produit", "agence", "nature"}
+            and pd.to_numeric(df[c], errors="coerce").notna().mean() > 0.8
+        ]
+        if not candidates:
+            raise ValueError(
+                "Format pivoté : aucune colonne numérique exploitable pour 'hl'. "
+                f"Colonnes vues : {list(df.columns)}."
+            )
+        df["hl"] = df[candidates[-1]]
+
+    # Filtrage des lignes non exploitables
+    df["annee"] = pd.to_numeric(df["annee"], errors="coerce").astype("Int64")
+    df["mois"] = normaliser_mois(df["mois"])
+    df = df[df["annee"].notna() & df["mois"].notna()].copy()
+    df["annee"] = df["annee"].astype(int)
+    df["mois"] = df["mois"].astype(int)
+
+    df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
+
+    # Colonnes texte
+    for c in ("segment", "produit", "agence", "nature"):
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+        else:
+            df[c] = "Non renseigné"
+
+    # Retire les lignes de total
+    masque_total = (
+        df["segment"].str.contains(r"\btotal\b", case=False, regex=True, na=False)
+        | df["produit"].str.contains(r"\btotal\b", case=False, regex=True, na=False)
+        | df["agence"].str.contains(r"\btotal\b", case=False, regex=True, na=False)
+    )
+    df = df[~masque_total].copy()
+
+    # Normalisation de `nature` vers Réalisé / Prévision
+    if "nature" in df.columns:
+        cles = df["nature"].map(_cle_nature)
+        df["nature"] = cles.map(_NATURE_MAP).fillna(df["nature"])
+        # Si la valeur reste inconnue, on la laisse telle quelle (pas d'invention)
+        df.loc[df["nature"].astype(str).str.strip().eq(""), "nature"] = "Réalisé"
+
+    # Période
+    df["periode"] = df["annee"].astype(str) + "-" + df["mois"].astype(str).str.zfill(2)
+
+    # Colonnes attendues en aval
+    if "colis" not in df.columns:
+        df["colis"] = 0.0
+    if "origine" not in df.columns:
+        df["origine"] = "Donnée source"
+    if "article" not in df.columns:
+        # Fallback synthétique : produit - segment
+        df["article"] = (
+            df["produit"].astype(str).str.strip()
+            + " - "
+            + df["segment"].astype(str).str.strip()
+        )
+
+    keep = [
+        "annee", "mois", "periode", "segment", "produit", "agence",
+        "nature", "hl", "colis", "article", "origine",
+    ]
+    df = df[[c for c in keep if c in df.columns]]
+
+    # Diagnostic récupérable via df.attrs
+    df.attrs["format_detecte"] = "pivot_sans_entete"
+    df.attrs["colonnes_positionnelles"] = dict(enumerate(_COLONNES_PIVOT))
+
+    return df.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Point d'entrée
+# ---------------------------------------------------------------------------
+
+def normaliser_lignes_data_brut(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """Détecte le format et applique la normalisation adaptée.
+
+    - Format B (pivoté sans en-tête) : détecté en priorité, converti en long.
+    - Format A (en-tête nommé)        : promotion de la meilleure ligne d'en-tête.
+    """
+    if df_raw is None or df_raw.empty:
+        return df_raw
+
+    brut = df_raw.reset_index(drop=True)
+
+    if _detecter_format_pivote(brut):
+        return _normaliser_format_pivote(brut)
+
+    return _normaliser_format_entete(brut)
+
+
+# ---------------------------------------------------------------------------
+# Remplacement de périodes dans l'historique
+# ---------------------------------------------------------------------------
 
 def remplacer_periodes_importees(
     historique: pd.DataFrame, nouvel_import: pd.DataFrame

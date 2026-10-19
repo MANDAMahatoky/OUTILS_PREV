@@ -1,8 +1,3 @@
-# ============================================================
-# MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Version FINALE : Diagnostic de lecture + Affichage complet
-# ============================================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -43,11 +38,11 @@ def extraire_contenance(article: str) -> int:
     return int(m.group(1)) if m else 0
 
 # ============================================================
-# LECTEUR SUR-MESURE AVEC STATISTIQUES
+# LECTEUR ULTRA-PERMISSIF
 # ============================================================
-def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> tuple:
+def extraire_ventes_sur_mesure(raw: pd.DataFrame):
     rows = []
-    stats = {"total_lignes": len(raw), "ignorees": 0, "valides": 0}
+    stats = {"total_lignes": len(raw), "ignorees_vides": 0, "ignorees_totaux": 0, "ignorees_erreurs": 0, "valides": 0}
     
     for i in range(len(raw)):
         try:
@@ -59,45 +54,72 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> tuple:
             article_val = raw.iloc[i, 5]
             volume_val  = raw.iloc[i, 6]
 
-            if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val) or pd.isna(volume_val):
-                stats["ignorees"] += 1
+            # 1. Lignes vides (pas d'année ou pas de volume)
+            if pd.isna(annee_val) or pd.isna(volume_val):
+                stats["ignorees_vides"] += 1
                 continue
 
-            if str(article_val).strip().upper() == "TOTAL" or str(agence_val).strip().upper() == "TOTAL":
-                stats["ignorees"] += 1
+            # 2. Lignes de Totaux (on ignore)
+            str_art = str(article_val).strip().upper()
+            str_ag = str(agence_val).strip().upper()
+            if str_art == "TOTAL" or str_ag == "TOTAL":
+                stats["ignorees_totaux"] += 1
                 continue
 
+            # 3. Article ou Agence vide
+            if pd.isna(article_val) or pd.isna(agence_val):
+                stats["ignorees_vides"] += 1
+                continue
+
+            # 4. Volume (gestion des espaces, virgules, etc.)
             vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
             try:
                 volume = float(vol_str)
             except ValueError:
-                stats["ignorees"] += 1
+                stats["ignorees_erreurs"] += 1
                 continue
 
+            # 5. Année
             try:
                 annee = int(annee_val)
             except ValueError:
-                stats["ignorees"] += 1
+                stats["ignorees_erreurs"] += 1
                 continue
 
-            mois_str = str(mois_val).strip().upper()
-            mois = MOIS_FR_INV.get(mois_str)
-            if not mois:
-                stats["ignorees"] += 1
-                continue
+            # 6. Mois
+            if isinstance(mois_val, str):
+                mois_str = mois_val.strip().upper()
+                mois = MOIS_FR_INV.get(mois_str)
+                # Si le mois n'est pas reconnu, on tente de le convertir
+                if not mois:
+                    try: mois = int(mois_val)
+                    except: mois = 1 # Par défaut
+            else:
+                try: mois = int(mois_val)
+                except: mois = 1
 
+            if not mois or mois < 1 or mois > 12:
+                mois = 1
+
+            # 7. Date et Article (on ne rejette plus si l'article n'est pas dans le référentiel)
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
-            cat_propre = re.sub(r"^\d+-", "", str(cat_val).strip()) if not pd.isna(cat_val) else "INCONNU"
-            marque_propre = re.sub(r"^\d+-", "", str(marque_val).strip()) if not pd.isna(marque_val) else "INCONNU"
+            
+            # Gestion des valeurs catégorielles
+            cat_propre = re.sub(r"^\d+-", "", str(cat_val).strip()).upper() if not pd.isna(cat_val) else "INCONNU"
+            marque_propre = re.sub(r"^\d+-", "", str(marque_val).strip()).upper() if not pd.isna(marque_val) else "INCONNU"
 
             rows.append({
-                "Date": date_val, "Article": art_propre, "Agence": str(agence_val).strip(),
-                "Volume": volume, "Segment": cat_propre.upper(), "Marque": marque_propre.upper()
+                "Date": date_val, 
+                "Article": art_propre, 
+                "Agence": str(agence_val).strip(),
+                "Volume": volume, 
+                "Segment": cat_propre, 
+                "Marque": marque_propre
             })
             stats["valides"] += 1
-        except Exception:
-            stats["ignorees"] += 1
+        except Exception as e:
+            stats["ignorees_erreurs"] += 1
             continue
 
     df = pd.DataFrame(rows)
@@ -107,10 +129,11 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> tuple:
 # ENRICHISSEMENT
 # ============================================================
 def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
+    # On s'assure que la date est bien convertie
     ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
-    ventes = ventes.dropna(subset=["Date"])
-    ventes["Mois"]  = ventes["Date"].dt.month
-    ventes["Annee"] = ventes["Date"].dt.year
+    # On ne supprime PAS les NaT, on les garde
+    ventes["Mois"]  = ventes["Date"].dt.month.fillna(1).astype(int)
+    ventes["Annee"] = ventes["Date"].dt.year.fillna(2024).astype(int)
 
     ventes["Format"] = ventes["Article"].apply(extraire_format)
     ventes["Contenance"] = ventes["Article"].apply(extraire_contenance)
@@ -120,6 +143,7 @@ def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
     df["Région"] = df["Région"].fillna("Inconnu")
 
     np.random.seed(7)
+    # Objectif fictif
     df["Objectif_Annuel"] = df.groupby(["Article", "Agence"])["Volume"].transform("sum") * 1.1
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
     return df
@@ -219,18 +243,25 @@ def main():
             
         df_brut = enrichir_ventes(ventes)
         
-        # --- AFFICHAGE DU DIAGNOSTIC DANS LA SIDEBAR ---
-        st.sidebar.success("✅ Fichier chargé avec succès !")
-        with st.sidebar.expander("🔍 Diagnostic de lecture"):
-            st.write(f"**Lignes totales dans le fichier :** {stats['total_lignes']:,}")
-            st.write(f"**Lignes 'Total' ou vides ignorées :** {stats['ignorees']:,}")
-            st.write(f"**Lignes de détail valides :** {stats['valides']:,}")
-            st.write(f"**Somme totale des volumes lus :** {df_brut['Volume'].sum():,.2f}")
+        # --- DIAGNOSTIC ---
+        st.sidebar.success("✅ Fichier chargé !")
+        with st.sidebar.expander("🔍 DIAGNOSTIC DE LECTURE"):
+            st.write(f"**Lignes brutes dans le fichier :** {stats['total_lignes']:,}")
+            st.write(f"**Lignes vides (ignorées) :** {stats['ignorees_vides']:,}")
+            st.write(f"**Lignes 'Total' (ignorées) :** {stats['ignorees_totaux']:,}")
+            st.write(f"**Lignes avec erreurs :** {stats['ignorees_erreurs']:,}")
+            st.success(f"**Lignes valides conservées :** {stats['valides']:,}")
+            
+            st.markdown("#### Articles trouvés")
+            st.write(df_brut["Article"].value_counts())
+            
+            st.markdown("#### Agences trouvées")
+            st.write(df_brut["Agence"].value_counts())
+
     else:
         df_brut = pd.DataFrame()
         st.sidebar.warning("⚠️ Mode Démo (Veuillez uploader votre fichier DATA_BRUT.xlsx)")
 
-    # --- FILTRES EN CASCADE ---
     st.sidebar.header("🎛️ 2. Filtres")
     
     toutes_les_regions = sorted(list(set([x[1] for x in AGENCES_DATA])))
@@ -286,7 +317,6 @@ def main():
         st.error("❌ Aucune donnée pour ce périmètre. Modifiez vos filtres.")
         st.stop()
 
-    # --- CALCULS ---
     realise   = calcul_realise_cumule(df_per, mois_clotures)
     indices   = calcul_indices(df_per)
     sarr      = calcul_sarr(df_per, indices)
@@ -294,12 +324,10 @@ def main():
     prevision = calcul_prevision(sarr, tendance, indices, mois_clotures)
     gap       = calcul_gap(df_per, realise, prevision)
 
-    # --- DASHBOARD ---
     st.title("📊 Moteur de pilotage des ventes")
     badge = "🟢 MODE GLOBAL" if mode == "GLOBAL" else "🟣 MODE FILTRÉ"
     st.subheader(f"{badge} — {len(df_per):,} lignes de détail analysées")
 
-    # Métriques
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Volume réalisé", f"{realise['Réalisé'].sum():,.0f}")
     c2.metric("Volume prévu (M+12)", f"{prevision['Prévision'].sum():,.0f}")
@@ -322,10 +350,9 @@ def main():
         use_container_width=True
     )
 
-    # --- AJOUT D'UN ONGLET POUR VOIR TOUTES LES DONNÉES LUES ---
     st.divider()
-    st.markdown("### 📋 Détail complet des données lues (Preuve de lecture)")
-    with st.expander("Cliquez pour afficher les 1000+ lignes extraites"):
+    st.markdown("### 📋 Détail complet des données lues")
+    with st.expander("Cliquez pour afficher toutes les lignes extraites"):
         st.dataframe(
             df_per[["Date", "Segment", "Marque", "Article", "Agence", "Format", "Contenance", "Volume"]]
             .sort_values(["Date", "Agence", "Article"]), 

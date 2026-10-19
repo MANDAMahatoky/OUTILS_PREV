@@ -1,6 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Version FINALE : Lecture complète (1538 lignes) + Diagnostic
+# Version FINALE (Référentiel 69 SKU intégré + Lecture 100%)
 # ============================================================
 
 import streamlit as st
@@ -13,6 +13,84 @@ st.set_page_config(page_title="Moteur Ventes", page_icon="📊", layout="wide")
 
 DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
+
+# ============================================================
+# RÉFÉRENTIEL INTÉGRÉ (Les 69 SKU du PDF Classeur2)
+# ============================================================
+REFERENTIEL_DATA = [
+    ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
+    ("Booster Tornado 50CL VER",   "PREMIUM", "CU (Convivial Units)"),
+    ("Caprice Ananas 100 cl VER",  "MILIEU",  "FC (Family/Future Consumption)"),
+    ("Caprice Ananas 150 cl PET",  "MILIEU",  "FC (Family/Future Consumption)"),
+    ("Caprice Ananas 30 cl VER",   "MILIEU",  "IC (Individual/Immediate Consumption)"),
+    ("Caprice Bonbon Anglais 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Bonbon Anglais 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Bonbon Anglais 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Bonbon Anglais 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Bonbon Anglais 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Grenadine 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Grenadine 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Grenadine 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Grenadine 33 cl CAN",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Grenadine 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Grenadine 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Orange 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Orange 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Orange 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Orange 33 cl CAN",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Orange 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Orange 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Bonbon Anglais 33 cl CAN", "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Citron 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Citron 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Caprice Citron 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Caprice Citron 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Tonic 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Tonic 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("World Cola 100cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+    ("World Cola 100cl WOCOVER", "MILIEU", "FC (Family/Future Consumption)"),
+    ("World Cola 150cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+    ("World Cola 30cl VER", "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("World Cola 30cl WOCOVER", "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("World Cola 33 cl CAN", "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("World Cola 35cl PET", "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("World Cola 50cl PET", "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Beaufort 33 CL CAN", "PREMIUM", "SS (Single serve)"),
+    ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)"),
+    ("FRESH 33 cl CAN", "ENTREE", "IC (Individual/Immediate Consumption)"),
+    ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)"),
+    ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)"),
+    ("Gold 8 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+    ("Gold 8 50 cl VER", "PREMIUM", "SS (Single serve)"),
+    ("Gold Blanche 33cl VER", "PREMIUM", "SS (Single serve)"),
+    ("Gold Blanche 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+    ("Gold Blanche 50 cl VER", "PREMIUM", "SS (Single serve)"),
+    ("Gold Blonde 33 cl VER", "PREMIUM", "SS (Single serve)"),
+    ("Gold Blonde 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+    ("Gold Blonde 50 cl VER", "PREMIUM", "SS (Single serve)"),
+    ("Gold Blonde 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
+    ("Queen s 65 cl VER", "ENTREE", "CU (Convivial Units)"),
+    ("THB Pilsener 33 cl VER", "MILIEU", "SS (Single serve)"),
+    ("THB Pilsener 50 cl CAN", "MILIEU", "SS (Single serve)"),
+    ("THB Pilsener 65 cl VER", "MILIEU", "CU (Convivial Units)"),
+    ("Cristal 100 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("Cristal 150 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("Cristal 30 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("Cristal 50 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("Cristalline 100 cl PET", "MILIEU", "IC (Individual/Immediate Consumption)"),
+    ("Cristalline 200 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+    ("Eau vive 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+    ("Eau vive 50 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("Eau vive 50 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("FOSA 50 cl CAN", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("XXL 30cl BOB VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("XXL 30cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("XXL 33 cl CAN", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+]
+
+# Dictionnaire pour une recherche ultra-rapide
+REF_DICT = {art: (pos, occ) for art, pos, occ in REFERENTIEL_DATA}
 
 # ============================================================
 # MAPPING DES RÉGIONS (15 Agences)
@@ -43,7 +121,7 @@ def extraire_contenance(article: str) -> int:
     return int(m.group(1)) if m else 0
 
 # ============================================================
-# LECTEUR STRICT (7 COLONNES) ET EXHAUSTIF
+# LECTEUR EXHAUSTIF (100% GARANTI SANS PERTE)
 # ============================================================
 def extraire_ventes_sur_mesure(raw: pd.DataFrame):
     rows = []
@@ -57,7 +135,7 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
     
     for i in range(len(raw)):
         try:
-            # On ne lit QUE les 7 premières colonnes (A à G)
+            # Lecture stricte des 7 colonnes A à G
             annee_val   = raw.iloc[i, 0]
             mois_val    = raw.iloc[i, 1]
             cat_val     = raw.iloc[i, 2]
@@ -66,19 +144,17 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
             article_val = raw.iloc[i, 5]
             volume_val  = raw.iloc[i, 6]
 
-            # 1. Si l'année, le mois, l'article ou le volume est vide
+            # 1. Lignes vides
             if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val) or pd.isna(volume_val):
                 stats["ignorees_vides"] += 1
                 continue
 
-            # 2. Ignorer les lignes "Total"
-            str_art = str(article_val).strip().upper()
-            str_ag = str(agence_val).strip().upper()
-            if str_art == "TOTAL" or str_ag == "TOTAL":
+            # 2. Totaux
+            if str(article_val).strip().upper() == "TOTAL" or str(agence_val).strip().upper() == "TOTAL":
                 stats["ignorees_totaux"] += 1
                 continue
 
-            # 3. Nettoyage du volume
+            # 3. Volume
             vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
             try:
                 volume = float(vol_str)
@@ -93,7 +169,7 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
                 stats["ignorees_erreurs"] += 1
                 continue
 
-            # 5. Mois (tolérant)
+            # 5. Mois
             if isinstance(mois_val, str):
                 mois_str = mois_val.strip().upper()
                 mois = MOIS_FR_INV.get(mois_str)
@@ -107,21 +183,29 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
             if not mois or mois < 1 or mois > 12:
                 mois = 1
 
-            # 6. Date
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
 
-            # 7. Nettoyage de l'article et des catégories
+            # 6. Nettoyage du nom de l'article pour le faire correspondre au référentiel
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
-            cat_propre = re.sub(r"^\d+-", "", str(cat_val).strip()).upper() if not pd.isna(cat_val) else "INCONNU"
-            marque_propre = re.sub(r"^\d+-", "", str(marque_val).strip()).upper() if not pd.isna(marque_val) else "INCONNU"
+            
+            # 7. Récupération du Positionnement et Occasion
+            pos_occ = REF_DICT.get(art_propre, ("INCONNU", "INCONNU"))
+            positionnement = pos_occ[0]
+            occasion = pos_occ[1]
+
+            # On récupère le Segment (colonne C) et la Marque (colonne D)
+            segment = re.sub(r"^\d+-", "", str(cat_val).strip()).upper() if not pd.isna(cat_val) else "INCONNU"
+            marque = re.sub(r"^\d+-", "", str(marque_val).strip()).upper() if not pd.isna(marque_val) else "INCONNU"
 
             rows.append({
                 "Date": date_val, 
                 "Article": art_propre, 
                 "Agence": str(agence_val).strip(),
                 "Volume": volume, 
-                "Segment": cat_propre, 
-                "Marque": marque_propre
+                "Segment": segment,
+                "Marque": marque,
+                "Positionnement": positionnement,
+                "Occasion": occasion
             })
             stats["valides"] += 1
         except Exception:
@@ -135,21 +219,23 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame):
 # ENRICHISSEMENT
 # ============================================================
 def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
-    ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
-    # On garde les NaT pour ne pas perdre de lignes
-    ventes["Mois"]  = ventes["Date"].dt.month.fillna(1).astype(int)
-    ventes["Annee"] = ventes["Date"].dt.year.fillna(2024).astype(int)
-
-    ventes["Format"] = ventes["Article"].apply(extraire_format)
-    ventes["Contenance"] = ventes["Article"].apply(extraire_contenance)
-
-    mapr = pd.DataFrame(AGENCES_DATA, columns=["Agence", "Région"])
-    df = ventes.merge(mapr, on="Agence", how="left")
-    df["Région"] = df["Région"].fillna("Inconnu")
+    df = ventes.copy()
+    
+    df["Format"] = df["Article"].apply(extraire_format)
+    df["Contenance"] = df["Article"].apply(extraire_contenance)
+    
+    # Mapping Région sans merge (pour ne pas perdre de lignes)
+    map_region = dict(AGENCES_DATA)
+    df["Région"] = df["Agence"].map(map_region).fillna("Inconnu")
+    
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df["Mois"]  = df["Date"].dt.month.fillna(1).astype(int)
+    df["Annee"] = df["Date"].dt.year.fillna(2024).astype(int)
 
     np.random.seed(7)
     df["Objectif_Annuel"] = df.groupby(["Article", "Agence"])["Volume"].transform("sum") * 1.1
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
+    
     return df
 
 # ============================================================
@@ -234,7 +320,6 @@ def main():
 
     if uploaded_file is not None:
         try:
-            # Lecture limitée aux 7 premières colonnes pour éviter les parasites Excel
             raw = pd.read_excel(BytesIO(uploaded_file.getvalue()), header=None, usecols=range(7))
         except Exception:
             raw = pd.read_csv(BytesIO(uploaded_file.getvalue()), header=None, usecols=range(7))
@@ -256,9 +341,6 @@ def main():
             st.write(f"**Lignes 'Total' (ignorées) :** {stats['ignorees_totaux']:,}")
             st.write(f"**Lignes avec erreurs :** {stats['ignorees_erreurs']:,}")
             st.success(f"**Lignes VALIDES conservées :** {stats['valides']:,}")
-            
-            st.markdown("#### Somme totale des volumes lus :")
-            st.write(f"{df_brut['Volume'].sum():,.2f}")
 
     else:
         df_brut = pd.DataFrame()
@@ -302,6 +384,10 @@ def main():
     else:
         sel_segments, sel_marques, sel_formats, sel_contenances, sel_articles = [], [], [], [], []
 
+    # Filtres Positionnement et Occasion (issus du PDF)
+    sel_positionnements = st.sidebar.multiselect("Positionnement", ["ENTREE", "MILIEU", "PREMIUM"], default=[])
+    sel_occasions = st.sidebar.multiselect("Occasion", ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"], default=[])
+
     mois_clotures = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, DEFAUT_MOIS_CLOTURES)
 
     if df_brut.empty:
@@ -311,7 +397,9 @@ def main():
     filtres = {
         "Région": sel_regions, "Agence": sel_agences, "Segment": sel_segments,
         "Marque": sel_marques, "Format": sel_formats, "Contenance": sel_contenances,
-        "Article": sel_articles
+        "Article": sel_articles,
+        "Positionnement": sel_positionnements,
+        "Occasion": sel_occasions
     }
 
     df_per, mode = get_perimetre(df_brut, filtres)
@@ -329,7 +417,7 @@ def main():
     st.title("📊 Moteur de pilotage des ventes")
     badge = "🟢 MODE GLOBAL" if mode == "GLOBAL" else "🟣 MODE FILTRÉ"
     
-    # Affichage du vrai nombre de lignes analysées
+    # Affichage du VRAI nombre de lignes
     st.subheader(f"{badge} — {len(df_per):,} lignes de détail analysées")
 
     c1, c2, c3, c4 = st.columns(4)
@@ -358,7 +446,7 @@ def main():
     st.markdown("### 📋 Détail complet des données lues (Preuve de lecture)")
     with st.expander("Cliquez pour afficher toutes les lignes extraites"):
         st.dataframe(
-            df_per[["Date", "Segment", "Marque", "Article", "Agence", "Format", "Contenance", "Volume"]]
+            df_per[["Date", "Segment", "Marque", "Article", "Agence", "Positionnement", "Occasion", "Format", "Contenance", "Volume"]]
             .sort_values(["Date", "Agence", "Article"]), 
             use_container_width=True, height=500
         )

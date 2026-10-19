@@ -1,6 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Version FINALE : Filtres complets + Correction des données
+# Version FINALE : Filtres en cascade (Région -> Agence, Segment -> Article)
 # ============================================================
 
 import streamlit as st
@@ -16,87 +16,107 @@ DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
 
 # ============================================================
-# RÉFÉRENTIEL INTÉGRÉ (69 SKU)
+# RÉFÉRENTIEL INTÉGRÉ (69 SKU + SEGMENT/MARQUE)
 # ============================================================
+# Format : (Article, Positionnement, Occasion, Segment)
 REFERENTIEL_DATA = [
-    ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
-    ("Booster Tornado 50CL VER",   "PREMIUM", "CU (Convivial Units)"),
-    ("Caprice Ananas 100 cl VER",  "MILIEU",  "FC (Family/Future Consumption)"),
-    ("Caprice Ananas 150 cl PET",  "MILIEU",  "FC (Family/Future Consumption)"),
-    ("Caprice Ananas 30 cl VER",   "MILIEU",  "IC (Individual/Immediate Consumption)"),
-    ("Caprice Bonbon Anglais 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Bonbon Anglais 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Bonbon Anglais 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Bonbon Anglais 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Bonbon Anglais 50cl PET",   "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Grenadine 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Grenadine 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Grenadine 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Grenadine 33 cl CAN",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Grenadine 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Grenadine 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Orange 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Orange 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Orange 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Orange 33 cl CAN",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Orange 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Orange 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Bonbon Anglais 33 cl CAN", "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Citron 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Citron 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Caprice Citron 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Caprice Citron 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Tonic 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Tonic 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("World Cola 100cl VER", "MILIEU", "FC (Family/Future Consumption)"),
-    ("World Cola 100cl WOCOVER", "MILIEU", "FC (Family/Future Consumption)"),
-    ("World Cola 150cl PET", "MILIEU", "FC (Family/Future Consumption)"),
-    ("World Cola 30cl VER", "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("World Cola 30cl WOCOVER", "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("World Cola 33 cl CAN", "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("World Cola 35cl PET", "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("World Cola 50cl PET", "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Beaufort 33 CL CAN", "PREMIUM", "SS (Single serve)"),
-    ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)"),
-    ("FRESH 33 cl CAN", "ENTREE", "IC (Individual/Immediate Consumption)"),
-    ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)"),
-    ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)"),
-    ("Gold 8 50 cl CAN", "PREMIUM", "SS (Single serve)"),
-    ("Gold 8 50 cl VER", "PREMIUM", "SS (Single serve)"),
-    ("Gold Blanche 33cl VER", "PREMIUM", "SS (Single serve)"),
-    ("Gold Blanche 50 cl CAN", "PREMIUM", "SS (Single serve)"),
-    ("Gold Blanche 50 cl VER", "PREMIUM", "SS (Single serve)"),
-    ("Gold Blonde 33 cl VER", "PREMIUM", "SS (Single serve)"),
-    ("Gold Blonde 50 cl CAN", "PREMIUM", "SS (Single serve)"),
-    ("Gold Blonde 50 cl VER", "PREMIUM", "SS (Single serve)"),
-    ("Gold Blonde 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
-    ("Queen s 65 cl VER", "ENTREE", "CU (Convivial Units)"),
-    ("THB Pilsener 33 cl VER", "MILIEU", "SS (Single serve)"),
-    ("THB Pilsener 50 cl CAN", "MILIEU", "SS (Single serve)"),
-    ("THB Pilsener 65 cl VER", "MILIEU", "CU (Convivial Units)"),
-    ("Cristal 100 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("Cristal 150 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("Cristal 30 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("Cristal 50 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("Cristalline 100 cl PET", "MILIEU", "IC (Individual/Immediate Consumption)"),
-    ("Cristalline 200 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
-    ("Eau vive 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
-    ("Eau vive 50 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("Eau vive 50 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("FOSA 50 cl CAN", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("XXL 30cl BOB VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("XXL 30cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("XXL 33 cl CAN", "PREMIUM", "IC (Individual/Immediate Consumption)"),
-    ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)"),
+    # --- CAPRICE ---
+    ("Caprice Ananas 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Ananas 150 cl PET", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Ananas 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Bonbon Anglais 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Bonbon Anglais 150 cl PET", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Bonbon Anglais 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Bonbon Anglais 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Bonbon Anglais 50cl PET",   "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Grenadine 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Grenadine 150 cl PET", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Grenadine 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Grenadine 33 cl CAN",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Grenadine 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Grenadine 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Orange 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Orange 150 cl PET", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Orange 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Orange 33 cl CAN",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Orange 35 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Orange 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Bonbon Anglais 33 cl CAN", "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Citron 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Citron 150 cl PET", "MILIEU", "FC (Family/Future Consumption)", "CAPRICE"),
+    ("Caprice Citron 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    ("Caprice Citron 50 cl PET",  "MILIEU", "IC (Individual/Immediate Consumption)", "CAPRICE"),
+    # --- WORLD COLA / TONIC ---
+    ("World Cola 100cl VER", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
+    ("World Cola 100cl WOCOVER", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
+    ("World Cola 150cl PET", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
+    ("World Cola 30cl VER", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
+    ("World Cola 30cl WOCOVER", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
+    ("World Cola 33 cl CAN", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
+    ("World Cola 35cl PET", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
+    ("World Cola 50cl PET", "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
+    ("Tonic 100 cl VER", "MILIEU", "FC (Family/Future Consumption)", "WORLD COLA"),
+    ("Tonic 30 cl VER",  "MILIEU", "IC (Individual/Immediate Consumption)", "WORLD COLA"),
+    # --- EAUX (CRISTALLINE / EAU VIVE / FOSA) ---
+    ("Cristalline 100 cl PET", "MILIEU", "IC (Individual/Immediate Consumption)", "EAUX"),
+    ("Cristalline 200 cl PET", "MILIEU", "FC (Family/Future Consumption)", "EAUX"),
+    ("Eau vive 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)", "EAUX"),
+    ("Eau vive 50 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)", "EAUX"),
+    ("Eau vive 50 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "EAUX"),
+    ("FOSA 50 cl CAN", "PREMIUM", "IC (Individual/Immediate Consumption)", "EAUX"),
+    # --- BOOSTER ---
+    ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)", "BOOSTER"),
+    ("Booster Tornado 50CL VER",   "PREMIUM", "CU (Convivial Units)", "BOOSTER"),
+    # --- BIERES (THB / GOLD / QUEEN / BEAUFORT / FRESH) ---
+    ("THB Pilsener 33 cl VER", "MILIEU", "SS (Single serve)", "THB"),
+    ("THB Pilsener 50 cl CAN", "MILIEU", "SS (Single serve)", "THB"),
+    ("THB Pilsener 65 cl VER", "MILIEU", "CU (Convivial Units)", "THB"),
+    ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)", "THB"),
+    ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)", "THB"),
+    ("FRESH 33 cl CAN", "ENTREE", "IC (Individual/Immediate Consumption)", "THB"),
+    ("Gold 8 50 cl CAN", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold 8 50 cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold Blanche 33cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold Blanche 50 cl CAN", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold Blanche 50 cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold Blonde 33 cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold Blonde 50 cl CAN", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold Blonde 50 cl VER", "PREMIUM", "SS (Single serve)", "GOLD"),
+    ("Gold Blonde 65 cl VER", "PREMIUM", "CU (Convivial Units)", "GOLD"),
+    ("Beaufort 33 CL CAN", "PREMIUM", "SS (Single serve)", "BEAUFORT"),
+    ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)", "BEAUFORT"),
+    ("Queen s 65 cl VER", "ENTREE", "CU (Convivial Units)", "QUEEN"),
+    # --- CRISTAL / XXL ---
+    ("Cristal 100 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "CRISTAL"),
+    ("Cristal 150 cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)", "CRISTAL"),
+    ("Cristal 30 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "CRISTAL"),
+    ("Cristal 50 cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "CRISTAL"),
+    ("XXL 30cl BOB VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "XXL"),
+    ("XXL 30cl VER", "PREMIUM", "IC (Individual/Immediate Consumption)", "XXL"),
+    ("XXL 33 cl CAN", "PREMIUM", "IC (Individual/Immediate Consumption)", "XXL"),
+    ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediate Consumption)", "XXL"),
 ]
 
-AGENCES_MADAGASCAR = [
-    "01-Tanjombato", "03-Diego", "04-Tulear", "05-Fianarantsoa", 
-    "06-Ihosy", "07-Majunga", "08-Manakara", "09-Tamatave", 
-    "11-Andranomahery", "12-Antsirabe", "18-Ambanja", "19-Sambava", 
-    "21-NosyBe", "23-Morondava", "24-Fort Dauphin"
+# ============================================================
+# MAPPING AGENCES (15 Agences réparties par Région)
+# ============================================================
+AGENCES_DATA = [
+    ("01-Tanjombato", "Centre"),
+    ("11-Andranomahery", "Centre"),
+    ("12-Antsirabe", "Centre"),
+    ("09-Tamatave", "Est"),
+    ("18-Ambanja", "Est"),
+    ("19-Sambava", "Est"),
+    ("07-Majunga", "Ouest"),
+    ("23-Morondava", "Ouest"),
+    ("24-Fort Dauphin", "Sud"),
+    ("21-NosyBe", "Nord"),
+    ("03-Diego", "Nord"),
+    ("04-Tulear", "Sud"),
+    ("05-Fianarantsoa", "Sud"),
+    ("06-Ihosy", "Sud"),
+    ("08-Manakara", "Est"),
 ]
-REGIONS = ["Nord", "Ouest", "Est", "Centre", "Sud"]
 
 MOIS_FR_INV = {
     "JANVIER": 1, "FÉVRIER": 2, "FEVRIER": 2, "MARS": 3, "AVRIL": 4,
@@ -108,16 +128,14 @@ MOIS_FR_INV = {
 # FONCTIONS UTILITAIRES
 # ============================================================
 def construire_referentiel():
-    return pd.DataFrame(REFERENTIEL_DATA, columns=["Article", "Positionnement", "Occasion"])
+    # On ajoute le Segment à la fin
+    return pd.DataFrame(REFERENTIEL_DATA, columns=["Article", "Positionnement", "Occasion", "Segment"])
 
 def construire_mapping_auto():
-    return pd.DataFrame({
-        "Agence": AGENCES_MADAGASCAR,
-        "Région": [REGIONS[i % len(REGIONS)] for i in range(len(AGENCES_MADAGASCAR))],
-    })
+    return pd.DataFrame(AGENCES_DATA, columns=["Agence", "Région"])
 
 # ============================================================
-# LECTEUR SUR-MESURE (Correction de la jointure)
+# LECTEUR SUR-MESURE
 # ============================================================
 def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
     rows = []
@@ -128,46 +146,40 @@ def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
             agence_val  = raw.iloc[i, 4]
             article_val = raw.iloc[i, 5]
             volume_val  = raw.iloc[i, 6]
-            
-            # Ignorer vides et "Total"
+
             if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val) or pd.isna(volume_val):
                 continue
+
             if str(article_val).strip().upper() == "TOTAL" or str(agence_val).strip().upper() == "TOTAL":
                 continue
-                
-            # Nettoyer le volume
+
             vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
             try:
                 volume = float(vol_str)
             except ValueError:
                 continue
-                
-            # Année
+
             try:
                 annee = int(annee_val)
             except ValueError:
                 continue
-                
-            # Mois
+
             mois_str = str(mois_val).strip().upper()
             mois = MOIS_FR_INV.get(mois_str)
             if not mois:
                 continue
-                
+
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
             
-            # CORRECTION : On nettoie l'article AVANT de le stocker
+            # Nettoyer le préfixe de l'article (ex: "190-Cristalline..." -> "Cristalline...")
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
-            
+
             rows.append({
-                "Date": date_val, 
-                "Article": art_propre, 
-                "Agence": str(agence_val).strip(), 
-                "Volume": volume
+                "Date": date_val, "Article": art_propre, "Agence": str(agence_val).strip(), "Volume": volume
             })
         except Exception:
             continue
-            
+
     return pd.DataFrame(rows)
 
 # ============================================================
@@ -179,14 +191,11 @@ def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
     ventes["Mois"]  = ventes["Date"].dt.month
     ventes["Annee"] = ventes["Date"].dt.year
 
-    # Jointure avec le référentiel (les noms correspondent maintenant !)
     ref = construire_referentiel()
     df = ventes.merge(ref, on="Article", how="left")
 
-    # Mapping agences
     df = df.merge(construire_mapping_auto(), on="Agence", how="left")
 
-    # Objectifs fictifs
     np.random.seed(7)
     df["Objectif_Annuel"] = df.groupby(["Article", "Agence"])["Volume"].transform("sum") * 1.1
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
@@ -266,14 +275,12 @@ def calcul_gap(df_per, realise, prevision):
     return res
 
 # ============================================================
-# MAIN
+# MAIN (INTERFACE AVEC FILTRES EN CASCADE)
 # ============================================================
 def main():
-    # --- SIDEBAR : UPLOAD ---
     st.sidebar.header("📤 1. Charger le fichier")
     uploaded_file = st.sidebar.file_uploader("Format Excel / CSV", type=["xlsx", "csv"])
 
-    # --- CHARGEMENT ---
     if uploaded_file is not None:
         try:
             raw = pd.read_excel(BytesIO(uploaded_file.getvalue()), header=None)
@@ -284,51 +291,68 @@ def main():
             ventes = extraire_ventes_sur_mesure(raw)
             
         if ventes.empty:
-            st.sidebar.error("❌ Erreur de lecture du fichier. Vérifiez les colonnes.")
+            st.sidebar.error("❌ Erreur de lecture du fichier.")
             st.stop()
             
         df_brut = enrichir_ventes(ventes)
-        st.sidebar.success("✅ Fichier chargé avec succès !")
+        st.sidebar.success(f"✅ Fichier chargé : {len(df_brut):,} lignes valides")
     else:
-        # Mode démo minimal pour afficher les filtres
         df_brut = enrichir_ventes(pd.DataFrame({
             "Date": [pd.Timestamp(2024,1,15)], "Article": ["Cristalline 100 cl PET"], 
             "Agence": ["01-Tanjombato"], "Volume": [0]
         }))
-        st.sidebar.warning("⚠️ Mode Démo (Veuillez uploader un fichier)")
+        st.sidebar.warning("⚠️ Mode Démo (Uploadez un fichier pour voir vos données)")
 
-    # --- SIDEBAR : FILTRES ---
-    st.sidebar.header("🎛️ 2. Filtres")
-    st.sidebar.caption("Laisser vide = Mode GLOBAL")
-    filtres = {}
+    # ==========================================
+    # LOGIQUE DES FILTRES EN CASCADE
+    # ==========================================
+    st.sidebar.header("🎛️ 2. Filtres (Cascade)")
     
-    # Liste complète des articles du référentiel
-    articles_dispo = [x[0] for x in REFERENTIEL_DATA]
+    # 1. Filtre Région
+    toutes_les_regions = sorted(list(set([x[1] for x in AGENCES_DATA])))
+    sel_regions = st.sidebar.multiselect("Région", toutes_les_regions, default=[])
     
-    for col in ["Région", "Agence", "Positionnement", "Occasion", "Article"]:
-        if col == "Article":
-            vals = sorted(articles_dispo) # Filtre SKU
-        elif col == "Agence":
-            vals = sorted(AGENCES_MADAGASCAR)
-        elif col == "Région":
-            vals = sorted(REGIONS)
-        elif col == "Positionnement":
-            vals = ["ENTREE", "MILIEU", "PREMIUM"]
-        elif col == "Occasion":
-            vals = ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"]
-        else:
-            vals = sorted(df_brut[col].dropna().unique().tolist()) if col in df_brut else []
-            
-        filtres[col] = st.sidebar.multiselect(col, vals, default=[])
-        
+    # 2. Filtre Agence (dépend de la Région)
+    if len(sel_regions) > 0:
+        agences_dispo = [ag for ag, reg in AGENCES_DATA if reg in sel_regions]
+    else:
+        agences_dispo = [ag for ag, reg in AGENCES_DATA]
+    sel_agences = st.sidebar.multiselect("Agence", sorted(agences_dispo), default=[])
+    
+    # 3. Filtre Segment (Marque)
+    tous_les_segments = sorted(list(set([x[3] for x in REFERENTIEL_DATA])))
+    sel_segments = st.sidebar.multiselect("Segment (Marque)", tous_les_segments, default=[])
+    
+    # 4. Filtre Article (dépend du Segment)
+    if len(sel_segments) > 0:
+        articles_dispo = [art for art, pos, occ, seg in REFERENTIEL_DATA if seg in sel_segments]
+    else:
+        articles_dispo = [art for art, pos, occ, seg in REFERENTIEL_DATA]
+    sel_articles = st.sidebar.multiselect("Article (SKU)", sorted(articles_dispo), default=[])
+
+    # 5. Filtres restants
+    sel_positionnements = st.sidebar.multiselect("Positionnement", ["ENTREE", "MILIEU", "PREMIUM"], default=[])
+    sel_occasions = st.sidebar.multiselect("Occasion", ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"], default=[])
+
     mois_clotures = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, DEFAUT_MOIS_CLOTURES)
 
-    # --- CALCULS ---
+    # Création du dictionnaire de filtres
+    filtres = {
+        "Région": sel_regions,
+        "Agence": sel_agences,
+        "Segment": sel_segments,
+        "Article": sel_articles,
+        "Positionnement": sel_positionnements,
+        "Occasion": sel_occasions
+    }
+
+    # --- Application du périmètre ---
     df_per, mode = get_perimetre(df_brut, filtres)
     if df_per.empty:
         st.error("❌ Aucune donnée pour ce périmètre. Modifiez vos filtres.")
         st.stop()
 
+    # --- Calculs ---
     realise   = calcul_realise_cumule(df_per, mois_clotures)
     indices   = calcul_indices(df_per)
     sarr      = calcul_sarr(df_per, indices)
@@ -336,7 +360,7 @@ def main():
     prevision = calcul_prevision(sarr, tendance, indices, mois_clotures)
     gap       = calcul_gap(df_per, realise, prevision)
 
-    # --- DASHBOARD ---
+    # --- Dashboard ---
     st.title("📊 Moteur de pilotage des ventes")
     badge = "🟢 MODE GLOBAL" if mode == "GLOBAL" else "🟣 MODE FILTRÉ"
     st.subheader(f"{badge} — périmètre : {len(df_per):,} lignes")

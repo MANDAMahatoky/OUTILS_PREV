@@ -57,14 +57,12 @@ def calculer_indices_saisonnalite(
     annee_cloture: int | None = None,
     mois_cloture: int | None = None,
 ) -> pd.DataFrame:
-    """Calcule l'IS avec la méthode Excel (moyenne des ratios annuels).
-
-    1. Pour chaque année, on calcule le ratio de chaque mois par rapport à 
-       la moyenne mensuelle de CETTE année.
-    2. On fait la moyenne de ces ratios pour chaque mois sur les années retenues.
+    """
+    Calcule l'IS avec la méthode Excel (moyenne des ratios annuels).
     """
     if annee_fin <= annee_debut:
         raise ValueError("L’année de fin doit être supérieure à l’année de début.")
+    
     colonnes_requises = {"annee", "mois", "nature", valeur}
     manquantes = colonnes_requises.difference(donnees.columns)
     if manquantes:
@@ -88,13 +86,14 @@ def calculer_indices_saisonnalite(
             }
         )
 
+    # 1. Filtrer uniquement le réalisé sur les années complètes
     selection = donnees.loc[
         donnees["nature"].eq("Réalisé")
         & donnees["annee"].isin(annees)
         & donnees["mois"].between(1, 12)
     ]
 
-    # Volume par (année, mois)
+    # 2. SOMME PAR MOIS POUR CHAQUE ANNÉE (C'est ce qui manquait pour gérer les sous-totaux et les articles)
     volumes = (
         selection.groupby(["annee", "mois"])[valeur]
         .sum()
@@ -103,23 +102,22 @@ def calculer_indices_saisonnalite(
         .fillna(0.0)
     )
 
-    # 1. Moyenne mensuelle par année (pour calculer les ratios)
+    # 3. Moyenne mensuelle de chaque année (pour le ratio)
     moyennes_annuelles = volumes.sum(axis=1) / 12.0
-    # On évite la division par zéro
-    moyennes_annuelles = moyennes_annuelles.replace(0, np.nan)
+    moyennes_annuelles = moyennes_annuelles.replace(0, np.nan) # Éviter division par zéro
 
-    # 2. Ratios par année (Volume du mois / Moyenne de l'année)
+    # 4. Calcul des ratios (Volume du mois / Moyenne de l'année)
     ratios = volumes.div(moyennes_annuelles, axis=0)
 
-    # 3. Moyenne des ratios sur les années retenues (méthode Excel)
+    # 5. Moyenne des ratios sur les années (Méthode Excel)
     indices = ratios.mean(axis=0).fillna(0.0)
-    
-    # 4. Petite normalisation de sécurité pour que la somme fasse exactement 12 (moyenne = 1.0)
+
+    # 6. Normalisation finale pour que la somme des 12 indices fasse 12
     somme_indices = float(indices.sum())
     if somme_indices > 0:
         indices = indices * 12.0 / somme_indices
 
-    # Volumes moyens (pour l'affichage)
+    # 7. Volume moyen mensuel pour l'affichage
     ventes_mensuelles_moyennes = volumes.mean(axis=0)
 
     return pd.DataFrame(
@@ -169,5 +167,4 @@ def calculer_matrice_indices_saisonnalite(
     indices.columns = [MOIS_NOMS[m - 1] for m in indices.columns]
     indices.index.name = "Année"
     
-    # On transpose pour avoir les mois en lignes et les années en colonnes
     return indices.T.reset_index().rename(columns={"index": "Mois"})

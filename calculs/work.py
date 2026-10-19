@@ -2,16 +2,11 @@ import streamlit as st
 import pandas as pd
 
 # ==========================================
-# CONFIGURATION DE LA PAGE
+# CONFIGURATION
 # ==========================================
-st.set_page_config(
-    page_title="Workflow CALC.xlsx",
-    page_icon="📈",
-    layout="wide"
-)
-
-st.title("📈 Workflow de Calcul - Fichier CALC.xlsx")
-st.markdown("**Documentation interactive de la chaîne de traitement automatisée (Prévisions & S&OP)**")
+st.set_page_config(page_title="Workflow Métier - CALC", page_icon="📊", layout="wide")
+st.title("📊 Workflow Métier - Fichier CALC.xlsx")
+st.markdown("**Documentation conceptuelle de la chaîne de traitement (Données & Logique)**")
 st.divider()
 
 # ==========================================
@@ -19,7 +14,7 @@ st.divider()
 # ==========================================
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 Vue d'ensemble", 
-    "⚙️ Détail des Étapes", 
+    "⚙️ Détail des Étapes (Données)", 
     "🚦 Conditions Logiques", 
     "🧮 Simulateur"
 ])
@@ -28,160 +23,152 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # ONGLET 1 : VUE D'ENSEMBLE
 # ==========================================
 with tab1:
-    st.header("Vue d'ensemble du flux")
+    st.header("Vue d'ensemble du flux métier")
     st.markdown("""
-    Le fichier fonctionne comme une chaîne de traitement automatisée. 
-    Voici les 10 étapes séquentielles :
+    Le fichier est un **moteur de prévision** qui transforme des **données brutes de ventes** 
+    en **prévisions futures** via une chaîne de 10 étapes.
     """)
     
-    # Diagramme de flux simplifié
     etapes = [
-        ("1", "Extraction", "Récupérer les données TCD2"),
-        ("2", "Conversion Dates", "Transformer entêtes en mois"),
-        ("3", "Réalisés", "SUMIFS par Article/Mois/Agence"),
-        ("4", "Numéro Mois", "MONTH() des dates"),
-        ("5", "Coefficients", "Récupérer coef Global"),
-        ("6", "SARR", "Réalisé / Coefficient"),
-        ("7", "Écarts", "SARR M-1 - SARR M-2"),
-        ("8", "Prévision Finale", "Coef * MAX(SARR) + Tendance"),
-        ("9", "Projection 5 ans", "Même logique (2026-2030)"),
-        ("10", "GAP", "Total - Somme Mois 8-12"),
+        ("1", "Extraction", "Lire la base de ventes TCD2"),
+        ("2", "Dates", "Calculer les périodes M-1, M-2..."),
+        ("3", "Réalisés", "Agréger les volumes vendus"),
+        ("4", "Mois", "Identifier le mois de chaque vente"),
+        ("5", "Coefficients", "Charger la saisonnalité"),
+        ("6", "SARR", "Lisser les ventes (désaisonnaliser)"),
+        ("7", "Écarts", "Mesurer la tendance"),
+        ("8", "Prévision", "Combiner tendance + saisonnalité"),
+        ("9", "Projection", "Simuler sur 5 ans"),
+        ("10", "GAP", "Contrôler la cohérence"),
     ]
     
     cols = st.columns(5)
     for i, (num, titre, desc) in enumerate(etapes):
         with cols[i % 5]:
             st.info(f"**Étape {num}**\n\n**{titre}**\n\n{desc}")
-    
-    st.success("➔ Fin du flux : Alertes visuelles (Rouge si GAP < 0)")
 
 # ==========================================
-# ONGLET 2 : DÉTAIL DES ÉTAPES
+# ONGLET 2 : DÉTAIL DES ÉTAPES (DATA & LOGIQUE)
 # ==========================================
 with tab2:
-    st.header("Détail des Étapes (Quoi / Comment / Data / Quand)")
-    
-    etapes_detail = {
-        "ÉTAPE 1 : Conversion des entêtes de date": {
-            "Quoi": "Transformer '2024-01' en '1'",
-            "Formule": "=IF(RIGHT(F2,2)*1<0, RIGHT(F2,2)*1, RIGHT(F2,3)*1)",
-            "Data": "Entêtes de colonnes",
-            "Quand": "Automatique"
+    st.header("Détail des Étapes : Données (Data) et Logique (Comment)")
+    st.caption("Chaque étape décrit les **intitulés des tables** et la **logique de calcul** (sans formule Excel).")
+
+    etapes_metier = [
+        {
+            "titre": "ÉTAPE 1 : Lecture des entêtes de date",
+            "data": "Colonnes d'entête de la feuille (ex: '2024-01', '2024-02'...)",
+            "logique": "Lire le texte de l'entête pour en extraire le numéro du mois (1 à 12). Cela permet de relier chaque colonne à un mois précis pour les recherches futures.",
+            "quand": "Automatique (à l'ouverture du fichier)."
         },
-        "ÉTAPE 2 : Calcul des dates M-1, M-2...": {
-            "Quoi": "Déterminer la date réelle du mois décalé",
-            "Formule": "=IFERROR(EDATE(MAXIFS([1]TCD2!$C:$C, [1]TCD2!$B:$B, Article, [1]TCD2!$A:$A, Agence), F$1), \"-\")",
-            "Data": "Base TCD2 (Date, Article, Agence)",
-            "Quand": "À l'actualisation"
+        {
+            "titre": "ÉTAPE 2 : Construction des périodes glissantes (M-1, M-2...)",
+            "data": "Table **TCD2** : colonnes `Date`, `Article`, `Agence`.",
+            "logique": "Pour chaque Article et Agence, trouver la **dernière date de vente connue**, puis reculer de X mois pour obtenir les périodes M-1, M-2, M-3... jusqu'à M-12.",
+            "quand": "À chaque actualisation de la base TCD2."
         },
-        "ÉTAPE 3 : Récupération du réalisé": {
-            "Quoi": "Volume réel vendu",
-            "Formule": "=SUMIFS([1]TCD2!$E:$E, [1]TCD2!$B:$B, Article, [1]TCD2!$C:$C, Mois, [1]TCD2!$A:$A, Agence)",
-            "Data": "Base TCD2",
-            "Quand": "À l'actualisation"
+        {
+            "titre": "ÉTAPE 3 : Récupération des Réalisés (Volumes vendus)",
+            "data": "Table **TCD2** : colonnes `Article`, `Mois`, `Agence`, `Volume` (col E).",
+            "logique": "Faire une **somme conditionnelle** : additionner les volumes vendus en filtrant simultanément sur l'Article, le Mois et l'Agence. Le résultat est le **Réalisé** du mois.",
+            "quand": "À chaque actualisation des ventes."
         },
-        "ÉTAPE 4 : Extraction du numéro de mois": {
-            "Quoi": "Convertir la date en numéro de mois",
-            "Formule": "=IFERROR(MONTH(F3), \"-\")",
-            "Data": "Colonnes de dates calculées",
-            "Quand": "Automatique"
+        {
+            "titre": "ÉTAPE 4 : Identification du mois du Réalisé",
+            "data": "Colonnes de dates calculées à l'Étape 2.",
+            "logique": "Extraire le **numéro du mois** (1 à 12) à partir de la date. Cela sert à faire correspondre le réalisé avec le bon coefficient saisonnier.",
+            "quand": "Automatique."
         },
-        "ÉTAPE 5 : Récupération du coefficient saisonnier": {
-            "Quoi": "Coefficient lié à l'article et au mois",
-            "Formule": "=SUMIFS('[1]Calcul_coef (Global)'!$D:$D, '[1]Calcul_coef (Global)'!$A:$A, Article, '[1]Calcul_coef (Global)'!$B:$B, Mois)",
-            "Data": "Table Calcul_coef (Global)",
-            "Quand": "Automatique"
+        {
+            "titre": "ÉTAPE 5 : Chargement du Coefficient Saisonnier Global",
+            "data": "Table **Calcul_coef (Global)** : colonnes `Article`, `Mois`, `Coefficient` (col D).",
+            "logique": "Pour chaque Article et chaque Mois, chercher le **coefficient de saisonnalité** correspondant. Ce coefficient reflète les variations naturelles des ventes (ex: +30% en été).",
+            "quand": "Automatique (dès que le coefficient est disponible)."
         },
-        "ÉTAPE 6 : Calcul du SARR": {
-            "Quoi": "Volume lissé sans effet saisonnier",
-            "Formule": "=IFERROR(R3/AP3, 0)",
-            "Data": "Réalisé, Coefficient",
-            "Quand": "Automatique"
+        {
+            "titre": "ÉTAPE 6 : Calcul du SARR (Ventes Désaisonnalisées)",
+            "data": "Réalisé (Étape 3) + Coefficient (Étape 5).",
+            "logique": "Diviser le **Réalisé** par le **Coefficient saisonnier**. Cela 'lisse' les ventes en supprimant l'effet de la saison, pour obtenir une **tendance pure** appelée SARR.",
+            "quand": "Automatique."
         },
-        "ÉTAPE 7 : Calcul des écarts": {
-            "Quoi": "Variation entre deux mois consécutifs",
-            "Formule": "=Tableau35[[#This Row],[SARR M-1]] - Tableau35[[#This Row],[SARR M-2]]",
-            "Data": "Colonnes SARR",
-            "Quand": "Automatique"
+        {
+            "titre": "ÉTAPE 7 : Calcul des Écarts (Tendance)",
+            "data": "Colonnes de SARR (M-1, M-2, M-3...).",
+            "logique": "Calculer la **différence entre deux SARR consécutifs** (SARR M-1 - SARR M-2). Ensuite, faire la **moyenne de tous ces écarts** pour obtenir la **tendance moyenne** des ventes.",
+            "quand": "Automatique."
         },
-        "ÉTAPE 8 : Calcul de la prévision finale": {
-            "Quoi": "Prévision future combinant tendance et saisonnalité",
-            "Formule": "=IF( (Coefficient * MAX(SARR M-1, AVERAGE(SARR M-1:M-3))) + AVERAGE(Ecart-1:Ecart-11) < 0, 0, (Coefficient * MAX(...)) + AVERAGE(...) )",
-            "Data": "Coefficients Agence, SARR, Écarts",
-            "Quand": "Temps réel"
+        {
+            "titre": "ÉTAPE 8 : Calcul de la Prévision Finale",
+            "data": "Coefficient Agence + SARR + Moyenne des Écarts.",
+            "logique": "Combiner trois éléments : (1) le **SARR le plus élevé** entre M-1 et la moyenne des 3 derniers mois, (2) le **Coefficient de saisonnalité** de l'agence, (3) la **tendance moyenne** (Étape 7). Si le résultat est négatif, on le ramène à **0**.",
+            "quand": "Temps réel (dès qu'une donnée change)."
         },
-        "ÉTAPE 9 : Projection long terme (2026-2030)": {
-            "Quoi": "Projection sur 5 ans",
-            "Formule": "Même logique que l'étape 8 appliquée aux mois futurs (BY à EA)",
-            "Data": "Coefficients Agence, SARR",
-            "Quand": "Construction budgétaire"
+        {
+            "titre": "ÉTAPE 9 : Projection Long Terme (2026-2030)",
+            "data": "Coefficients Agence + SARR historique.",
+            "logique": "Appliquer la **même logique que l'Étape 8** mais sur les mois des années futures (2026 à 2030). Cela permet de simuler les ventes sur 5 ans pour le budget.",
+            "quand": "Lors de la construction budgétaire annuelle."
         },
-        "ÉTAPE 10 : Calcul du GAP": {
-            "Quoi": "Écart entre Total Général et somme des mois 8 à 12",
-            "Formule": "=Total_Général (BH) - SOMME(Colonnes 8 à 12)",
-            "Data": "Total Général, Mois 8 à 12",
-            "Quand": "Consolidation"
+        {
+            "titre": "ÉTAPE 10 : Calcul du GAP (Écart de prévision)",
+            "data": "Total Général (col BH) + Somme des Mois 8 à 12.",
+            "logique": "Soustraire la **somme des prévisions des mois 8 à 12** du **Total Général annuel**. Si le GAP est **négatif**, cela signifie qu'il manque des prévisions sur le 2ème semestre.",
+            "quand": "Lors de la consolidation finale."
         }
-    }
-    
-    for titre, details in etapes_detail.items():
-        with st.expander(f"🔹 {titre}"):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"**Quoi :** {details['Quoi']}")
-                st.markdown(f"**Data :** {details['Data']}")
-            with col2:
-                st.markdown(f"**Quand :** {details['Quand']}")
-            st.code(details['Formule'], language='excel')
-            st.caption("Formule Excel extraite du fichier CALC.xlsx")
+    ]
+
+    for etape in etapes_metier:
+        with st.expander(f"🔹 {etape['titre']}"):
+            st.markdown(f"**📁 Data (Données sources) :** {etape['data']}")
+            st.markdown(f"**🧠 Comment (Logique métier) :** {etape['logique']}")
+            st.markdown(f"**🕒 Quand :** {etape['quand']}")
 
 # ==========================================
 # ONGLET 3 : CONDITIONS LOGIQUES
 # ==========================================
 with tab3:
-    st.header("Conditions Logiques (Les 'SI')")
-    st.markdown("Règles de gestion automatisées intégrées au fichier :")
+    st.header("Conditions Logiques (Les 'SI' du fichier)")
+    st.markdown("Règles de gestion automatisées intégrées au moteur de calcul :")
     
     conditions = {
-        "Condition": [
-            "SI (Coefficient * SARR + Tendance) < 0",
-            "SI ERREUR (date introuvable)",
-            "SI ERREUR (division par 0)",
-            "SI GAP < 0",
-            "SI Article inconnu"
+        "Si (Condition)": [
+            "La prévision calculée est négative",
+            "La date de vente est introuvable",
+            "Une division par zéro se produit",
+            "Le GAP est négatif (< 0)",
+            "Un Article n'existe pas dans la table de référence"
         ],
-        "Action": [
-            "Afficher 0",
-            "Afficher '-'",
-            "Afficher 0",
-            "Afficher en Rouge",
-            "#N/A (à corriger)"
+        "Alors (Action automatique)": [
+            "Afficher 0 (pas de vente négative)",
+            "Afficher '-' (évite les erreurs #N/A)",
+            "Afficher 0 (sécurité)",
+            "Afficher en Rouge (alerte visuelle)",
+            "#N/A (à corriger manuellement)"
         ]
     }
     
-    df_conditions = pd.DataFrame(conditions)
-    st.dataframe(df_conditions, use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(conditions), use_container_width=True, hide_index=True)
     
-    st.warning("⚠️ Attention : Un GAP négatif (Rouge) indique un déficit de prévision sur le 2ème semestre.")
+    st.warning("⚠️ Un GAP négatif (Rouge) indique un déficit de prévision sur le 2ème semestre. Il faut ajuster les volumes.")
 
 # ==========================================
 # ONGLET 4 : SIMULATEUR
 # ==========================================
 with tab4:
-    st.header("🧮 Simulateur de Prévision (Étape 8)")
-    st.markdown("Testez la formule de calcul de la prévision finale en temps réel.")
+    st.header("🧮 Simulateur de Prévision (Logique de l'Étape 8)")
+    st.markdown("Testez la **logique métier** de calcul de la prévision finale.")
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        coefficient = st.number_input("Coefficient Saisonnier", value=1.2, step=0.1)
-        sarr_m1 = st.number_input("SARR M-1", value=1500.0, step=100.0)
+        coefficient = st.number_input("Coefficient Saisonnier (Agence)", value=1.2, step=0.1)
+        sarr_m1 = st.number_input("SARR M-1 (Ventes lissées)", value=1500.0, step=100.0)
     with col2:
         sarr_m2 = st.number_input("SARR M-2", value=1400.0, step=100.0)
         sarr_m3 = st.number_input("SARR M-3", value=1300.0, step=100.0)
     with col3:
-        ecart_moyen = st.number_input("Moyenne des Écarts", value=50.0, step=10.0)
+        ecart_moyen = st.number_input("Moyenne des Écarts (Tendance)", value=50.0, step=10.0)
     
-    # Calcul de la prévision
+    # Logique métier
     moyenne_3 = (sarr_m1 + sarr_m2 + sarr_m3) / 3
     max_sarr = max(sarr_m1, moyenne_3)
     prevision_brute = (coefficient * max_sarr) + ecart_moyen
@@ -193,6 +180,7 @@ with tab4:
     with col_res1:
         st.metric("Moyenne des 3 SARR", f"{moyenne_3:,.2f}")
         st.metric("MAX (SARR M-1 vs Moyenne)", f"{max_sarr:,.2f}")
+        st.metric("Tendance (Écart moyen)", f"{ecart_moyen:,.2f}")
     with col_res2:
         st.metric("Prévision Brute", f"{prevision_brute:,.2f}")
         if prevision_brute < 0:
@@ -200,8 +188,5 @@ with tab4:
         else:
             st.success(f"Prévision Finale : {prevision_finale:,.2f}")
 
-# ==========================================
-# PIED DE PAGE
-# ==========================================
 st.divider()
-st.caption("Application Streamlit générée à partir du document 'Workflow CALC.xlsx'")
+st.caption("Application Streamlit - Workflow Métier du fichier CALC.xlsx")

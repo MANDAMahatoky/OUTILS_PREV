@@ -1,7 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Mode Global vs Mode Filtré — Workflow 11 étapes
-# UN SEUL UPLOAD : historique des ventes
+# UN SEUL UPLOAD — LECTEUR ADAPTATIF (format reporting)
 # ============================================================
 
 import streamlit as st
@@ -10,9 +9,6 @@ import numpy as np
 import re
 from io import BytesIO
 
-# ============================================================
-# CONFIG PAGE
-# ============================================================
 st.set_page_config(
     page_title="Moteur Ventes — Historique",
     page_icon="📊",
@@ -24,7 +20,7 @@ DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
 
 # ============================================================
-# RÉFÉRENTIEL INTÉGRÉ (69 SKU du PDF Classeur2)
+# RÉFÉRENTIEL INTÉGRÉ (69 SKU)
 # ============================================================
 REFERENTIEL_DATA = [
     ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
@@ -101,11 +97,15 @@ REFERENTIEL_DATA = [
 CONV_CL_HL = {30: 0.003, 33: 0.0033, 35: 0.0035, 50: 0.005,
               65: 0.0065, 100: 0.01, 150: 0.015, 200: 0.02}
 
-# Liste des agences (pour mapping région automatique)
-AGENCES_DEMO = ["Alger Centre", "Oran", "Constantine", "Annaba", "Blida",
-                "Sétif", "Tlemcen", "Béjaïa", "Batna", "Tizi Ouzou",
-                "Djelfa", "Biskra", "Tiaret", "Skikda", "Chlef"]
 REGIONS = ["Nord", "Ouest", "Est", "Centre", "Sud"]
+MOIS_FR = {
+    1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
+    7: "juillet", 8: "août", 9: "septembre", 10: "octobre",
+    11: "novembre", 12: "décembre"
+}
+MOIS_FR_INV = {v.upper(): k for k, v in MOIS_FR.items()}
+MOIS_EN_INV = {"JANUARY":1,"FEBRUARY":2,"MARCH":3,"APRIL":4,"MAY":5,"JUNE":6,
+               "JULY":7,"AUGUST":8,"SEPTEMBER":9,"OCTOBER":10,"NOVEMBER":11,"DECEMBER":12}
 
 # ============================================================
 # UTILITAIRES
@@ -134,7 +134,6 @@ def construire_referentiel_integre():
 
 
 def construire_mapping_auto(agences):
-    """Mapping Agence → Région automatique (round-robin)."""
     return pd.DataFrame({
         "Agence": agences,
         "Région": [REGIONS[i % len(REGIONS)] for i in range(len(agences))],
@@ -142,7 +141,6 @@ def construire_mapping_auto(agences):
 
 
 def generer_objectifs_auto(ref, mapr):
-    """Génère des objectifs annuels fictifs (5k–20k) par Article × Agence."""
     np.random.seed(7)
     obj = (ref[["Article"]].assign(key=1)
               .merge(mapr[["Agence"]].assign(key=1), on="key")
@@ -151,100 +149,283 @@ def generer_objectifs_auto(ref, mapr):
     return obj
 
 
-def lire_fichier(uploaded_file):
-    """Lit un fichier uploadé (xlsx ou csv) et retourne un DataFrame."""
-    b = uploaded_file.getvalue()
-    try:
-        return pd.read_excel(BytesIO(b))
-    except Exception:
-        try:
-            return pd.read_csv(BytesIO(b))
-        except Exception as e:
-            st.error(f"❌ Impossible de lire le fichier : {e}")
-            st.stop()
+def normaliser_mois(val):
+    """Convertit 'janvier', 'Jan', 'JANVIER', 'January' → 1..12."""
+    if pd.isna(val):
+        return None
+    s = str(val).strip().upper()
+    if s in MOIS_FR_INV:
+        return MOIS_FR_INV[s]
+    if s in MOIS_EN_INV:
+        return MOIS_EN_INV[s]
+    # 'janv.', 'févr.', 'sept.' → 3 premières lettres
+    s3 = s[:3]
+    for k, v in MOIS_FR_INV.items():
+        if k.startswith(s3):
+            return v
+    return None
 
 
 # ============================================================
-# ÉTAPE 1 — CHARGEMENT + ENRICHISSEMENT + FUSION
+# DÉTECTION AUTOMATIQUE DE STRUCTURE
 # ============================================================
-@st.cache_data(show_spinner="⏳ Chargement et enrichissement du fichier...")
+def detecter_structure(raw: pd.DataFrame) -> dict:
+    """
+    Analyse les 30 premières lignes pour détecter :
+    - la ligne d'en-tête
+    - les colonnes Date / Article / Agence / Volume
+    - la structure verticale (mois en lignes) ou croisée (mois en colonnes)
+    """
+    resultat = {
+        "header_row": None,
+        "colonnes": {},
+        "structure": "inconnue",
+        "annees_detectees": [],
+        "mois_en_lignes": False,
+        "mois_en_colonnes": False,
+    }
+
+    # --- Chercher la ligne d'en-tête (mots-clés métier) ---
+    mots_cles = ["date", "article", "agence", "volume", "mois", "année",
+                 "annee", "produit", "sku", "magasin", "point de vente",
+                 "quantité", "quantite", "total", "qty", "year", "month",
+                 "product", "store", "region"]
+    best_row = None
+    best_score = 0
+    for i in range(min(30, len(raw))):
+        row_vals = [str(v).strip().lower() for v in raw.iloc[i].values]
+        score = sum(1 for v in row_vals if v in mots_cles or any(m in v for m in mots_cles))
+        if score > best_score:
+            best_score = score
+            best_row = i
+    if best_score >= 2:
+        resultat["header_row"] = best_row
+        resultat["colonnes"]["brut"] = [str(v).strip() for v in raw.iloc[best_row].values]
+
+    # --- Détection années (4 chiffres 2015–2030) ---
+    annees = set()
+    for i in range(min(50, len(raw))):
+        for v in raw.iloc[i].values:
+            s = str(v).strip()
+            if s.isdigit() and 2015 <= int(s) <= 2030:
+                annees.add(int(s))
+    resultat["annees_detectees"] = sorted(annees)
+
+    # --- Détection mois en lignes (colonne avec 'janvier', 'février'...) ---
+    for col in range(raw.shape[1]):
+        col_vals = [str(v).strip().upper() for v in raw.iloc[:, col].values if pd.notna(v)]
+        n_mois = sum(1 for v in col_vals if v in MOIS_FR_INV or v in MOIS_EN_INV)
+        if n_mois >= 6:
+            resultat["mois_en_lignes"] = True
+            break
+
+    # --- Détection mois en colonnes (header contient 'janvier', 'février'...) ---
+    for row in range(min(10, len(raw))):
+        row_vals = [str(v).strip().upper() for v in raw.iloc[row].values]
+        n_mois = sum(1 for v in row_vals if v in MOIS_FR_INV or v in MOIS_EN_INV)
+        if n_mois >= 6:
+            resultat["mois_en_colonnes"] = True
+            break
+
+    # --- Structure globale ---
+    if resultat["mois_en_colonnes"]:
+        resultat["structure"] = "CROISÉE (mois en colonnes)"
+    elif resultat["mois_en_lignes"]:
+        resultat["structure"] = "VERTICALE (mois en lignes)"
+    else:
+        resultat["structure"] = "INCONNUE"
+
+    return resultat
+
+
+# ============================================================
+# EXTRACTION INTELLIGENTE
+# ============================================================
+def extraire_ventes(raw: pd.DataFrame, struct: dict) -> pd.DataFrame:
+    """
+    Tente d'extraire une base plate (Date, Article, Agence, Volume)
+    depuis différents formats de reporting.
+    """
+    rows = []
+
+    # --- Cas 1 : structure VERTICALE (mois + année + article + agence + volume en lignes) ---
+    if struct["structure"].startswith("VERTICALE"):
+        # Identifier les colonnes par mots-clés
+        header_idx = struct["header_row"] if struct["header_row"] is not None else 0
+        header = [str(v).strip().lower() for v in raw.iloc[header_idx].values]
+
+        def find_col(keywords):
+            for i, h in enumerate(header):
+                if any(k in h for k in keywords):
+                    return i
+            return None
+
+        col_date    = find_col(["date"])
+        col_annee   = find_col(["année", "annee", "year", "an"])
+        col_mois    = find_col(["mois", "month"])
+        col_article = find_col(["article", "produit", "sku", "product"])
+        col_agence  = find_col(["agence", "magasin", "store", "point", "pdv"])
+        col_volume  = find_col(["volume", "quantité", "quantite", "qty", "total", "qté"])
+
+        if col_article is not None and col_agence is not None and col_volume is not None:
+            for i in range(header_idx + 1, len(raw)):
+                try:
+                    art = raw.iloc[i, col_article]
+                    ag  = raw.iloc[i, col_agence]
+                    vol = raw.iloc[i, col_volume]
+                    if pd.isna(art) or pd.isna(ag) or pd.isna(vol):
+                        continue
+                    try:
+                        vol = float(vol)
+                    except (ValueError, TypeError):
+                        continue
+
+                    # Construire la date
+                    if col_date is not None and pd.notna(raw.iloc[i, col_date]):
+                        date_val = pd.to_datetime(raw.iloc[i, col_date], errors="coerce")
+                    elif col_annee is not None and col_mois is not None:
+                        annee = int(raw.iloc[i, col_annee]) if pd.notna(raw.iloc[i, col_annee]) else None
+                        mois_val = raw.iloc[i, col_mois]
+                        mois = normaliser_mois(mois_val) if isinstance(mois_val, str) else mois_val
+                        if annee and mois:
+                            date_val = pd.Timestamp(year=annee, month=int(mois), day=15)
+                        else:
+                            continue
+                    else:
+                        continue
+
+                    if pd.isna(date_val):
+                        continue
+
+                    rows.append({
+                        "Date": date_val,
+                        "Article": str(art).strip(),
+                        "Agence": str(ag).strip(),
+                        "Volume": vol,
+                    })
+                except Exception:
+                    continue
+
+            if rows:
+                return pd.DataFrame(rows)
+
+    # --- Cas 2 : structure CROISÉE (mois en colonnes) ---
+    if struct["structure"].startswith("CROISÉE"):
+        # Trouver la ligne d'en-tête qui contient les mois
+        header_idx = None
+        for i in range(min(10, len(raw))):
+            row_vals = [str(v).strip().upper() for v in raw.iloc[i].values]
+            if sum(1 for v in row_vals if v in MOIS_FR_INV or v in MOIS_EN_INV) >= 6:
+                header_idx = i
+                break
+
+        if header_idx is None:
+            return pd.DataFrame()
+
+        header = [str(v).strip() for v in raw.iloc[header_idx].values]
+
+        # Détecter les colonnes de mois
+        mois_cols = {}
+        for i, h in enumerate(header):
+            m = normaliser_mois(h)
+            if m:
+                mois_cols[i] = m
+
+        # Chercher les colonnes identifiantes (article, agence, année)
+        header_lower = [h.lower() for h in header]
+        col_annee   = next((i for i, h in enumerate(header_lower) if "ann" in h or "year" in h), None)
+        col_article = next((i for i, h in enumerate(header_lower) if "article" in h or "produit" in h), None)
+        col_agence  = next((i for i, h in enumerate(header_lower) if "agence" in h or "magasin" in h), None)
+
+        # Si pas trouvé, prendre les colonnes 0-3 comme identifiants
+        if col_article is None:
+            col_article = 3 if len(header) > 3 else 0
+        if col_agence is None:
+            col_agence = 4 if len(header) > 4 else 1
+
+        # Parcourir les lignes de données
+        for i in range(header_idx + 1, len(raw)):
+            annee = None
+            if col_annee is not None and pd.notna(raw.iloc[i, col_annee]):
+                try:
+                    annee = int(raw.iloc[i, col_annee])
+                except (ValueError, TypeError):
+                    pass
+            if annee is None:
+                # Fallback : prendre l'année détectée
+                annee = struct["annees_detectees"][0] if struct["annees_detectees"] else None
+
+            art = raw.iloc[i, col_article] if pd.notna(raw.iloc[i, col_article]) else None
+            ag  = raw.iloc[i, col_agence] if pd.notna(raw.iloc[i, col_agence]) else None
+
+            if art is None or ag is None or annee is None:
+                continue
+
+            for col_idx, mois in mois_cols.items():
+                try:
+                    vol = float(raw.iloc[i, col_idx])
+                except (ValueError, TypeError):
+                    continue
+                date_val = pd.Timestamp(year=annee, month=mois, day=15)
+                rows.append({
+                    "Date": date_val,
+                    "Article": str(art).strip(),
+                    "Agence": str(ag).strip(),
+                    "Volume": vol,
+                })
+
+        if rows:
+            return pd.DataFrame(rows)
+
+    return pd.DataFrame()
+
+
+# ============================================================
+# CHARGEMENT FINAL
+# ============================================================
+@st.cache_data(show_spinner="⏳ Chargement du fichier...")
 def charger_et_enrichir(file_bytes):
-    """
-    Charge l'historique des ventes, l'enrichit avec :
-    - le référentiel intégré (Positionnement, Occasion, Format, Contenance)
-    - un mapping région automatique
-    - des objectifs annuels automatiques
-    """
-    # --- Lecture du fichier uploadé ---
+    # Lecture brute
     try:
-        ventes = pd.read_excel(BytesIO(file_bytes))
+        raw = pd.read_excel(BytesIO(file_bytes), header=None)
     except Exception:
-        ventes = pd.read_csv(BytesIO(file_bytes))
+        raw = pd.read_csv(BytesIO(file_bytes), header=None)
 
-    # --- Vérification des colonnes obligatoires ---
-    cols_obligatoires = ["Date", "Article", "Agence", "Volume"]
-    manquantes = [c for c in cols_obligatoires if c not in ventes.columns]
-    if manquantes:
-        st.error(f"❌ Colonnes manquantes dans le fichier : {manquantes}")
-        st.info(f"Colonnes trouvées : {list(ventes.columns)}")
-        st.stop()
+    return raw
 
-    # --- Normalisation Date ---
+
+def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
+    """Ajoute référentiel, région, objectifs."""
+    # Normalisation
     ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
     ventes = ventes.dropna(subset=["Date"])
+    ventes["Volume"] = pd.to_numeric(ventes["Volume"], errors="coerce").fillna(0)
     ventes["Mois"]  = ventes["Date"].dt.month
     ventes["Annee"] = ventes["Date"].dt.year
 
-    # --- Référentiel intégré ---
+    # Référentiel
     ref = construire_referentiel_integre()
+    ref_merge = ref[["Article","Positionnement","Occasion","Format",
+                     "Contenance_cl","Contenance_hl"]]
+    df = ventes.merge(ref_merge, on="Article", how="left")
 
-    # --- Si le fichier contient déjà Positionnement/Occasion, on les garde ---
-    cols_ref = ["Article", "Positionnement", "Occasion", "Format",
-                "Contenance_cl", "Contenance_hl"]
-    ref_merge = ref[cols_ref].copy()
-
-    # --- Fusion ventes ↔ référentiel ---
-    df = ventes.merge(ref_merge, on="Article", how="left", suffixes=("", "_ref"))
-
-    # Si Positionnement/Occasion étaient déjà dans ventes, on garde la version du fichier
-    for col in ["Positionnement", "Occasion", "Format", "Contenance_cl", "Contenance_hl"]:
-        if col in ventes.columns and f"{col}_ref" in df.columns:
-            df[col] = df[col].fillna(df[f"{col}_ref"])
-            df.drop(columns=[f"{col}_ref"], inplace=True)
-        elif f"{col}_ref" in df.columns:
-            df[col] = df[f"{col}_ref"]
-            df.drop(columns=[f"{col}_ref"], inplace=True)
-
-    # --- Mapping région ---
+    # Mapping région
     agences = sorted(df["Agence"].dropna().unique().tolist())
     if "Région" not in df.columns:
-        mapr = construire_mapping_auto(agences)
-        df = df.merge(mapr, on="Agence", how="left")
+        df = df.merge(construire_mapping_auto(agences), on="Agence", how="left")
 
-    # --- Objectifs ---
+    # Objectifs
     if "Objectif_Annuel" not in df.columns:
-        mapr_used = df[["Agence", "Région"]].drop_duplicates() if "Région" in df.columns \
-                    else construire_mapping_auto(agences)
-        obj = generer_objectifs_auto(ref, mapr_used)
-        df = df.merge(obj, on=["Article", "Agence"], how="left")
+        mapr_used = df[["Agence","Région"]].drop_duplicates()
+        df = df.merge(generer_objectifs_auto(ref, mapr_used),
+                      on=["Article","Agence"], how="left")
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
 
     return df
 
 
 # ============================================================
-# ÉTAPE 2 — MATRICE DE BASE
-# ============================================================
-@st.cache_data
-def construire_matrice(df):
-    axes = ["Article", "Agence", "Région", "Positionnement", "Occasion",
-            "Format", "Contenance_cl", "Mois"]
-    axes = [c for c in axes if c in df.columns]
-    return df.groupby(axes, as_index=False, dropna=False)["Volume"].sum()
-
-
-# ============================================================
-# ÉTAPE 4 — PÉRIMÈTRE (GLOBAL vs FILTRÉ)
+# ÉTAPE 4 — PÉRIMÈTRE
 # ============================================================
 def get_perimetre(df, filtres):
     if all(len(f) == 0 for f in filtres.values()):
@@ -257,7 +438,7 @@ def get_perimetre(df, filtres):
 
 
 # ============================================================
-# ÉTAPE 5 — RÉALISÉ CUMULÉ
+# CALCULS (étapes 5 → 10)
 # ============================================================
 def calcul_realise_cumule(df_per, mois_clotures):
     df_clot = df_per[df_per["Mois"] <= mois_clotures - 1]
@@ -267,9 +448,6 @@ def calcul_realise_cumule(df_per, mois_clotures):
         Réalisé=("Volume", "sum"))
 
 
-# ============================================================
-# ÉTAPE 6 — INDICES SAISONNIERS
-# ============================================================
 def calcul_indices(df_per):
     nb_annees = df_per["Annee"].nunique() if "Annee" in df_per.columns else 1
     if nb_annees < ANNEES_HISTO:
@@ -277,16 +455,10 @@ def calcul_indices(df_per):
     par_mois = df_per.groupby("Mois")["Volume"].sum()
     moy_mois = par_mois / nb_annees
     moy_ann  = df_per["Volume"].sum() / 12
-    if moy_ann == 0:
-        indices = pd.Series(1.0, index=moy_mois.index)
-    else:
-        indices = moy_mois / moy_ann
+    indices = pd.Series(1.0, index=moy_mois.index) if moy_ann == 0 else moy_mois / moy_ann
     return indices.rename("Indice").reset_index()
 
 
-# ============================================================
-# ÉTAPE 7 — SARR
-# ============================================================
 def calcul_sarr(df_per, indices):
     ind = indices.set_index("Mois")["Indice"]
     df = df_per.copy()
@@ -295,9 +467,6 @@ def calcul_sarr(df_per, indices):
     return df
 
 
-# ============================================================
-# ÉTAPE 8 — TENDANCE
-# ============================================================
 def calcul_tendance(df_sarr):
     grp = (df_sarr.groupby(["Article", "Agence", "Mois"], as_index=False)
                   .agg(SARR=("SARR", "sum"))
@@ -313,9 +482,6 @@ def calcul_tendance(df_sarr):
                .apply(_tend).reset_index(name="Tendance"))
 
 
-# ============================================================
-# ÉTAPE 9 — PRÉVISION
-# ============================================================
 def calcul_prevision(df_sarr, tendance, indices, mois_clotures, horizon=12):
     if df_sarr.empty or "SARR" not in df_sarr.columns:
         return pd.DataFrame(columns=["Article", "Agence", "Mois_Futur", "Prévision"])
@@ -335,24 +501,16 @@ def calcul_prevision(df_sarr, tendance, indices, mois_clotures, horizon=12):
     return pd.DataFrame(rows)
 
 
-# ============================================================
-# ÉTAPE 10 — GAP
-# ============================================================
 def calcul_gap(df_per, realise, prevision):
     obj = df_per.groupby(["Article", "Agence"], as_index=False).agg(
         Objectif_Annuel=("Objectif_Annuel", "max"))
-
-    if realise.empty or "Réalisé" not in realise.columns:
-        r = pd.DataFrame(columns=["Article", "Agence", "Realise"])
-    else:
-        r = realise.rename(columns={"Réalisé": "Realise"})
-
-    if prevision.empty or "Article" not in prevision.columns:
-        p = pd.DataFrame(columns=["Article", "Agence", "Prevision"])
-    else:
-        p = prevision.groupby(["Article", "Agence"], as_index=False).agg(
+    r = (realise.rename(columns={"Réalisé": "Realise"})
+         if not realise.empty and "Réalisé" in realise.columns
+         else pd.DataFrame(columns=["Article","Agence","Realise"]))
+    p = (prevision.groupby(["Article", "Agence"], as_index=False).agg(
             Prevision=("Prévision", "sum"))
-
+         if not prevision.empty and "Article" in prevision.columns
+         else pd.DataFrame(columns=["Article","Agence","Prevision"]))
     res = (obj.merge(r, on=["Article", "Agence"], how="left")
               .merge(p, on=["Article", "Agence"], how="left"))
     res = res.fillna({"Realise": 0, "Prevision": 0, "Objectif_Annuel": 0})
@@ -364,37 +522,33 @@ def calcul_gap(df_per, realise, prevision):
 
 
 # ============================================================
-# UPLOAD — UN SEUL FICHIER
+# INTERFACE — DIAGNOSTIC + MAPPING MANUEL
 # ============================================================
-def zone_upload():
-    st.sidebar.header("📤 1. Charger l'historique des ventes")
-    st.sidebar.caption("Un seul fichier Excel/CSV")
+def interface_diagnostic(raw: pd.DataFrame):
+    """Affiche le diagnostic et permet le mapping manuel si nécessaire."""
+    st.subheader("🔍 Diagnostic du fichier")
 
-    f = st.sidebar.file_uploader(
-        "📄 Historique des ventes (Date, Article, Agence, Volume)",
-        type=["xlsx", "csv"], key="up_hist")
-    return f
+    # --- Stats ---
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Lignes", f"{raw.shape[0]:,}")
+    c2.metric("Colonnes", raw.shape[1])
+    c3.metric("Cellules non vides", f"{raw.notna().sum().sum():,}")
 
+    # --- Détection automatique ---
+    struct = detecter_structure(raw)
 
-# ============================================================
-# FILTRES
-# ============================================================
-def construire_sidebar(df, mois_clotures):
-    st.sidebar.header("🎛️ 2. Filtres")
-    st.sidebar.caption("Laisser vide = Mode GLOBAL")
-    axes = ["Région", "Agence", "Positionnement", "Occasion",
-            "Format", "Contenance_cl"]
-    filtres = {}
-    for col in axes:
-        if col in df.columns:
-            vals = sorted(df[col].dropna().unique().tolist())
-            filtres[col] = st.sidebar.multiselect(col, vals, default=[])
-        else:
-            filtres[col] = []
-    st.sidebar.divider()
-    st.sidebar.header("⚙️ 3. Paramètres")
-    new_mc = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, mois_clotures)
-    return filtres, new_mc
+    st.markdown("### 🤖 Détection automatique")
+    st.write(f"**Structure détectée :** `{struct['structure']}`")
+    st.write(f"**Ligne d'en-tête probable :** `{struct['header_row']}`")
+    st.write(f"**Années détectées :** `{struct['annees_detectees']}`")
+    if struct["colonnes"].get("brut"):
+        st.write(f"**Colonnes de la ligne d'en-tête :** `{struct['colonnes']['brut']}`")
+
+    # --- Aperçu brut ---
+    st.markdown("### 📋 Aperçu brut (30 premières lignes)")
+    st.dataframe(raw.head(30), use_container_width=True, height=400)
+
+    return struct
 
 
 # ============================================================
@@ -439,8 +593,35 @@ def afficher_dashboard(mode, df_per, realise, indices, sarr,
         a = gap["Alerte"].value_counts().reset_index()
         a.columns = ["Alerte", "Nombre"]
         st.bar_chart(a.set_index("Alerte")["Nombre"])
-    else:
-        st.info("Aucune alerte à afficher.")
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+def zone_upload():
+    st.sidebar.header("📤 1. Charger l'historique des ventes")
+    f = st.sidebar.file_uploader(
+        "📄 Fichier Excel/CSV (toutes années)",
+        type=["xlsx", "csv"], key="up_hist")
+    return f
+
+
+def construire_sidebar(df, mois_clotures):
+    st.sidebar.header("🎛️ 2. Filtres")
+    st.sidebar.caption("Laisser vide = Mode GLOBAL")
+    axes = ["Région", "Agence", "Positionnement", "Occasion",
+            "Format", "Contenance_cl"]
+    filtres = {}
+    for col in axes:
+        if col in df.columns:
+            vals = sorted(df[col].dropna().unique().tolist())
+            filtres[col] = st.sidebar.multiselect(col, vals, default=[])
+        else:
+            filtres[col] = []
+    st.sidebar.divider()
+    st.sidebar.header("⚙️ 3. Paramètres")
+    new_mc = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, mois_clotures)
+    return filtres, new_mc
 
 
 # ============================================================
@@ -450,43 +631,69 @@ def main():
     if "mois_clotures" not in st.session_state:
         st.session_state.mois_clotures = DEFAUT_MOIS_CLOTURES
 
-    # --- Upload UNIQUE ---
+    # --- Upload ---
     fichier = zone_upload()
 
     if fichier is None:
+        st.title("📊 Moteur de pilotage des ventes")
         st.info("👈 Uploadez votre historique des ventes dans la sidebar pour démarrer.")
-        st.markdown("### 📋 Format attendu")
         st.markdown("""
-        Un fichier **Excel** ou **CSV** avec au minimum ces colonnes :
+        ### 📋 Formats acceptés
 
-        | Date | Article | Agence | Volume |
-        |---|---|---|---|
-        | 2023-01-15 | Caprice Ananas 100 cl VER | Alger Centre | 1250 |
-        | 2023-01-15 | Caprice Ananas 100 cl VER | Oran | 980 |
+        L'application **détecte automatiquement** le format de votre fichier :
 
-        **Colonnes optionnelles** (auto-complétées si absentes) :
-        - `Positionnement`, `Occasion` → déduits du référentiel intégré (69 SKU)
-        - `Format`, `Contenance_cl` → déduits du nom de l'article
-        - `Région` → généré automatiquement (mapping Agence → Région)
-        - `Objectif_Annuel` → généré automatiquement
+        1. **Base plate** (recommandé) :
+           | Date | Article | Agence | Volume |
+           |---|---|---|---|
 
-        **Le minimum absolu** : `Date`, `Article`, `Agence`, `Volume`.
+        2. **Tableau croisé** (mois en colonnes) :
+           | Année | Article | Agence | Janvier | Février | ... |
+           |---|---|---|---|---|---|
+
+        3. **Tableau vertical** (mois en lignes) :
+           | Année | Mois | Article | Agence | Volume |
+           |---|---|---|---|---|
+
+        ### 🔍 Diagnostic automatique
+        Une fois le fichier uploadé, un **diagnostic complet** s'affiche pour vérifier la lecture.
         """)
         st.stop()
 
-    # --- Chargement + enrichissement ---
+    # --- Lecture brute ---
     file_bytes = fichier.getvalue()
-    df_brut = charger_et_enrichir(file_bytes)
+    raw = charger_et_enrichir(file_bytes)
 
-    with st.sidebar.expander("👁️ Aperçu des données"):
-        st.write(f"**Lignes :** {len(df_brut):,}")
-        st.write(f"**Colonnes :** {list(df_brut.columns)}")
-        st.dataframe(df_brut.head(5), use_container_width=True)
+    # --- Diagnostic ---
+    struct = interface_diagnostic(raw)
 
-    # --- Matrice ---
-    matrice = construire_matrice(df_brut)
+    # --- Extraction ---
+    st.markdown("### ⚙️ Extraction des ventes")
+    ventes = extraire_ventes(raw, struct)
 
-    # --- Filtres ---
+    if ventes.empty:
+        st.error("❌ Impossible d'extraire les ventes au format (Date, Article, Agence, Volume).")
+        st.markdown("""
+        ### 🔧 Que faire ?
+
+        **Option 1 — Format standard** : convertissez votre fichier au format :
+
+        | Date | Article | Agence | Volume |
+        |---|---|---|---|
+        | 2024-01-15 | Caprice Ananas 100 cl VER | 01-Tanjombato | 1250 |
+
+        **Option 2 — Dites-moi la structure** : envoyez-moi les 10 premières lignes
+        de votre fichier (copier-coller) et j'adapte le lecteur précisément.
+        """)
+        st.stop()
+
+    st.success(f"✅ {len(ventes):,} lignes extraites avec succès.")
+    with st.expander("👁️ Aperçu des ventes extraites"):
+        st.dataframe(ventes.head(20), use_container_width=True)
+
+    # --- Enrichissement ---
+    df_brut = enrichir_ventes(ventes)
+
+    # --- Sidebar filtres ---
     filtres, mois_clotures = construire_sidebar(
         df_brut, st.session_state.mois_clotures)
     st.session_state.mois_clotures = mois_clotures
@@ -494,7 +701,7 @@ def main():
     # --- Périmètre ---
     df_per, mode = get_perimetre(df_brut, filtres)
     if df_per.empty:
-        st.error("❌ Aucune donnée pour ce périmètre. Modifiez les filtres.")
+        st.error("❌ Aucune donnée pour ce périmètre.")
         st.stop()
 
     # --- Calculs ---

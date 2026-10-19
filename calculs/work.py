@@ -1,6 +1,6 @@
 # ============================================================
 # MOTEUR DE PILOTAGE DES VENTES — Streamlit
-# Version FINALE : Lecture dynamique des segments de votre fichier
+# Version FINALE : Diagnostic de lecture + Affichage complet
 # ============================================================
 
 import streamlit as st
@@ -11,29 +11,18 @@ from io import BytesIO
 
 st.set_page_config(page_title="Moteur Ventes", page_icon="📊", layout="wide")
 
-# --- PARAMÈTRES ---
 DEFAUT_MOIS_CLOTURES = 8
 ANNEES_HISTO = 2
 
 # ============================================================
-# MAPPING DES RÉGIONS (Basé sur vos 15 agences)
+# MAPPING DES RÉGIONS
 # ============================================================
 AGENCES_DATA = [
-    ("01-Tanjombato", "Centre"),
-    ("11-Andranomahery", "Centre"),
-    ("12-Antsirabe", "Centre"),
-    ("09-Tamatave", "Est"),
-    ("18-Ambanja", "Est"),
-    ("19-Sambava", "Est"),
-    ("08-Manakara", "Est"),
-    ("07-Majunga", "Ouest"),
-    ("23-Morondava", "Ouest"),
-    ("24-Fort Dauphin", "Sud"),
-    ("04-Tulear", "Sud"),
-    ("05-Fianarantsoa", "Sud"),
-    ("06-Ihosy", "Sud"),
-    ("21-NosyBe", "Nord"),
-    ("03-Diego", "Nord"),
+    ("01-Tanjombato", "Centre"), ("11-Andranomahery", "Centre"), ("12-Antsirabe", "Centre"),
+    ("09-Tamatave", "Est"), ("18-Ambanja", "Est"), ("19-Sambava", "Est"), ("08-Manakara", "Est"),
+    ("07-Majunga", "Ouest"), ("23-Morondava", "Ouest"),
+    ("24-Fort Dauphin", "Sud"), ("04-Tulear", "Sud"), ("05-Fianarantsoa", "Sud"), ("06-Ihosy", "Sud"),
+    ("21-NosyBe", "Nord"), ("03-Diego", "Nord"),
 ]
 
 MOIS_FR_INV = {
@@ -42,9 +31,6 @@ MOIS_FR_INV = {
     "SEPTEMBRE": 9, "OCTOBRE": 10, "NOVEMBRE": 11, "DÉCEMBRE": 12, "DECEMBRE": 12
 }
 
-# ============================================================
-# FONCTIONS D'EXTRACTION D'ATTRIBUTS (Format, Contenance)
-# ============================================================
 def extraire_format(article: str) -> str:
     a = str(article).upper()
     if "CAN" in a: return "CAN"
@@ -57,96 +43,82 @@ def extraire_contenance(article: str) -> int:
     return int(m.group(1)) if m else 0
 
 # ============================================================
-# LECTEUR SUR-MESURE DYNAMIQUE
+# LECTEUR SUR-MESURE AVEC STATISTIQUES
 # ============================================================
-def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> pd.DataFrame:
-    """
-    Lit les données en supposant la structure suivante :
-    Col A (0): Année
-    Col B (1): Mois
-    Col C (2): Catégorie (ex: 4-EAUX)
-    Col D (3): Sous-catégorie (ex: 1-Cristalline)
-    Col E (4): Agence
-    Col F (5): Article
-    Col G (6): Volume
-    """
+def extraire_ventes_sur_mesure(raw: pd.DataFrame) -> tuple:
     rows = []
+    stats = {"total_lignes": len(raw), "ignorees": 0, "valides": 0}
+    
     for i in range(len(raw)):
         try:
             annee_val   = raw.iloc[i, 0]
             mois_val    = raw.iloc[i, 1]
-            cat_val     = raw.iloc[i, 2] # ex: 4-EAUX
-            marque_val  = raw.iloc[i, 3] # ex: 1-Cristalline
+            cat_val     = raw.iloc[i, 2]
+            marque_val  = raw.iloc[i, 3]
             agence_val  = raw.iloc[i, 4]
             article_val = raw.iloc[i, 5]
             volume_val  = raw.iloc[i, 6]
 
             if pd.isna(annee_val) or pd.isna(mois_val) or pd.isna(article_val) or pd.isna(volume_val):
+                stats["ignorees"] += 1
                 continue
 
             if str(article_val).strip().upper() == "TOTAL" or str(agence_val).strip().upper() == "TOTAL":
+                stats["ignorees"] += 1
                 continue
 
             vol_str = str(volume_val).replace(" ", "").replace(",", ".").replace("\xa0", "")
             try:
                 volume = float(vol_str)
             except ValueError:
+                stats["ignorees"] += 1
                 continue
 
             try:
                 annee = int(annee_val)
             except ValueError:
+                stats["ignorees"] += 1
                 continue
 
             mois_str = str(mois_val).strip().upper()
             mois = MOIS_FR_INV.get(mois_str)
             if not mois:
+                stats["ignorees"] += 1
                 continue
 
             date_val = pd.Timestamp(year=annee, month=mois, day=15)
-            
-            # Nettoyage de l'article (ex: "190-Cristalline..." -> "Cristalline...")
             art_propre = re.sub(r"^\d+-", "", str(article_val).strip())
-            
-            # Nettoyage du segment et de la marque (enlever les préfixes numériques)
             cat_propre = re.sub(r"^\d+-", "", str(cat_val).strip()) if not pd.isna(cat_val) else "INCONNU"
             marque_propre = re.sub(r"^\d+-", "", str(marque_val).strip()) if not pd.isna(marque_val) else "INCONNU"
 
             rows.append({
-                "Date": date_val, 
-                "Article": art_propre, 
-                "Agence": str(agence_val).strip(), 
-                "Volume": volume,
-                "Segment": cat_propre.upper(),      # ex: EAUX, BIERES
-                "Marque": marque_propre.upper()     # ex: CRISTALLINE, THB
+                "Date": date_val, "Article": art_propre, "Agence": str(agence_val).strip(),
+                "Volume": volume, "Segment": cat_propre.upper(), "Marque": marque_propre.upper()
             })
+            stats["valides"] += 1
         except Exception:
+            stats["ignorees"] += 1
             continue
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return df, stats
 
 # ============================================================
-# ENRICHISSEMENT ET NETTOYAGE
+# ENRICHISSEMENT
 # ============================================================
-def construire_mapping_auto():
-    return pd.DataFrame(AGENCES_DATA, columns=["Agence", "Région"])
-
 def enrichir_ventes(ventes: pd.DataFrame) -> pd.DataFrame:
     ventes["Date"] = pd.to_datetime(ventes["Date"], errors="coerce")
     ventes = ventes.dropna(subset=["Date"])
     ventes["Mois"]  = ventes["Date"].dt.month
     ventes["Annee"] = ventes["Date"].dt.year
 
-    # Extraction des attributs depuis l'article
     ventes["Format"] = ventes["Article"].apply(extraire_format)
     ventes["Contenance"] = ventes["Article"].apply(extraire_contenance)
 
-    # Ajout de la Région
-    mapr = construire_mapping_auto()
+    mapr = pd.DataFrame(AGENCES_DATA, columns=["Agence", "Région"])
     df = ventes.merge(mapr, on="Agence", how="left")
     df["Région"] = df["Région"].fillna("Inconnu")
 
-    # Objectifs fictifs
     np.random.seed(7)
     df["Objectif_Annuel"] = df.groupby(["Article", "Agence"])["Volume"].transform("sum") * 1.1
     df["Objectif_Annuel"] = df["Objectif_Annuel"].fillna(0)
@@ -226,7 +198,7 @@ def calcul_gap(df_per, realise, prevision):
     return res
 
 # ============================================================
-# MAIN (INTERFACE AVEC FILTRES EN CASCADE DYNAMIQUES)
+# MAIN
 # ============================================================
 def main():
     st.sidebar.header("📤 1. Charger le fichier")
@@ -239,71 +211,63 @@ def main():
             raw = pd.read_csv(BytesIO(uploaded_file.getvalue()), header=None)
         
         with st.spinner("Extraction des données en cours..."):
-            ventes = extraire_ventes_sur_mesure(raw)
+            ventes, stats = extraire_ventes_sur_mesure(raw)
             
         if ventes.empty:
-            st.sidebar.error("❌ Erreur de lecture du fichier.")
+            st.sidebar.error("❌ Aucune donnée valide extraite.")
             st.stop()
             
         df_brut = enrichir_ventes(ventes)
-        st.sidebar.success(f"✅ Fichier chargé : {len(df_brut):,} lignes valides")
+        
+        # --- AFFICHAGE DU DIAGNOSTIC DANS LA SIDEBAR ---
+        st.sidebar.success("✅ Fichier chargé avec succès !")
+        with st.sidebar.expander("🔍 Diagnostic de lecture"):
+            st.write(f"**Lignes totales dans le fichier :** {stats['total_lignes']:,}")
+            st.write(f"**Lignes 'Total' ou vides ignorées :** {stats['ignorees']:,}")
+            st.write(f"**Lignes de détail valides :** {stats['valides']:,}")
+            st.write(f"**Somme totale des volumes lus :** {df_brut['Volume'].sum():,.2f}")
     else:
-        df_brut = pd.DataFrame() # Mode vide
+        df_brut = pd.DataFrame()
         st.sidebar.warning("⚠️ Mode Démo (Veuillez uploader votre fichier DATA_BRUT.xlsx)")
 
-    # ==========================================
-    # LOGIQUE DES FILTRES EN CASCADE
-    # ==========================================
-    st.sidebar.header("🎛️ 2. Filtres (Cascade)")
+    # --- FILTRES EN CASCADE ---
+    st.sidebar.header("🎛️ 2. Filtres")
     
-    # 1. Filtre Région
     toutes_les_regions = sorted(list(set([x[1] for x in AGENCES_DATA])))
     sel_regions = st.sidebar.multiselect("Région", toutes_les_regions, default=[])
     
-    # 2. Filtre Agence (dépend de la Région)
     if len(sel_regions) > 0:
         agences_dispo = [ag for ag, reg in AGENCES_DATA if reg in sel_regions]
     else:
         agences_dispo = [ag for ag, reg in AGENCES_DATA]
     sel_agences = st.sidebar.multiselect("Agence", sorted(agences_dispo), default=[])
 
-    # Si le fichier est chargé, on active les filtres dynamiques sur le catalogue produit
     if not df_brut.empty:
-        # 3. Filtre Segment (dépend du fichier uploadé)
         segments_dispo = sorted(df_brut["Segment"].dropna().unique().tolist())
         sel_segments = st.sidebar.multiselect("Segment", segments_dispo, default=[])
 
-        # 4. Filtre Marque (dépend du Segment)
         df_filtre = df_brut.copy()
         if len(sel_segments) > 0:
             df_filtre = df_filtre[df_filtre["Segment"].isin(sel_segments)]
         marques_dispo = sorted(df_filtre["Marque"].dropna().unique().tolist())
         sel_marques = st.sidebar.multiselect("Marque", marques_dispo, default=[])
 
-        # 5. Filtre Format (dépend de la Marque)
         if len(sel_marques) > 0:
             df_filtre = df_filtre[df_filtre["Marque"].isin(sel_marques)]
         formats_dispo = sorted(df_filtre["Format"].dropna().unique().tolist())
         sel_formats = st.sidebar.multiselect("Format (Emballage)", formats_dispo, default=[])
 
-        # 6. Filtre Contenance (dépend du Format)
         if len(sel_formats) > 0:
             df_filtre = df_filtre[df_filtre["Format"].isin(sel_formats)]
         contenances_dispo = sorted(df_filtre["Contenance"].dropna().unique().tolist())
         sel_contenances = st.sidebar.multiselect("Contenance (cl)", contenances_dispo, default=[])
 
-        # 7. Filtre Article (dépend de la Contenance)
         if len(sel_contenances) > 0:
             df_filtre = df_filtre[df_filtre["Contenance"].isin(sel_contenances)]
         articles_dispo = sorted(df_filtre["Article"].dropna().unique().tolist())
         sel_articles = st.sidebar.multiselect("Article (SKU)", articles_dispo, default=[])
-
     else:
         sel_segments, sel_marques, sel_formats, sel_contenances, sel_articles = [], [], [], [], []
-
-    # 8. Filtres restants
-    sel_positionnements = st.sidebar.multiselect("Positionnement", ["ENTREE", "MILIEU", "PREMIUM"], default=[])
-    sel_occasions = st.sidebar.multiselect("Occasion", ["CU (Convivial Units)", "FC (Family/Future Consumption)", "IC (Individual/Immediate Consumption)", "SS (Single serve)"], default=[])
 
     mois_clotures = st.sidebar.slider("Mois clôturés (M-1)", 1, 12, DEFAUT_MOIS_CLOTURES)
 
@@ -311,26 +275,18 @@ def main():
         st.info("👈 Uploadez le fichier `DATA_BRUT.xlsx` dans la barre latérale pour démarrer l'analyse.")
         st.stop()
 
-    # Création du dictionnaire de filtres
     filtres = {
-        "Région": sel_regions,
-        "Agence": sel_agences,
-        "Segment": sel_segments,
-        "Marque": sel_marques,
-        "Format": sel_formats,
-        "Contenance": sel_contenances,
-        "Article": sel_articles,
-        "Positionnement": sel_positionnements,
-        "Occasion": sel_occasions
+        "Région": sel_regions, "Agence": sel_agences, "Segment": sel_segments,
+        "Marque": sel_marques, "Format": sel_formats, "Contenance": sel_contenances,
+        "Article": sel_articles
     }
 
-    # --- Application du périmètre ---
     df_per, mode = get_perimetre(df_brut, filtres)
     if df_per.empty:
         st.error("❌ Aucune donnée pour ce périmètre. Modifiez vos filtres.")
         st.stop()
 
-    # --- Calculs ---
+    # --- CALCULS ---
     realise   = calcul_realise_cumule(df_per, mois_clotures)
     indices   = calcul_indices(df_per)
     sarr      = calcul_sarr(df_per, indices)
@@ -338,11 +294,12 @@ def main():
     prevision = calcul_prevision(sarr, tendance, indices, mois_clotures)
     gap       = calcul_gap(df_per, realise, prevision)
 
-    # --- Dashboard ---
+    # --- DASHBOARD ---
     st.title("📊 Moteur de pilotage des ventes")
     badge = "🟢 MODE GLOBAL" if mode == "GLOBAL" else "🟣 MODE FILTRÉ"
-    st.subheader(f"{badge} — périmètre : {len(df_per):,} lignes")
+    st.subheader(f"{badge} — {len(df_per):,} lignes de détail analysées")
 
+    # Métriques
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Volume réalisé", f"{realise['Réalisé'].sum():,.0f}")
     c2.metric("Volume prévu (M+12)", f"{prevision['Prévision'].sum():,.0f}")
@@ -364,6 +321,16 @@ def main():
         gap.sort_values("GAP").style.format("{:,.0f}", subset=["GAP", "Realise", "Prevision", "Objectif_Annuel"]), 
         use_container_width=True
     )
+
+    # --- AJOUT D'UN ONGLET POUR VOIR TOUTES LES DONNÉES LUES ---
+    st.divider()
+    st.markdown("### 📋 Détail complet des données lues (Preuve de lecture)")
+    with st.expander("Cliquez pour afficher les 1000+ lignes extraites"):
+        st.dataframe(
+            df_per[["Date", "Segment", "Marque", "Article", "Agence", "Format", "Contenance", "Volume"]]
+            .sort_values(["Date", "Agence", "Article"]), 
+            use_container_width=True, height=500
+        )
 
 if __name__ == "__main__":
     main()

@@ -6,11 +6,13 @@ import io
 import unicodedata
 
 st.set_page_config(page_title="Étapes 1 à 4 : S&OP", layout="wide")
-st.title("Étapes 1 à 4 : Données, Périmètre, Réalisé & SARR")
+st.title("Étapes 1 à 4 : S&OP (Format Excel)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
 # ==============================================================================
+MOIS_ABB = ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"]
+
 def normaliser_mois(valeur) -> int:
     if pd.isna(valeur): return 1
     if isinstance(valeur, (int, float)): return int(valeur)
@@ -101,7 +103,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     if df_realise.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Grille complète pour prendre en compte les mois sans ventes (comme dans Excel)
     agences_uniques = df_realise['agence'].unique()
     articles_uniques = df_realise['article'].unique()
     annees_uniques = df_realise['annee'].unique()
@@ -138,32 +139,60 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     return table_indices, df_sarr
 
 # ==============================================================================
-# FORMATAGE "VUE EXCEL" AVEC NOMS DE MOIS
+# GÉNÉRATION DU TABLEAU EXCEL HORIZONTAL
 # ==============================================================================
-def generer_vue_excel(df_sarr, table_indices):
-    # 1. Base table (Agences, Segment, Marque, Articles)
-    base = df_sarr[['agence', 'segment', 'article']].drop_duplicates().reset_index(drop=True)
-    base['Marque'] = base['article'].apply(lambda x: str(x).split()[0] if isinstance(x, str) else "")
+def creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture):
+    agence = row['agence']
+    article = row['article']
+    
+    # 1. Infos de base
+    res = {
+        "Agences": agence,
+        "Segment": row['segment'],
+        "Marque": str(article).split()[0],
+        "Articles": article
+    }
 
-    # 2. Pivot des indices (1 à 12)
-    pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice').fillna(1.0)
-    
-    # 3. Renommer les colonnes avec les noms de mois
-    mois_noms = {1: 'Janvier', 2: 'Février', 3: 'Mars', 4: 'Avril', 5: 'Mai', 6: 'Juin', 
-                 7: 'Juillet', 8: 'Août', 9: 'Septembre', 10: 'Octobre', 11: 'Novembre', 12: 'Décembre'}
-    
-    # 4. Fusionner avec la base
-    resultat = base.merge(pivot_indices.reset_index(), on=['agence', 'article'], how='left')
-    
-    # 5. Renommer et ordonner
-    resultat = resultat.rename(columns={'agence': 'Agences', 'segment': 'Segment', 'article': 'Articles'})
-    resultat = resultat.rename(columns=mois_noms)
-    
-    # Ajouter le préfixe "Coef " aux noms de mois
-    colonnes_coeff = [f"Coef {m}" for m in mois_noms.values()]
-    resultat.columns = ['Agences', 'Segment', 'Marque', 'Articles'] + colonnes_coeff
-    
-    return resultat
+    # 2. Boucle sur les 12 derniers mois (M à M-11)
+    sarr_precedent = None
+    for i in range(12):
+        m = mois_cloture - i
+        y = annee_cloture
+        if m <= 0:
+            m += 12
+            y -= 1
+        
+        date_str = f"{MOIS_ABB[m-1]}-{str(y)[-2:]}"
+        
+        # Récupération Volume
+        vol_data = df_sarr[(df_sarr['annee'] == y) & (df_sarr['mois'] == m) & (df_sarr['agence'] == agence) & (df_sarr['article'] == article)]
+        vol = vol_data['hl'].sum() if not vol_data.empty else 0.0
+        
+        # Récupération Coef
+        coef_data = table_indices[(table_indices['mois'] == m) & (table_indices['agence'] == agence) & (table_indices['article'] == article)]
+        coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+        
+        # Calcul SARR
+        sarr = vol / coef if coef > 0 else vol
+        
+        # Calcul Variance (SARR_M - SARR_M-1)
+        variance = (sarr - sarr_precedent) if sarr_precedent is not None else 0.0
+        sarr_precedent = sarr
+
+        res[f"Date M-{i}"] = date_str
+        res[f"Vol M-{i}"] = vol
+        res[f"NumMois M-{i}"] = m
+        res[f"Coef M-{i}"] = coef
+        res[f"SARR M-{i}"] = sarr
+        res[f"Var M-{i}"] = variance
+
+    # 3. Coefficients fixes Janvier à Décembre
+    for m in range(1, 13):
+        coef_data = table_indices[(table_indices['mois'] == m) & (table_indices['agence'] == agence) & (table_indices['article'] == article)]
+        coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+        res[f"Coef {MOIS_ABB[m-1].capitalize()}"] = coef
+
+    return res
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -212,7 +241,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     # Calculs
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
-    df_vue_excel = generer_vue_excel(df_sarr, table_indices)
 
     # Affichage
     st.success("✅ Étapes 1 à 4 complétées !")
@@ -221,7 +249,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         "📊 Étape 2 (Data_Périmètre)", 
         "📈 Étape 3 (Table_Réalisé)", 
         "🧮 Étape 4 (Indices & SARR)",
-        "📑 Vue Excel (Coefs Mensuels)"
+        "📑 Vue Excel (Glissante)"
     ])
     
     with tab_etape2:
@@ -236,7 +264,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_etape4:
-        st.markdown("#### Table standard des Indices")
+        st.markdown("#### Table standard du SARR")
         st.dataframe(
             df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR"]].head(100),
             column_config={
@@ -248,10 +276,23 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_excel:
-        st.markdown("#### Reproduction exacte de votre Excel")
-        st.write("Ce tableau affiche les coefficients fixes pour chaque mois, exactement comme dans votre capture.")
+        st.markdown("#### Reproduction exacte de votre tableau Excel")
         
-        # Formatage visuel : 1 décimale pour les coefs
-        format_dict = {f"Coef {m}": "{:.1f}" for m in ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']}
-        
-        st.dataframe(df_vue_excel.style.format(format_dict), use_container_width=True)
+        if df_perimetre.empty:
+            st.warning("Veuillez sélectionner au moins un article pour voir le tableau.")
+        else:
+            # On génère le tableau pour les articles filtrés
+            articles_uniques = df_perimetre[['agence', 'article']].drop_duplicates()
+            lignes = [creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture) for _, row in articles_uniques.iterrows()]
+            df_excel = pd.DataFrame(lignes)
+            
+            # Formatage visuel
+            format_dict = {}
+            for col in df_excel.columns:
+                if "Vol" in col or "SARR" in col or "Var" in col:
+                    format_dict[col] = "{:,.0f}"
+                elif "Coef" in col:
+                    format_dict[col] = "{:.1f}"
+                    
+            # Affichage (transposé ou non, ici on garde l'horizontal)
+            st.dataframe(df_excel.style.format(format_dict), use_container_width=True)

@@ -136,7 +136,11 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     
     ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(
         vol_ytd=('volume_unites', 'sum'),
-        contenance=('contenance_cl', 'first')
+        contenance=('contenance_cl', 'first'),
+        segment=('segment', 'first'),
+        produit=('produit', 'first'),
+        positionnement=('positionnement', 'first'),
+        occasion=('occasion', 'first')
     ).reset_index()
 
     for _, row in ytd_totaux.iterrows():
@@ -151,14 +155,17 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         
         # On crée les lignes pour les mois manquants
         for m in range(mois_cloture + 1, 13):
-            coef_mois = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]['Indice'].values[0]
+            # FIX : Vérification pour éviter le crash IndexError
+            coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
+            coef_mois = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+            
             vol_projete = (vol_annuel_proj / 12) * coef_mois
             
             df_projete = pd.concat([df_projete, pd.DataFrame([{
-                'annee': annee_cloture, 'mois': m, 'segment': row.get('segment', ''), 'produit': row.get('produit', ''),
+                'annee': annee_cloture, 'mois': m, 'segment': row['segment'], 'produit': row['produit'],
                 'agence': ag, 'nature': 'Projeté', 'hl': vol_projete * (row['contenance'] / 10000),
-                'volume_unites': vol_projete, 'article': art, 'positionnement': row.get('positionnement', ''),
-                'occasion': row.get('occasion', ''), 'contenance_cl': row['contenance']
+                'volume_unites': vol_projete, 'article': art, 'positionnement': row['positionnement'],
+                'occasion': row['occasion'], 'contenance_cl': row['contenance']
             }])], ignore_index=True)
 
     # 3. Fusion des données Réelles et Projetées
@@ -225,7 +232,6 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
             indice_data = table_indices[(table_indices['agence'] == agence) & (table_indices['article'] == article) & (table_indices['mois'] == mois_futur)]
             indice = indice_data['Indice'].values[0] if not indice_data.empty else 1.0
             
-            # Formule de calcul
             prev_unites = (indice * base) + momentum
             prev_unites = max(0.0, prev_unites)
             

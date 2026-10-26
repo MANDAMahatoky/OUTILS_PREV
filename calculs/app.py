@@ -140,7 +140,6 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
     df_hist['rang'] = df_hist.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_hist[df_hist['rang'] < 4].copy()
     
-    # Calcul du nombre de mois à projeter
     nb_mois_a_projeter = (annee_cible - annee_cloture) * 12 + (mois_cible - mois_cloture)
     if nb_mois_a_projeter <= 0: return pd.DataFrame()
 
@@ -167,24 +166,25 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
             prev_unites = (indice * base) + momentum
             prev_unites = max(0.0, prev_unites)
             prev_hl = prev_unites * (contenance / 10000)
-            previsions.append({"Agence": agence, "Article": article, "Annee": annee_futur, "Mois": mois_futur, "Date": f"{MOIS_ABB[mois_futur-1]}-{str(annee_futur)[-2:]}", "Indice": indice, "Base": base, "Momentum": momentum, "Prevision_HL": prev_hl})
+            previsions.append({"Agence": agence, "Article": article, "Annee": annee_futur, "Mois": mois_futur, "Date": f"{MOIS_ABB[mois_futur-1]}-{str(annee_futur)[-2:]}", "Indice": indice, "Base": base, "Momentum": momentum, "Prevision_HL": prev_hl, "Prevision_Unites": prev_unites})
     return pd.DataFrame(previsions)
 
 # ==============================================================================
 # ÉTAPE 6 : CALCUL DU GAP
 # ==============================================================================
-def calculer_gap(df_sarr, df_previsions, annee_cloture, mois_cloture, annee_cible, mois_cible, objectif_global):
-    # Réalisé jusqu'au cutoff
+def calculer_gap(df_sarr, df_previsions, annee_cloture, mois_cloture, annee_cible, mois_cible, objectif_global, unite):
+    col = "hl" if unite == "HL" else "volume_unites"
+    col_prev = "Prevision_HL" if unite == "HL" else "Prevision_Unites"
+    
     cond_realise = (df_sarr["annee"] < annee_cloture) | ((df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture))
-    realise_hl = df_sarr[cond_realise]["hl"].sum()
+    realise = df_sarr[cond_realise][col].sum()
     
-    # Prévisions jusqu'à la cible
     cond_prevision = (df_previsions["Annee"] < annee_cible) | ((df_previsions["Annee"] == annee_cible) & (df_previsions["Mois"] <= mois_cible))
-    prevision_hl = df_previsions[cond_prevision]["Prevision_HL"].sum()
+    prevision = df_previsions[cond_prevision][col_prev].sum()
     
-    total_projete = realise_hl + prevision_hl
+    total_projete = realise + prevision
     gap = objectif_global - total_projete
-    return realise_hl, prevision_hl, total_projete, gap
+    return realise, prevision, total_projete, gap
 
 # ==============================================================================
 # ÉTAPE 7 : DASHBOARD
@@ -245,9 +245,11 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("🎯 Cible de Prévision")
     annee_cible = st.sidebar.number_input("Année Cible", min_value=2026, max_value=2035, value=2027)
-    mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
+    mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=0, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    objectif_annuel_hl = st.sidebar.number_input("Objectif Global (HL)", min_value=0.0, value=10000000.0, step=100000.0)
+    objectif_global = st.sidebar.number_input("Objectif Global (Cible)", min_value=0.0, value=1000000.0, step=10000.0)
+    
+    unite = st.sidebar.radio("Unité d'affichage", options=["HL", "Unités"], index=1, horizontal=True)
 
     # Calculs
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
@@ -257,77 +259,83 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.warning("La date cible est antérieure ou égale à la date de clôture. Veuillez choisir une date future.")
         st.stop()
 
-    realise_hl, prevision_hl, total_projete, gap = calculer_gap(df_sarr, df_previsions, annee_cloture, mois_cloture, annee_cible, mois_cible, objectif_annuel_hl)
+    realise, prevision, total_projete, gap = calculer_gap(df_sarr, df_previsions, annee_cloture, mois_cloture, annee_cible, mois_cible, objectif_global, unite)
 
     # --------------------------------------------------------------------------
     # AFFICHAGE DASHBOARD
     # --------------------------------------------------------------------------
-    st.success(f"✅ Tableau de bord généré pour la cible : {MOIS_ABB[mois_cible-1].capitalize()} {annee_cible}.")
+    st.success(f"✅ Tableau de bord généré pour la cible : {MOIS_ABB[mois_cible-1].capitalize()} {annee_cible} (en {unite}).")
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Réalisé YTD (à date)", f"{realise_hl:,.0f} HL")
-    kpi2.metric("Prévisions (Jusqu'à Cible)", f"{prevision_hl:,.0f} HL")
-    kpi3.metric("Total Projeté", f"{total_projete:,.0f} HL")
+    kpi1.metric(f"Réalisé YTD (à date)", f"{realise:,.0f} {unite}")
+    kpi2.metric(f"Prévisions (Jusqu'à Cible)", f"{prevision:,.0f} {unite}")
+    kpi3.metric(f"Total Projeté", f"{total_projete:,.0f} {unite}")
     
     if gap > 0:
-        kpi4.metric("GAP vs Objectif", f"{gap:,.0f} HL", delta="- Manque", delta_color="inverse")
+        kpi4.metric(f"GAP vs Objectif", f"{gap:,.0f} {unite}", delta="- Manque", delta_color="inverse")
     else:
-        kpi4.metric("GAP vs Objectif", f"{gap:,.0f} HL", delta="+ Dépassement", delta_color="normal")
+        kpi4.metric(f"GAP vs Objectif", f"{gap:,.0f} {unite}", delta="+ Dépassement", delta_color="normal")
 
     tab_tcd, tab_graph, tab_gap, tab_export = st.tabs(["🎯 Tableau Croisé (TCD)", "📈 Graphique", "🚨 Détail du GAP", "📥 Export"])
 
+    col_val = "hl" if unite == "HL" else "volume_unites"
+    col_prev = "Prevision_HL" if unite == "HL" else "Prevision_Unites"
+
     with tab_tcd:
-        st.subheader("Tableau Croisé des Prévisions (Format Excel)")
-        df_tcd = df_previsions
+        st.subheader("Tableau Croisé des Prévisions (Mois Cible)")
+        
+        # On filtre uniquement sur le mois cible pour correspondre à l'Excel
+        df_tcd = df_previsions[(df_previsions["Annee"] == annee_cible) & (df_previsions["Mois"] == mois_cible)]
+        
         if not df_tcd.empty:
-            pivot = pd.pivot_table(df_tcd, values="Prevision_HL", index="Article", columns="Agence", aggfunc="sum", margins=True, margins_name="Total").fillna(0)
-            st.dataframe(pivot, use_container_width=True)
+            pivot = pd.pivot_table(df_tcd, values=col_prev, index="Article", columns="Agence", aggfunc="sum", margins=True, margins_name="Total").fillna(0)
+            st.dataframe(pivot.style.format("{:,.0f}"), use_container_width=True)
         else:
-            st.info("Aucune prévision disponible.")
+            st.info("Aucune prévision disponible pour ce mois.")
 
     with tab_graph:
         st.subheader("Évolution : Réalisé vs Prévisions")
-        df_reel = df_sarr.groupby(["annee", "mois"])["hl"].sum().reset_index()
+        df_reel = df_sarr.groupby(["annee", "mois"])[col_val].sum().reset_index()
         df_reel["Type"] = "Réalisé"
         df_reel["Date_Str"] = df_reel["annee"].astype(str) + "-" + df_reel["mois"].astype(str).str.zfill(2)
         
-        df_prev = df_previsions.groupby(["Annee", "Mois"])["Prevision_HL"].sum().reset_index()
+        df_prev = df_previsions.groupby(["Annee", "Mois"])[col_prev].sum().reset_index()
         df_prev["Type"] = "Prévision"
         df_prev["Date_Str"] = df_prev["Annee"].astype(str) + "-" + df_prev["Mois"].astype(str).str.zfill(2)
         
         df_chart = pd.concat([
-            df_reel[["Date_Str", "hl", "Type"]].rename(columns={"hl": "Volume"}),
-            df_prev[["Date_Str", "Prevision_HL", "Type"]].rename(columns={"Prevision_HL": "Volume"})
+            df_reel[["Date_Str", col_val, "Type"]].rename(columns={col_val: "Volume"}),
+            df_prev[["Date_Str", col_prev, "Type"]].rename(columns={col_prev: "Volume"})
         ]).sort_values("Date_Str")
 
         chart = alt.Chart(df_chart).mark_line(point=True).encode(
             x=alt.X("Date_Str:N", sort=None, title="Période"),
-            y=alt.Y("Volume:Q", title="Volume (HL)"),
+            y=alt.Y("Volume:Q", title=f"Volume ({unite})"),
             color=alt.Color("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=["#9E6315EF", "#9BD69E"])),
             tooltip=["Date_Str", "Type", alt.Tooltip("Volume:Q", format=",.0f")]
         ).properties(height=400)
         st.altair_chart(chart, use_container_width=True)
 
     with tab_gap:
-        st.subheader("Analyse du GAP par Article")
-        real_art = df_sarr[(df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture)].groupby("article")["hl"].sum().rename("Réalisé")
-        prev_art = df_previsions.groupby("Article")["Prevision_HL"].sum().rename("Prévisions")
+        st.subheader("Analyse du GAP par Article (Cumul Jusqu'à Cible)")
+        real_art = df_sarr[(df_sarr["annee"] < annee_cible) | ((df_sarr["annee"] == annee_cible) & (df_sarr["mois"] <= mois_cible)) & (df_sarr["annee"] >= annee_cloture)].groupby("article")[col_val].sum().rename("Réalisé/Projeté YTD")
+        prev_art = df_previsions.groupby("Article")[col_prev].sum().rename("Prévisions Futures")
         
         df_gap = pd.concat([real_art, prev_art], axis=1).fillna(0)
-        df_gap["Total Projeté"] = df_gap["Réalisé"] + df_gap["Prévisions"]
+        df_gap["Total Projeté"] = df_gap["Réalisé/Projeté YTD"] + df_gap["Prévisions Futures"]
         
-        poids = df_gap["Total Projeté"] / df_gap["Total Projeté"].sum()
-        df_gap["Objectif (Estimé)"] = poids * objectif_annuel_hl
-        df_gap["GAP"] = df_gap["Objectif (Estimé)"] - df_gap["Total Projeté"]
+        total_global = df_gap["Total Projeté"].sum()
+        df_gap["Objectif (Au prorata)"] = (df_gap["Total Projeté"] / total_global * objectif_global) if total_global > 0 else 0
+        df_gap["GAP"] = df_gap["Objectif (Au prorata)"] - df_gap["Total Projeté"]
         df_gap["Alerte"] = np.where(df_gap["GAP"] < 0, "🔴 Sous l'objectif", "🟢 Sur l'objectif")
         
         st.dataframe(
             df_gap.sort_values("GAP", ascending=True),
             column_config={
-                "Réalisé": st.column_config.NumberColumn(format="%.0f"),
-                "Prévisions": st.column_config.NumberColumn(format="%.0f"),
+                "Réalisé/Projeté YTD": st.column_config.NumberColumn(format="%.0f"),
+                "Prévisions Futures": st.column_config.NumberColumn(format="%.0f"),
                 "Total Projeté": st.column_config.NumberColumn(format="%.0f"),
-                "Objectif (Estimé)": st.column_config.NumberColumn(format="%.0f"),
+                "Objectif (Au prorata)": st.column_config.NumberColumn(format="%.0f"),
                 "GAP": st.column_config.NumberColumn(format="%.0f"),
             },
             use_container_width=True

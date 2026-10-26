@@ -4,10 +4,9 @@ import numpy as np
 import re
 import io
 import unicodedata
-import altair as alt
 
 st.set_page_config(page_title="Dashboard S&OP", layout="wide", page_icon="📊")
-st.title("Dashboard S&OP : Focus Étape 6 (GAP)")
+st.title("Dashboard S&OP : Focus Étape 6 (GAP en HL)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -70,6 +69,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["hl"] = df_enrichi["hl"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
+    
+    # On garde la conversion en unités pour d'éventuels besoins, mais on utilisera 'hl' partout
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi["volume_unites"] = df_enrichi["hl"] * (10000 / df_enrichi["contenance_cl"].replace(0, 100.0))
     
@@ -99,12 +100,12 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         
     grille_hist = pd.MultiIndex.from_product([df_hist['agence'].unique(), df_hist['article'].unique(), df_hist['annee'].unique(), range(1, 13)], names=['agence', 'article', 'annee', 'mois']).to_frame(index=False)
     df_hist_grille = grille_hist.merge(df_hist, on=['agence', 'article', 'annee', 'mois'], how='left')
-    df_hist_grille['volume_unites'] = df_hist_grille['volume_unites'].fillna(0.0)
+    df_hist_grille['hl'] = df_hist_grille['hl'].fillna(0.0)
     nb_annees = df_hist_grille.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
-    vol_mois = df_hist_grille.groupby(['agence', 'article', 'mois'])['volume_unites'].sum().reset_index()
+    vol_mois = df_hist_grille.groupby(['agence', 'article', 'mois'])['hl'].sum().reset_index()
     moy_mois = vol_mois.merge(nb_annees, on=['agence', 'article'])
-    moy_mois['Moy_Mois'] = moy_mois['volume_unites'] / moy_mois['nb_annees']
-    vol_total = df_hist_grille.groupby(['agence', 'article'])['volume_unites'].sum().reset_index().rename(columns={'volume_unites': 'vol_total'})
+    moy_mois['Moy_Mois'] = moy_mois['hl'] / moy_mois['nb_annees']
+    vol_total = df_hist_grille.groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'vol_total'})
     moy_ann = vol_total.merge(nb_annees, on=['agence', 'article'])
     moy_ann['Moy_Ann'] = moy_ann['vol_total'] / (moy_ann['nb_annees'] * 12)
     indices = moy_mois.merge(moy_ann[['agence', 'article', 'Moy_Ann']], on=['agence', 'article'])
@@ -114,7 +115,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
 
     df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
     df_projete = df_ytd.copy()
-    ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('volume_unites', 'sum'), contenance=('contenance_cl', 'first'), segment=('segment', 'first'), produit=('produit', 'first'), positionnement=('positionnement', 'first'), occasion=('occasion', 'first')).reset_index()
+    ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('hl', 'sum'), contenance=('contenance_cl', 'first'), segment=('segment', 'first'), produit=('produit', 'first'), positionnement=('positionnement', 'first'), occasion=('occasion', 'first')).reset_index()
     for _, row in ytd_totaux.iterrows():
         ag, art = row['agence'], row['article']
         coefs_ecoules = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] <= mois_cloture)]['Indice'].sum()
@@ -124,12 +125,12 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
             coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
             coef_mois = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
             vol_projete = (vol_annuel_proj / 12) * coef_mois
-            df_projete = pd.concat([df_projete, pd.DataFrame([{'annee': annee_cloture, 'mois': m, 'segment': row['segment'], 'produit': row['produit'], 'agence': ag, 'nature': 'Projeté', 'hl': vol_projete * (row['contenance'] / 10000), 'volume_unites': vol_projete, 'article': art, 'positionnement': row['positionnement'], 'occasion': row['occasion'], 'contenance_cl': row['contenance']}])], ignore_index=True)
+            df_projete = pd.concat([df_projete, pd.DataFrame([{'annee': annee_cloture, 'mois': m, 'segment': row['segment'], 'produit': row['produit'], 'agence': ag, 'nature': 'Projeté', 'hl': vol_projete, 'volume_unites': vol_projete * (10000 / row['contenance']), 'article': art, 'positionnement': row['positionnement'], 'occasion': row['occasion'], 'contenance_cl': row['contenance']}])], ignore_index=True)
     
     df_final = pd.concat([df_realise, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
     df_sarr = df_final.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
-    df_sarr['SARR'] = df_sarr['volume_unites'] / df_sarr['Indice'].replace(0, 1.0)
+    df_sarr['SARR'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     return table_indices, df_sarr
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
@@ -153,7 +154,6 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
         momentum = np.mean([var1, var2, var3])
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
         base = max(sarr_m, moy_3_mois)
-        contenance = group['contenance_cl'].values[0] if 'contenance_cl' in group else 100.0
         
         for i in range(1, nb_mois_a_projeter + 1):
             mois_futur = mois_cloture + i
@@ -163,10 +163,9 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
                 annee_futur += 1
             indice_data = table_indices[(table_indices['agence'] == agence) & (table_indices['article'] == article) & (table_indices['mois'] == mois_futur)]
             indice = indice_data['Indice'].values[0] if not indice_data.empty else 1.0
-            prev_unites = (indice * base) + momentum
-            prev_unites = max(0.0, prev_unites)
-            prev_hl = prev_unites * (contenance / 10000)
-            previsions.append({"Agence": agence, "Article": article, "Annee": annee_futur, "Mois": mois_futur, "Date": f"{MOIS_ABB[mois_futur-1]}-{str(annee_futur)[-2:]}", "Indice": indice, "Base": base, "Momentum": momentum, "Prevision_HL": prev_hl, "Prevision_Unites": prev_unites})
+            prev_hl = (indice * base) + momentum
+            prev_hl = max(0.0, prev_hl)
+            previsions.append({"Agence": agence, "Article": article, "Annee": annee_futur, "Mois": mois_futur, "Date": f"{MOIS_ABB[mois_futur-1]}-{str(annee_futur)[-2:]}", "Indice": indice, "Base": base, "Momentum": momentum, "Prevision_HL": prev_hl})
     return pd.DataFrame(previsions)
 
 # ==============================================================================
@@ -207,13 +206,14 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
+    st.sidebar.markdown("---")
+    st.sidebar.header("🎯 Cible de Prévision")
     annee_cible = st.sidebar.number_input("Année Cible", min_value=2026, max_value=2035, value=2027)
     mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=0, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    objectif_global = st.sidebar.number_input("Objectif (Volume)", min_value=0.0, value=1000000.0, step=10000.0)
-    unite = st.sidebar.radio("Unité d'affichage", options=["HL", "Unités"], index=1, horizontal=True)
+    objectif_global = st.sidebar.number_input("Objectif (HL)", min_value=0.0, value=1000000.0, step=10000.0)
 
-    # Calculs
+    # Calculs (on travaille uniquement avec la colonne 'hl')
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
     df_previsions = calculer_previsions(df_sarr, table_indices, annee_cloture, mois_cloture, annee_cible, mois_cible)
 
@@ -221,28 +221,22 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.warning("La date cible est antérieure ou égale à la date de clôture.")
         st.stop()
 
-    col_val = "hl" if unite == "HL" else "volume_unites"
-    col_prev = "Prevision_HL" if unite == "HL" else "Prevision_Unites"
-
     # ==============================================================================
-    # FOCUS : ÉTAPE 6 (CALCUL DU GAP)
+    # FOCUS : ÉTAPE 6 (CALCUL DU GAP EN HL)
     # ==============================================================================
-    st.header("🎯 Étape 6 : Analyse et Cohérence du GAP")
+    st.header("🎯 Étape 6 : Analyse et Cohérence du GAP (en HL)")
     
     # 1. Réalisé (Uniquement le réalisé jusqu'au cutoff)
-    df_realise = df_sarr[df_sarr["nature"] == "Réalisé"]
-    realise_art = df_realise.groupby("article")[col_val].sum().rename("Réalisé YTD")
+    df_realise = df_sarr[(df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture)]
+    realise_art = df_realise.groupby("article")["hl"].sum().rename("Réalisé YTD")
     
-    # 2. Prévisions (Fin d'année 2026 projetée + Prévisions 2027+)
-    # On additionne le projeté de l'année en cours (si présent) et les prévisions futures
-    df_projete_ytd = df_sarr[df_sarr["nature"] == "Projeté"]
-    prev_ytd_art = df_projete_ytd.groupby("article")[col_val].sum().rename("Prévisions (Fin N)")
-    prev_futures_art = df_previsions.groupby("Article")[col_prev].sum().rename("Prévisions (Futur)")
+    # 2. Prévisions (Uniquement la prévision pour le mois cible et l'année cible)
+    df_prev_cible = df_previsions[(df_previsions["Annee"] == annee_cible) & (df_previsions["Mois"] == mois_cible)]
+    prev_cible_art = df_prev_cible.groupby("Article")["Prevision_HL"].sum().rename("Prévisions Cible")
     
     # 3. Construction du tableau de cohérence
-    df_gap = pd.concat([realise_art, prev_ytd_art, prev_futures_art], axis=1).fillna(0)
-    df_gap["Total Prévisions"] = df_gap["Prévisions (Fin N)"] + df_gap["Prévisions (Futur)"]
-    df_gap["Total Projeté"] = df_gap["Réalisé YTD"] + df_gap["Total Prévisions"]
+    df_gap = pd.concat([realise_art, prev_cible_art], axis=1).fillna(0)
+    df_gap["Total Projeté"] = df_gap["Réalisé YTD"] + df_gap["Prévisions Cible"]
     
     # 4. Application de la formule du diagramme
     df_gap["Objectif"] = objectif_global
@@ -254,9 +248,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     # 6. Ajout d'une ligne "TOTAL"
     total_row = pd.DataFrame({
         "Réalisé YTD": [df_gap["Réalisé YTD"].sum()],
-        "Prévisions (Fin N)": [df_gap["Prévisions (Fin N)"].sum()],
-        "Prévisions (Futur)": [df_gap["Prévisions (Futur)"].sum()],
-        "Total Prévisions": [df_gap["Total Prévisions"].sum()],
+        "Prévisions Cible": [df_gap["Prévisions Cible"].sum()],
         "Total Projeté": [df_gap["Total Projeté"].sum()],
         "Objectif": [objectif_global],
         "GAP": [objectif_global - df_gap["Total Projeté"].sum()],
@@ -267,16 +259,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     # Affichage du tableau
     st.dataframe(
-        df_gap_final,
-        column_config={
-            "Réalisé YTD": st.column_config.NumberColumn(format="%.0f"),
-            "Prévisions (Fin N)": st.column_config.NumberColumn(format="%.0f"),
-            "Prévisions (Futur)": st.column_config.NumberColumn(format="%.0f"),
-            "Total Prévisions": st.column_config.NumberColumn(format="%.0f"),
-            "Total Projeté": st.column_config.NumberColumn(format="%.0f"),
-            "Objectif": st.column_config.NumberColumn(format="%.0f"),
-            "GAP": st.column_config.NumberColumn(format="%.0f"),
-        },
+        df_gap_final.style.format("{:,.2f}"),
         use_container_width=True
     )
 
@@ -284,12 +267,12 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.markdown("---")
     st.subheader("Formule appliquée")
     tot_real = df_gap["Réalisé YTD"].sum()
-    tot_prev = df_gap["Total Prévisions"].sum()
+    tot_prev = df_gap["Prévisions Cible"].sum()
     tot_proj = tot_real + tot_prev
     gap_global = objectif_global - tot_proj
     
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-    col_f1.metric("1. Réalisé", f"{tot_real:,.0f}")
-    col_f2.metric("2. Prévisions", f"{tot_prev:,.0f}")
-    col_f3.metric("3. Total Projeté", f"{tot_proj:,.0f}", help="Réalisé + Prévisions")
-    col_f4.metric("4. GAP", f"{gap_global:,.0f}", delta="- Manque" if gap_global > 0 else "+ Dépassement", delta_color="inverse" if gap_global > 0 else "normal", help="Objectif - Total Projeté")
+    col_f1.metric("1. Réalisé", f"{tot_real:,.2f} HL")
+    col_f2.metric("2. Prévisions Cible", f"{tot_prev:,.2f} HL")
+    col_f3.metric("3. Total Projeté", f"{tot_proj:,.2f} HL", help="Réalisé + Prévisions Cible")
+    col_f4.metric("4. GAP", f"{gap_global:,.2f} HL", delta="- Manque" if gap_global > 0 else "+ Dépassement", delta_color="inverse" if gap_global > 0 else "normal", help="Objectif - Total Projeté")

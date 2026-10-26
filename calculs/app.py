@@ -18,9 +18,10 @@ def normaliser_mois(valeur) -> int:
     texte = unicodedata.normalize("NFD", str(valeur)).encode("ascii", "ignore").decode("utf-8").lower().strip()
     return mois_map.get(texte, 1)
 
+# FIX : On enlève tout ce qui précède le premier tiret (ex: 111ANN- ou 190-)
 def extraire_article(nature_str: str) -> str:
     if pd.isna(nature_str): return ""
-    match = re.match(r"^\d+-(.*)$", str(nature_str).strip())
+    match = re.match(r"^[^-]+-(.*)$", str(nature_str).strip())
     return match.group(1).strip() if match else str(nature_str).strip()
 
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
@@ -28,13 +29,9 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-# FIX : Fonction pour créer une clé de jointure "blindée"
 def creer_cle_article(nom_article) -> str:
     if pd.isna(nom_article): return ""
-    # 1. Enlever les accents
     texte = unicodedata.normalize("NFD", str(nom_article)).encode("ascii", "ignore").decode("utf-8")
-    # 2. Mettre en minuscules et enlever TOUT ce qui n'est pas une lettre ou un chiffre
-    # (Supprime les espaces, les tirets, les points, etc.)
     texte = re.sub(r'[^a-z0-9]', '', texte.lower())
     return texte
 
@@ -60,10 +57,7 @@ def lire_referentiel(contenu_excel: bytes) -> pd.DataFrame:
     df_ref = df_ref[colonnes_voulues].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     
-    # On crée la clé de jointure
     df_ref["cle_article"] = df_ref["article_original"].apply(creer_cle_article)
-    
-    # On supprime les doublons sur la clé
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
     return df_ref
 
@@ -88,13 +82,13 @@ def lire_ventes(contenu_excel: bytes) -> pd.DataFrame:
         )
         df = df[~masque_total].copy()
         
+        # Extraction de l'article (qui enlève maintenant 111ANN-)
         df["article_original"] = df["nature"].apply(extraire_article)
         df["agence"] = df["agence"].astype(str).str.strip()
         
         df["annee"] = df["annee"].fillna(2026).astype(int)
         df["mois"] = df["mois"].fillna(1).astype(int)
         
-        # On crée la clé de jointure
         df["cle_article"] = df["article_original"].apply(creer_cle_article)
         
         return df
@@ -115,7 +109,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         df_ventes = lire_ventes(fichier_ventes.getvalue())
         df_ref = lire_referentiel(fichier_ref.getvalue())
         
-        # FIX : On fait la jointure sur la clé blindée (cle_article)
+        # Jointure sur la clé blindée
         df_enrichi = df_ref.merge(df_ventes, on="cle_article", how="left")
         
         # Gestion des articles sans ventes
@@ -124,10 +118,8 @@ if fichier_ventes is not None and fichier_ref is not None:
         df_enrichi["hl"] = df_enrichi["hl"].fillna(0.0)
         df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
         
-        # On utilise l'article du référentiel comme nom officiel
         df_enrichi["article"] = df_enrichi["article_original_x"]
         
-        # On nettoie les colonnes pour l'affichage
         df_enrichi = df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion", "contenance_hl"]]
         
     st.success("✅ Données prêtes !")
@@ -148,7 +140,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     # Diagnostic pour voir les articles SANS ventes
     articles_sans_ventes = df_enrichi[df_enrichi["agence"] == "Aucune vente"]["article"].unique()
     if len(articles_sans_ventes) > 0:
-        st.info(f"ℹ️ Il y a {len(articles_sans_ventes)} articles dans votre référentiel qui n'ont eu **aucune vente** dans le fichier DATA_BRUT (ou dont le nom est vraiment trop différent).")
+        st.info(f"ℹ️ Il reste {len(articles_sans_ventes)} articles dans votre référentiel qui n'ont eu **aucune vente** (ou dont le nom est très différent).")
         with st.expander("🔍 Voir les articles sans ventes"):
             st.write(list(articles_sans_ventes))
     else:

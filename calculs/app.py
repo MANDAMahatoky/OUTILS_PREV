@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import io
 import hashlib
-import os
+import io
 import re
 import unicodedata
 from pathlib import Path
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import altair as alt
 
 # ==============================================================================
 # 1. CONFIGURATION & CONSTANTES
@@ -20,7 +19,7 @@ st.set_page_config(
     page_title="Suivi & Prévision SAAR (S&OP)",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 RACINE = Path(__file__).resolve().parent
@@ -29,8 +28,8 @@ FICHIERS_CANDIDATS = ["DATA_BRUT.xlsx"]
 
 COLONNES = [
     "annee", "mois", "periode", "agence", "region", "segment", "produit", "parfum", "format",
-    "type_format", "article", "nature", "origine", "colis", "hl", "positionnement", "occasion", 
-    "conditionnement", "contenance_ci", "contenance_hl"
+    "type_format", "article", "nature", "origine", "colis", "hl", "positionnement", "occasion",
+    "conditionnement", "contenance_ci", "contenance_hl",
 ]
 
 MOIS = ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"]
@@ -68,7 +67,7 @@ REGION_PAR_AGENCE = {
 
 TYPES = {
     "SS": "SS (Single serve)", "CU": "CU (Convivial Units)",
-    "IC": "IC (Individual/Immediat Consumption)", "FC": "FC (Family/Future Consumption)"
+    "IC": "IC (Individual/Immediat Consumption)", "FC": "FC (Family/Future Consumption)",
 }
 
 # ==============================================================================
@@ -145,29 +144,34 @@ def _generer_catalogue_exact():
         ("XXL 30cl BOB VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("XXL 30cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
         ("XXL 33 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
-        ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediat Consumption)")
+        ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediat Consumption)"),
     ]
-    
+
     data = []
     for art, pos, occ in data_raw:
         art_lower = art.lower()
-        if "cristal" in art_lower or "eau" in art_lower: segment = "EAUX"
-        elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]): segment = "BIERES"
-        else: segment = "BOISSONS"
-        
+        if "cristal" in art_lower or "eau" in art_lower:
+            segment = "EAUX"
+        elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]):
+            segment = "BIERES"
+        else:
+            segment = "BOISSONS"
+
         fmt = art.split()[-1].upper() if art.split()[-1].upper() in ["VER", "PET", "CAN"] else "VER"
-        if "WOCO" in art_lower: fmt = "VER"
-        if "BOB" in art_lower: fmt = "VER"
-        
-        match = re.search(r'(\d+)\s*cl', art_lower)
+        if "WOCO" in art_lower:
+            fmt = "VER"
+        if "BOB" in art_lower:
+            fmt = "VER"
+
+        match = re.search(r"(\d+)\s*cl", art_lower)
         c_cl = int(match.group(1)) if match else 50
         c_hl = c_cl * 0.0001
-        
+
         data.append({
             "article": art, "segment": segment, "produit": art.split()[0], "parfum": art,
             "positionnement": pos, "occasion": occ, "conditionnement": fmt,
             "format": f"{c_cl} cl {fmt}", "contenance_ci": c_cl, "contenance_hl": c_hl,
-            "type_format": occ, "type_format_lib": occ
+            "type_format": occ, "type_format_lib": occ,
         })
     return pd.DataFrame(data)
 
@@ -183,7 +187,7 @@ def _sans_accents(texte: str) -> str:
     return unicodedata.normalize("NFD", texte).encode("ascii", "ignore").decode("utf-8")
 
 def normaliser_nom(nom: str) -> str:
-    return re.sub(r'[^a-z0-9_]+', '_', _sans_accents(str(nom).strip().lower())).strip('_')
+    return re.sub(r"[^a-z0-9_]+", "_", _sans_accents(str(nom).strip().lower())).strip("_")
 
 def normaliser_agence(valeur: object) -> str:
     nom = str(valeur).strip()
@@ -191,16 +195,20 @@ def normaliser_agence(valeur: object) -> str:
     for a in AGENCES_REFERENCE:
         if normaliser_nom(a) == cle or normaliser_nom(a.split("-", 1)[1]) == cle:
             return a
-    if re.fullmatch(r"\d+(_0)?", cle): 
-        return next((a for a in AGENCES_REFERENCE if a.startswith(f"{int(cle.split('_', 1)[0]):02d}-")), nom)
+    if re.fullmatch(r"\d+(_0)?", cle):
+        return next(
+            (a for a in AGENCES_REFERENCE if a.startswith(f"{int(cle.split('_', 1)[0]):02d}-")),
+            nom,
+        )
     return nom
 
-def region_depuis_agence(valeur: object) -> str: 
+def region_depuis_agence(valeur: object) -> str:
     return REGION_PAR_AGENCE.get(normaliser_agence(valeur), "Non renseigné")
 
 def assurer_dimensions_filtres(df: pd.DataFrame, catalogue: dict, types: dict) -> pd.DataFrame:
     for col in ["positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl", "region", "type_format"]:
-        if col not in df.columns: df[col] = "Non renseigné"
+        if col not in df.columns:
+            df[col] = "Non renseigné"
         if catalogue:
             champ = "type_format_lib" if col == "type_format" else col
             articles = df["article"].astype(str).str.lower().str.strip()
@@ -211,7 +219,8 @@ def assurer_dimensions_filtres(df: pd.DataFrame, catalogue: dict, types: dict) -
     return df
 
 def options_filtre_cascade(df: pd.DataFrame, col: str, filtres: list, selections: dict) -> list:
-    if col not in df.columns: return []
+    if col not in df.columns:
+        return []
     df_filtre = df.copy()
     for c, _ in filtres:
         if c != col and selections.get(c) and c in df_filtre.columns:
@@ -235,19 +244,51 @@ _MOIS_MAP = {
 }
 
 def normaliser_mois(valeur) -> float:
-    if pd.isna(valeur): return np.nan
-    if isinstance(valeur, (int, float)): return float(valeur)
+    if pd.isna(valeur):
+        return np.nan
+    if isinstance(valeur, (int, float)):
+        return float(valeur)
     texte = str(valeur).strip().lower()
-    try: return float(texte.replace(",", "."))
-    except ValueError: pass
+    try:
+        return float(texte.replace(",", "."))
+    except ValueError:
+        pass
     cle = re.sub(r"[^a-z]", "", _sans_accents(texte))
     return float(_MOIS_MAP.get(cle, np.nan))
 
 def _detecter_format_pivote(df: pd.DataFrame) -> bool:
-    if df.shape[1] < 7: return False
+    if df.shape[1] < 7:
+        return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     mois1 = df.iloc[:, 1].map(normaliser_mois)
     return annee0.between(1990, 2100).sum() > len(df) * 0.3 and mois1.notna().sum() > len(df) * 0.3
+
+def _resoudre_article(produit: str, segment: str) -> str:
+    """Résout un nom d'article (potentiellement suffixé du segment) vers le nom canonique du catalogue.
+
+    Le format pivot produit `article = f"{produit} {segment}"`, alors que le catalogue
+    stocke uniquement le nom canonique (`"Caprice Ananas 100 cl VER"`). On tente donc :
+      1. la clé exacte `produit`,
+      2. la clé `produit + segment`,
+      3. la clé `produit` avec le segment retiré du suffixe,
+    avant de retomber sur la valeur d'origine.
+    """
+    produit_clean = str(produit).strip()
+    if not produit_clean:
+        return produit_clean
+
+    candidats = [produit_clean.lower()]
+    seg = str(segment).strip() if segment else ""
+    if seg:
+        candidats.append(f"{produit_clean} {seg}".lower())
+        suffixe = f" {seg.lower()}"
+        if candidats[0].endswith(suffixe):
+            candidats.append(candidats[0][: -len(suffixe)].strip())
+
+    for cle in candidats:
+        if cle in CATALOGUE_PAR_ARTICLE:
+            return CATALOGUE_PAR_ARTICLE[cle]["article"]
+    return produit_clean
 
 def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list[str]) -> pd.DataFrame:
     if _detecter_format_pivote(df_raw):
@@ -258,29 +299,49 @@ def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list
         df = df.dropna(subset=["annee", "mois"]).copy()
         df["mois"] = df["mois"].astype(int)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
-        for c in ("segment", "produit", "agence", "nature"): df[c] = df[c].astype(str).str.strip()
-        df = df[~(df["segment"].str.contains("total", case=False) | df["produit"].str.contains("total", case=False) | df["agence"].str.contains("total", case=False))].copy()
+        for c in ("segment", "produit", "agence", "nature"):
+            df[c] = df[c].astype(str).str.strip()
+        df = df[
+            ~(
+                df["segment"].str.contains("total", case=False)
+                | df["produit"].str.contains("total", case=False)
+                | df["agence"].str.contains("total", case=False)
+            )
+        ].copy()
         df["periode"] = df["annee"].astype(str) + "-" + df["mois"].astype(str).str.zfill(2)
         df["colis"] = 0.0
         df["origine"] = "Donnée source"
-        df["article"] = df["produit"] + " " + df["segment"]
+        # 🔧 Correctif #2 : résolution canonique de l'article
+        df["article"] = df.apply(lambda r: _resoudre_article(r["produit"], r["segment"]), axis=1)
         return df.reset_index(drop=True)
     return df_raw
 
-def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, annee_cloture: int, mois_cloture: int) -> pd.DataFrame:
+def lire_et_normaliser(
+    contenu: bytes | None,
+    nom: str,
+    chemin: str | None,
+    annee_cloture: int,
+    mois_cloture: int,
+) -> pd.DataFrame:
+    # 🔧 Correctif vigilance #1 : garde-fou si aucun flux n'est fourni
+    if contenu is None and chemin is None:
+        raise ValueError("lire_et_normaliser : aucun contenu ni chemin fourni.")
+
     nom_fichier = Path(nom if contenu is not None else chemin or "").name.lower()
     est_data_brut = nom_fichier == "data_brut.xlsx"
-    
+
     if contenu is not None:
         flux = io.BytesIO(contenu)
-        if nom.lower().endswith(".csv"): df_raw = pd.read_csv(flux, sep=None, encoding="utf-8-sig", engine="python")
+        if nom.lower().endswith(".csv"):
+            df_raw = pd.read_csv(flux, sep=None, encoding="utf-8-sig", engine="python")
         else:
             feuilles = pd.ExcelFile(flux).sheet_names
             feuille = next((f for f in feuilles if normaliser_nom(f) == "export"), feuilles[0]) if est_data_brut else 0
             df_raw = pd.read_excel(flux, sheet_name=feuille, header=None) if est_data_brut else pd.read_excel(flux, sheet_name=feuille)
     else:
         chemin_str = str(chemin)
-        if chemin_str.lower().endswith(".csv"): df_raw = pd.read_csv(chemin_str, sep=None, encoding="utf-8-sig", engine="python")
+        if chemin_str.lower().endswith(".csv"):
+            df_raw = pd.read_csv(chemin_str, sep=None, encoding="utf-8-sig", engine="python")
         else:
             feuilles = pd.ExcelFile(chemin_str).sheet_names
             feuille = next((f for f in feuilles if normaliser_nom(f) == "export"), feuilles[0]) if est_data_brut else 0
@@ -288,13 +349,29 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
 
     df = normaliser_lignes_data_brut(df_raw, ARTICLES_REFERENTIEL) if est_data_brut else df_raw.copy()
     df.columns = [str(c).strip() for c in df.columns]
-    
-    col_map = {"annee": "annee", "mois": "mois", "agence": "agence", "agences": "agence", "segment": "segment", "produit": "produit", "marque": "produit", "article": "article", "articles": "article", "nature": "nature", "hl": "hl", "volume": "hl", "colis": "colis"}
+
+    col_map = {
+        "annee": "annee", "mois": "mois", "agence": "agence", "agences": "agence",
+        "segment": "segment", "produit": "produit", "marque": "produit",
+        "article": "article", "articles": "article", "nature": "nature",
+        "hl": "hl", "volume": "hl", "colis": "colis",
+    }
     df = df.rename(columns={c: col_map[normaliser_nom(c)] for c in df.columns if normaliser_nom(c) in col_map})
-    
-    defaut = {"annee": 2026, "mois": 1, "periode": "2026-01", "agence": "Non renseigné", "region": "Non renseigné", "segment": "Non renseigné", "produit": "Non renseigné", "parfum": "Non renseigné", "format": "Non renseigné", "type_format": "Non renseigné", "article": "Non renseigné", "nature": "Prévision", "colis": 0.0, "hl": 0.0, "origine": "Donnée source", "positionnement": "Non renseigné", "occasion": "Non renseigné", "conditionnement": "Non renseigné", "contenance_ci": 0.0, "contenance_hl": 0.0}
+    # 🔧 Correctif #1 : déduplication des colonnes après renommage
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+
+    defaut = {
+        "annee": 2026, "mois": 1, "periode": "2026-01", "agence": "Non renseigné",
+        "region": "Non renseigné", "segment": "Non renseigné", "produit": "Non renseigné",
+        "parfum": "Non renseigné", "format": "Non renseigné", "type_format": "Non renseigné",
+        "article": "Non renseigné", "nature": "Prévision", "colis": 0.0, "hl": 0.0,
+        "origine": "Donnée source", "positionnement": "Non renseigné",
+        "occasion": "Non renseigné", "conditionnement": "Non renseigné",
+        "contenance_ci": 0.0, "contenance_hl": 0.0,
+    }
     for k, v in defaut.items():
-        if k not in df.columns: df[k] = v
+        if k not in df.columns:
+            df[k] = v
 
     df = df[COLONNES].copy()
     df["annee"] = pd.to_numeric(df["annee"], errors="coerce").fillna(2026).astype(int)
@@ -302,8 +379,9 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
     df["periode"] = df["annee"].astype(str) + "-" + df["mois"].astype(str).str.zfill(2)
     df["agence"] = df["agence"].map(normaliser_agence)
     df["region"] = df["agence"].map(region_depuis_agence)
-    for c in ["colis", "hl"]: df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-    
+    for c in ["colis", "hl"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+
     df = assurer_dimensions_filtres(df, CATALOGUE_PAR_ARTICLE, TYPES)
     df = df[~df["article"].str.lower().isin(["", "non renseigné", "total", "nan"])].copy()
     cond_realise = (df["annee"] < annee_cloture) | ((df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture))
@@ -314,126 +392,205 @@ def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, anne
 # 5. MOTEUR DE CALCUL AJUSTÉ (SAAR & Saisonnalité)
 # ==============================================================================
 
-def annees_completes_saisonnalite(donnees: pd.DataFrame, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int) -> list[int]:
+def annees_completes_saisonnalite(
+    donnees: pd.DataFrame, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int,
+) -> list[int]:
     realise = donnees.loc[donnees["nature"].eq("Réalisé") & donnees["mois"].between(1, 12)]
-    if realise.empty: return []
-    mois_par_annee = (realise.loc[realise["annee"].between(annee_debut, annee_fin)].drop_duplicates(["annee", "mois"]).groupby("annee")["mois"].nunique())
+    if realise.empty:
+        return []
+    mois_par_annee = (
+        realise.loc[realise["annee"].between(annee_debut, annee_fin)]
+        .drop_duplicates(["annee", "mois"])
+        .groupby("annee")["mois"]
+        .nunique()
+    )
     res = []
     for annee in sorted(mois_par_annee.index):
         annee = int(annee)
-        if annee == annee_cloture and mois_cloture < 12: continue
-        if int(mois_par_annee.loc[annee]) == 12: res.append(annee)
+        if annee == annee_cloture and mois_cloture < 12:
+            continue
+        if int(mois_par_annee.loc[annee]) == 12:
+            res.append(annee)
     return res
 
-def calculer_indices_saisonnalite(donnees: pd.DataFrame, valeur: str, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int) -> pd.DataFrame:
+def calculer_indices_saisonnalite(
+    donnees: pd.DataFrame, valeur: str, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int,
+) -> pd.DataFrame:
     annees = annees_completes_saisonnalite(donnees, annee_debut, annee_fin, annee_cloture, mois_cloture)
-    if not annees: return pd.DataFrame({"Mois": MOIS_NOMS, "Volume moyen": 0.0, "Nombre de périodes": 0, "Indice saisonnier": float("nan")})
-    selection = donnees.loc[donnees["nature"].eq("Réalisé") & donnees["annee"].isin(annees) & donnees["mois"].between(1, 12)]
-    volumes = selection.groupby(["annee", "mois"])[valeur].sum().unstack("mois").reindex(index=annees, columns=range(1, 13)).fillna(0.0)
+    if not annees:
+        return pd.DataFrame({
+            "Mois": MOIS_NOMS, "Volume moyen": 0.0,
+            "Nombre de périodes": 0, "Indice saisonnier": float("nan"),
+        })
+    selection = donnees.loc[
+        donnees["nature"].eq("Réalisé")
+        & donnees["annee"].isin(annees)
+        & donnees["mois"].between(1, 12)
+    ]
+    volumes = (
+        selection.groupby(["annee", "mois"])[valeur].sum()
+        .unstack("mois").reindex(index=annees, columns=range(1, 13)).fillna(0.0)
+    )
     moyennes_annuelles = volumes.sum(axis=1) / 12.0
     ratios = volumes.div(moyennes_annuelles.replace(0, np.nan), axis=0)
     indices = ratios.mean(axis=0).fillna(0.0)
-    if float(indices.sum()) > 0: indices = indices * 12.0 / float(indices.sum())
-    return pd.DataFrame({"Mois": MOIS_NOMS, "Volume moyen": volumes.mean(axis=0).to_numpy(), "Nombre de périodes": len(annees), "Indice saisonnier": indices.to_numpy()})
+    if float(indices.sum()) > 0:
+        indices = indices * 12.0 / float(indices.sum())
+    return pd.DataFrame({
+        "Mois": MOIS_NOMS,
+        "Volume moyen": volumes.mean(axis=0).to_numpy(),
+        "Nombre de périodes": len(annees),
+        "Indice saisonnier": indices.to_numpy(),
+    })
 
-@st.cache_data(show_spinner="Calcul des prévisions SAAR (Ajusté sur le réel)...")
-def appliquer_projection_saar(df: pd.DataFrame, annee_cloture: int, mois_cloture: int, annee_cible: int, taux_croissance_force: float) -> pd.DataFrame:
-    if annee_cible < annee_cloture: return df
-    
+# 🔧 Correctif #4 : pas de cache sur cette fonction (appelée en boucle avec un df changeant)
+def appliquer_projection_saar(
+    df: pd.DataFrame,
+    annee_cloture: int,
+    mois_cloture: int,
+    annee_cible: int,
+    taux_croissance_force: float,
+) -> pd.DataFrame:
+    if annee_cible < annee_cloture:
+        return df
+
     cles = ["agence", "article"]
-    dimensions = ["agence", "region", "segment", "produit", "parfum", "format", "type_format", "article", "origine", "positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl"]
-    
-    # 1. Base de calcul : le réalisé de l'année de clôture (YTD)
-    realise_ytd = df.loc[(df["nature"] == "Réalisé") & (df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture)]
-    if realise_ytd.empty: return df
-    
+    dimensions = [
+        "agence", "region", "segment", "produit", "parfum", "format", "type_format",
+        "article", "origine", "positionnement", "occasion", "conditionnement",
+        "contenance_ci", "contenance_hl",
+    ]
+
+    realise_ytd = df.loc[
+        (df["nature"] == "Réalisé") & (df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture)
+    ]
+    if realise_ytd.empty:
+        return df
+
     cumul_ytd = realise_ytd.groupby(cles)[["hl", "colis"]].sum()
     derniere_ligne = realise_ytd.sort_values(["annee", "mois"]).drop_duplicates(cles, keep="last").set_index(cles)
 
-    # 2. Profils saisonniers basés sur N-1 et N-2
     df_ref = df.loc[df["annee"].isin([annee_cible - 1, annee_cible - 2]) & (df["nature"] == "Réalisé")]
     profils_ref = {}
     if not df_ref.empty:
-        volumes_mensuels = df_ref.groupby([*cles, "mois"])["hl"].sum().unstack("mois").fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0).clip(lower=0.0)
+        volumes_mensuels = (
+            df_ref.groupby([*cles, "mois"])["hl"].sum()
+            .unstack("mois").fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0).clip(lower=0.0)
+        )
         totaux = volumes_mensuels.sum(axis=1)
-        profils_ref = {c: p.to_numpy(dtype=float) for c, p in volumes_mensuels.div(totaux.where(totaux > 0), axis=0).mul(12.0).iterrows() if totaux.loc[c] > 0}
+        profils_ref = {
+            c: p.to_numpy(dtype=float)
+            for c, p in volumes_mensuels.div(totaux.where(totaux > 0), axis=0).mul(12.0).iterrows()
+            if totaux.loc[c] > 0
+        }
 
-    # 3. Calcul du taux de croissance
     real_n_1 = df[(df["annee"] == annee_cible - 1) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
     real_n_2 = df[(df["annee"] == annee_cible - 2) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
     croissance_observee = (real_n_1 / real_n_2.replace(0, np.nan)).fillna(1.0)
-    taux_croissance_couple = np.maximum(croissance_observee, 1.0 + max(taux_croissance_force, 1.0) / 100.0)
-    taux_croissance_couple = np.minimum(taux_croissance_couple, 1.5) 
-    
+    # 🔧 Correctif #5 : respecter strictement la valeur saisie (plus de plancher caché à 1 %)
+    taux_min = 1.0 + max(taux_croissance_force, 0.0) / 100.0
+    taux_croissance_couple = np.maximum(croissance_observee, taux_min)
+    taux_croissance_couple = np.minimum(taux_croissance_couple, 1.5)
+
     projections = []
     for cle, volumes in cumul_ytd.iterrows():
         cle = cle if isinstance(cle, tuple) else (cle,)
-        
+
         profil = profils_ref.get(cle, np.ones(12, dtype=float))
-        if profil[:mois_cloture].sum() <= 0: profil = np.ones(12, dtype=float)
-        
-        # Annualisation basée sur le profil
+        if profil[:mois_cloture].sum() <= 0:
+            profil = np.ones(12, dtype=float)
+
         poids_ecoule = profil[:mois_cloture].sum()
         base_hl_ytd = max(0.0, float(volumes["hl"]) / poids_ecoule * 12.0)
         base_colis_ytd = max(0.0, float(volumes["colis"]) / poids_ecoule * 12.0)
-        
+
         taux = taux_croissance_couple.get(cle, 1.0)
         facteur = taux ** (annee_cible - annee_cloture)
-        
+
         base_hl_target = base_hl_ytd * facteur
         base_colis_target = base_colis_ytd * facteur
-        
+
         ligne_ref = derniere_ligne.loc[cle]
 
         for mois in range(1, 13):
-            if annee_cible == annee_cloture and mois <= mois_cloture: continue
-            
+            if annee_cible == annee_cloture and mois <= mois_cloture:
+                continue
+
             facteur_mois = HAUSSE_SAISONNIERE_PREVISION.get(mois, 1.0)
             ligne = {col: cle[cles.index(col)] if col in cles else ligne_ref[col] for col in dimensions}
-            
+
             vol_hl = base_hl_target * profil[mois - 1] / 12.0 * facteur_mois
             vol_colis = base_colis_target * profil[mois - 1] / 12.0 * facteur_mois
 
-            ligne.update({"annee": annee_cible, "mois": mois, "periode": f"{annee_cible}-{mois:02d}", "nature": "Prévision", "hl": vol_hl, "colis": vol_colis})
+            ligne.update({
+                "annee": annee_cible, "mois": mois, "periode": f"{annee_cible}-{mois:02d}",
+                "nature": "Prévision", "hl": vol_hl, "colis": vol_colis,
+            })
             projections.append(ligne)
 
-    if not projections: return df
-    
+    if not projections:
+        return df
+
     masque_existant = (df["annee"] == annee_cible) & (df["nature"] == "Prévision")
-    if annee_cible == annee_cloture: masque_existant &= df["mois"].gt(mois_cloture)
-    
-    return pd.concat([df.loc[~masque_existant], pd.DataFrame(projections).reindex(columns=df.columns)], ignore_index=True)
+    if annee_cible == annee_cloture:
+        masque_existant &= df["mois"].gt(mois_cloture)
+
+    return pd.concat(
+        [df.loc[~masque_existant], pd.DataFrame(projections).reindex(columns=df.columns)],
+        ignore_index=True,
+    )
 
 @st.cache_data(show_spinner="Reconstitution des prévisions historiques...")
-def reconstituer_previsions_historiques(df: pd.DataFrame, annee_cloture: int, taux_croissance: float) -> pd.DataFrame:
+def reconstituer_previsions_historiques(
+    df: pd.DataFrame, annee_cloture: int, taux_croissance: float,
+) -> pd.DataFrame:
     annees_presentes = set(df["annee"].unique())
-    annees_completes = {int(a) for a, p in df.groupby("annee")["mois"].agg(["min", "max"]).iterrows() if p["min"] == 1 and p["max"] == 12}
-    previsions, previsions_par_annee, facteur_min = [], {}, 1.0 + max(taux_croissance, 1.0) / 100.0
+    annees_completes = {
+        int(a)
+        for a, p in df.groupby("annee")["mois"].agg(["min", "max"]).iterrows()
+        if p["min"] == 1 and p["max"] == 12
+    }
+    previsions, previsions_par_annee = [], {}
+    facteur_min = 1.0 + max(taux_croissance, 0.0) / 100.0
 
     for annee_cible in sorted(annees_presentes):
         annee_precedente = int(annee_cible) - 1
-        if annee_cible >= annee_cloture or annee_precedente not in annees_completes: continue
-        historique = df.loc[df["annee"] < annee_cible].copy(); historique["nature"] = "Réalisé"
-        prevision = appliquer_projection_saar(historique, annee_precedente, 12, int(annee_cible), taux_croissance)
-        prevision = prevision.loc[prevision["annee"].eq(annee_cible) & prevision["nature"].eq("Prévision")].copy()
-        
-        references = previsions_par_annee[annee_precedente].groupby(["agence", "article"])[["hl", "colis"]].sum() if annee_precedente in previsions_par_annee else df.loc[df["annee"].eq(annee_precedente)].groupby(["agence", "article"])[["hl", "colis"]].sum()
+        if annee_cible >= annee_cloture or annee_precedente not in annees_completes:
+            continue
+        historique = df.loc[df["annee"] < annee_cible].copy()
+        historique["nature"] = "Réalisé"
+        prevision = appliquer_projection_saar(
+            historique, annee_precedente, 12, int(annee_cible), taux_croissance
+        )
+        prevision = prevision.loc[
+            prevision["annee"].eq(annee_cible) & prevision["nature"].eq("Prévision")
+        ].copy()
+
+        references = (
+            previsions_par_annee[annee_precedente].groupby(["agence", "article"])[["hl", "colis"]].sum()
+            if annee_precedente in previsions_par_annee
+            else df.loc[df["annee"].eq(annee_precedente)].groupby(["agence", "article"])[["hl", "colis"]].sum()
+        )
         for cle, indices in prevision.groupby(["agence", "article"]).groups.items():
-            if cle not in references.index: continue
+            if cle not in references.index:
+                continue
             for col in ("hl", "colis"):
                 v_prev = prevision.loc[indices, col].sum()
                 v_min = max(0.0, float(references.loc[cle, col])) * facteur_min
-                if 0 < v_prev < v_min: prevision.loc[indices, col] *= v_min / v_prev
-                    
+                if 0 < v_prev < v_min:
+                    prevision.loc[indices, col] *= v_min / v_prev
+
         prevision["nature"] = "Prévision reconstituée"
-        previsions_par_annee[int(annee_cible)] = prevision; previsions.append(prevision)
+        previsions_par_annee[int(annee_cible)] = prevision
+        previsions.append(prevision)
     return pd.concat(previsions, ignore_index=True) if previsions else df.iloc[0:0]
 
 # ==============================================================================
 # 6. AFFICHAGE & UI
 # ==============================================================================
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 :root { --red: #d7193f; --green: #0e8a4a; }
 .stApp { background: radial-gradient(1000px 400px at 100% -10%, #fff1f4, transparent), radial-gradient(1000px 400px at 0% 110%, #eaf7f0, transparent), #fff; }
@@ -445,9 +602,13 @@ div[data-testid="stColumn"]:nth-child(even) div[data-testid="stMetric"] { border
 div[data-testid="stMetric"] label { font-weight: 700; color: #5c5665; text-transform: uppercase; font-size: 0.78rem; }
 div[data-testid="stMetricValue"] { font-weight: 800; color: #121017; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-def nombre(x: float, dec: int) -> str: return f"{x:,.{dec}f}".replace(",", " ")
+def nombre(x: float, dec: int) -> str:
+    return f"{x:,.{dec}f}".replace(",", " ")
+
 def etiquette(periode: str) -> str:
     p = str(periode).split("-")
     return f"{MOIS[int(p[1]) - 1]}-{p[0][-2:]}" if len(p) == 2 and p[1].isdigit() else str(periode)
@@ -456,34 +617,45 @@ def afficher_vue(df: pd.DataFrame, mode: str, dec: int = 0, couleur=None, hauteu
     if mode == "Tableau":
         st.dataframe(df.round(dec), width="stretch")
         return
-    df_graphique = df.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna(axis=1, how="all").dropna(axis=0, how="all")
-    if df_graphique.empty: return st.info("Aucune valeur numérique.")
-    
+    df_graphique = (
+        df.apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna(axis=1, how="all")
+        .dropna(axis=0, how="all")
+    )
+    if df_graphique.empty:
+        return st.info("Aucune valeur numérique.")
+
     nom_axe = df_graphique.index.name or "Période"
     df_melt = df_graphique.reset_index().melt(id_vars=nom_axe, var_name="Série", value_name="Valeur")
     df_melt[nom_axe] = df_melt[nom_axe].astype(str)
-    
+    ordre_index = df_graphique.index.astype(str).tolist()
+
     if mode == "Courbes":
-        chart = alt.Chart(df_melt).mark_line(interpolate="monotone", point=alt.OverlayMarkDef(filled=True, size=35)).encode(
-            x=alt.X(f"{nom_axe}:N", sort=df_graphique.index.astype(str).tolist(), title=nom_axe),
+        chart = alt.Chart(df_melt).mark_line(
+            interpolate="monotone", point=alt.OverlayMarkDef(filled=True, size=35)
+        ).encode(
+            x=alt.X(f"{nom_axe}:N", sort=ordre_index, title=nom_axe),
             y=alt.Y("Valeur:Q", title="Volume"),
             color=alt.Color("Série:N", scale=alt.Scale(scheme="tableau10"), legend=alt.Legend(title=None)),
-            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")]
+            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")],
         )
-        st.altair_chart(chart.properties(height=hauteur), width="stretch")
+        st.altair_chart(chart.properties(height=hauteur), use_container_width=True)
     elif mode == "Histogramme":
         chart = alt.Chart(df_melt).mark_bar().encode(
-            x=alt.X(f"{nom_axe}:N", sort=df_graphique.index.astype(str).tolist(), title=nom_axe),
+            x=alt.X(f"{nom_axe}:N", sort=ordre_index, title=nom_axe),
             y=alt.Y("Valeur:Q", title="Volume"),
             color=alt.Color("Série:N", scale=alt.Scale(scheme="tableau10"), legend=alt.Legend(title=None)),
-            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")]
+            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")],
         )
-        st.altair_chart(chart.properties(height=hauteur), width="stretch")
+        st.altair_chart(chart.properties(height=hauteur), use_container_width=True)
 
 def trier(valeurs, col):
     v = [x for x in valeurs if pd.notna(x)]
-    if col in {"contenance_ci", "contenance_hl"}: return sorted(v, key=lambda x: float(x) if str(x).replace('.','',1).isdigit() else 999)
-    if col == "conditionnement": return sorted(v, key=lambda x: ({"CAN": 0, "PET": 1, "VER": 2}.get(str(x), 99), str(x)))
+    if col in {"contenance_ci", "contenance_hl"}:
+        return sorted(v, key=lambda x: float(x) if str(x).replace(".", "", 1).isdigit() else 999)
+    if col == "conditionnement":
+        return sorted(v, key=lambda x: ({"CAN": 0, "PET": 1, "VER": 2}.get(str(x), 99), str(x)))
     return sorted(v)
 
 # ==============================================================================
@@ -496,7 +668,11 @@ st.markdown('<div class="titre">Moteur S&OP : Prévision SAAR & Rolling Forecast
 
 st.sidebar.header("📁 Source & Import")
 if st.sidebar.button("Réinitialiser les imports"):
-    st.session_state.clear(); st.rerun()
+    # 🔧 Correctif vigilance #4 : ne supprime que les clés métier, préserve la config
+    for cle in list(st.session_state.keys()):
+        if cle.startswith("f_") or cle in ("df_courant", "empreinte_import", "sais_deb", "sais_fin"):
+            del st.session_state[cle]
+    st.rerun()
 
 importe = st.sidebar.file_uploader("Importer un fichier (.csv / .xlsx)", type=["csv", "xlsx"])
 chemin = FICHIERS_EXISTANTS[0] if FICHIERS_EXISTANTS else None
@@ -505,14 +681,21 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Cutoff S&OP")
 col_c1, col_c2 = st.sidebar.columns(2)
 annee_cloture = col_c1.number_input("Année Clôture", min_value=2000, max_value=2036, value=2026)
-mois_cloture = col_c2.selectbox("Mois Pivot", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS[m-1]}")
+mois_cloture = col_c2.selectbox(
+    "Mois Pivot", options=list(range(1, 13)), index=8,
+    format_func=lambda m: f"{m} - {MOIS[m - 1]}",
+)
 
 st.sidebar.markdown("---")
 st.sidebar.header("🎯 Cible & Affichage")
 annee_cible = st.sidebar.number_input("Année Cible", min_value=2000, max_value=2040, value=int(annee_cloture) + 1)
 mois_cible_str = st.sidebar.selectbox("Mois Cible", options=["Tous les mois"] + MOIS_COMPLETS, index=0)
 
-val_choix = st.sidebar.radio("Métrique", options=["hl", "colis"], format_func=lambda x: "Hectolitres (hl)" if x == "hl" else "Colis (cs)", horizontal=True)
+val_choix = st.sidebar.radio(
+    "Métrique", options=["hl", "colis"],
+    format_func=lambda x: "Hectolitres (hl)" if x == "hl" else "Colis (cs)",
+    horizontal=True,
+)
 dec = st.sidebar.number_input("Décimales", min_value=0, max_value=4, value=0)
 mode_affichage = st.sidebar.selectbox("Mode d'affichage", options=["Tableau", "Courbes", "Histogramme"], index=1)
 
@@ -522,10 +705,12 @@ if importe is not None:
     contenu_import = importe.getvalue()
     empreinte = hashlib.sha256(contenu_import).hexdigest()
     if st.session_state.get("empreinte_import") != empreinte:
-        st.session_state["df_courant"] = lire_et_normaliser(contenu_import, importe.name, None, int(annee_cloture), int(mois_cloture))
+        st.session_state["df_courant"] = lire_et_normaliser(
+            contenu_import, importe.name, None, int(annee_cloture), int(mois_cloture)
+        )
         st.session_state["empreinte_import"] = empreinte
     df_brut = st.session_state.get("df_courant")
-elif "df_courant" in st.session_state: 
+elif "df_courant" in st.session_state:
     df_brut = st.session_state["df_courant"]
 elif chemin:
     df_brut = lire_et_normaliser(None, "", str(chemin), int(annee_cloture), int(mois_cloture))
@@ -540,41 +725,51 @@ st.sidebar.markdown("---")
 st.sidebar.header("🔍 Filtres")
 if st.sidebar.button("🔄 Réinitialiser les filtres"):
     for col, _ in FILTRES:
-        if f"f_{col}" in st.session_state: del st.session_state[f"f_{col}"]
+        if f"f_{col}" in st.session_state:
+            del st.session_state[f"f_{col}"]
     st.rerun()
 
 selections_filtres = {col: st.session_state.get(f"f_{col}", []) for col, _ in FILTRES}
 for col, label in FILTRES:
-    if col not in df_brut.columns: continue
+    if col not in df_brut.columns:
+        continue
     options = options_filtre_cascade(df_brut, col, FILTRES, selections_filtres)
     options = [o for o in options if pd.notna(o) and str(o).strip().lower() not in ("", "nan", "none")]
-    if col == "agence": options = [a for a in AGENCES_REFERENCE if a in set(options)]
-    else: options = trier(options, col)
-    if not options: continue
+    if col == "agence":
+        # 🔧 Correctif #6 : union référentiel + données présentes
+        options = sorted({*AGENCES_REFERENCE, *[str(o) for o in options]})
+    else:
+        options = trier(options, col)
+    if not options:
+        continue
     cle = f"f_{col}"
-    if cle in st.session_state: st.session_state[cle] = [v for v in st.session_state[cle] if v in options]
+    if cle in st.session_state:
+        st.session_state[cle] = [v for v in st.session_state[cle] if v in options]
     selections_filtres[col] = st.sidebar.multiselect(label, options, key=cle, placeholder="Tous")
 
 d = df_brut.copy()
 for col, _ in FILTRES:
-    if selections_filtres[col]: d = d[d[col].isin(selections_filtres[col])]
+    if selections_filtres[col]:
+        d = d[d[col].isin(selections_filtres[col])]
 recherche = st.sidebar.text_input("🔎 Recherche article", "")
-if recherche: d = d[d["article"].str.contains(recherche, case=False, na=False)]
+if recherche:
+    d = d[d["article"].str.contains(recherche, case=False, na=False)]
 
 # --- SAAR & Cumuls ---
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Moteur SAAR")
 activer_saar = st.sidebar.checkbox("Activer la projection SAAR", value=True)
 afficher_prev_hist = st.sidebar.checkbox("Afficher les prévisions historiques", value=True)
-taux_saar = st.sidebar.number_input("Hausse annuelle minimale (%)", min_value=1.0, value=1.0, step=0.5)
+taux_saar = st.sidebar.number_input("Hausse annuelle minimale (%)", min_value=0.0, value=1.0, step=0.5)
 
 df_previsions_hist = df_brut.iloc[0:0].copy()
 df_previsions_toutes = df_brut.iloc[0:0].copy()
 
 if activer_saar:
     df_previsions_toutes = reconstituer_previsions_historiques(df_brut, int(annee_cloture) + 1, float(taux_saar))
-    if afficher_prev_hist: df_previsions_hist = df_previsions_toutes.loc[df_previsions_toutes["annee"].lt(annee_cloture)].copy()
-    
+    if afficher_prev_hist:
+        df_previsions_hist = df_previsions_toutes.loc[df_previsions_toutes["annee"].lt(annee_cloture)].copy()
+
     if annee_cible >= annee_cloture:
         df_brut = appliquer_projection_saar(df_brut, int(annee_cloture), int(mois_cloture), int(annee_cloture), float(taux_saar))
         for a_proj in range(int(annee_cloture) + 1, int(annee_cible) + 1):
@@ -584,9 +779,14 @@ d_tendance = pd.concat([d, df_previsions_hist], ignore_index=True).replace("Pré
 
 # --- KPI Cumuls ---
 ANNEE_DEBUT_CUMUL = 2024
-m_real = (d["nature"].eq("Réalisé") & d["annee"].ge(ANNEE_DEBUT_CUMUL) & (d["annee"].lt(annee_cloture) | (d["annee"].eq(annee_cloture) & d["mois"].le(mois_cloture))))
-m_prev = (d["nature"].eq("Prévision") & d["annee"].eq(annee_cloture) & d["mois"].gt(mois_cloture))
-vol_real = float(d.loc[m_real, val_choix].sum()); vol_prev = float(d.loc[m_prev, val_choix].sum())
+m_real = (
+    d["nature"].eq("Réalisé")
+    & d["annee"].ge(ANNEE_DEBUT_CUMUL)
+    & (d["annee"].lt(annee_cloture) | (d["annee"].eq(annee_cloture) & d["mois"].le(mois_cloture)))
+)
+m_prev = d["nature"].eq("Prévision") & d["annee"].eq(annee_cloture) & d["mois"].gt(mois_cloture)
+vol_real = float(d.loc[m_real, val_choix].sum())
+vol_prev = float(d.loc[m_prev, val_choix].sum())
 
 k1, k2, k3 = st.columns(3)
 k1.metric("Cumul réalisé à date", f"{nombre(vol_real, dec)} {val_choix}")
@@ -602,55 +802,56 @@ tab_comp, tab_detail, tab_is = st.tabs(["📊 Prévision vs Réalisé", "🔍 D�
 # ==============================================================================
 with tab_comp:
     st.subheader(f"Historique des volumes : Réalisé vs Prévision (Cible : {annee_cible})")
-    
-    # On prépare les données
+
     df_comp = d_tendance.groupby(["annee", "nature"])[val_choix].sum().unstack("nature").fillna(0.0)
-    
-    # On s'assure que toutes les années jusqu'à annee_cible sont présentes
     toutes_annees = list(range(int(df_comp.index.min()), int(annee_cible) + 1))
     df_comp = df_comp.reindex(toutes_annees).fillna(0.0)
-    
-    if "Réalisé" not in df_comp.columns: df_comp["Réalisé"] = 0.0
-    if "Prévision" not in df_comp.columns: df_comp["Prévision"] = 0.0
-    
-    # On remplace les 0 par des NaN pour les périodes où il n'y a pas de donnée
-    # (sinon la ligne tombe à zéro)
+
+    if "Réalisé" not in df_comp.columns:
+        df_comp["Réalisé"] = 0.0
+    if "Prévision" not in df_comp.columns:
+        df_comp["Prévision"] = 0.0
+
     for idx in df_comp.index:
         if idx < annee_cloture and df_comp.loc[idx, "Prévision"] == 0:
             df_comp.loc[idx, "Prévision"] = np.nan
         if idx > annee_cloture and df_comp.loc[idx, "Réalisé"] == 0:
             df_comp.loc[idx, "Réalisé"] = np.nan
-            
+
     df_comp.index.name = "Année"
     df_comp = df_comp.reset_index()
     df_comp["Année"] = df_comp["Année"].astype(str)
-    
+
     st.caption(
         "Ce graphique compare le volume global de chaque année. "
         "Le 'Réalisé' montre les années clôturées. Pour l'année en cours, la courbe 'Prévision' montre l'atterrissage. "
         "Les années futures (ex: 2027) affichent la projection SAAR."
     )
-    
+
     if mode_affichage == "Tableau":
         st.dataframe(df_comp.set_index("Année").round(dec), width="stretch")
     else:
         df_melt = df_comp.melt(id_vars="Année", var_name="Type", value_name="Volume")
-        df_melt = df_melt.dropna(subset=["Volume"]) # On retire les NaN pour le graphique
-        
+        df_melt = df_melt.dropna(subset=["Volume"])
+
         chart = alt.Chart(df_melt).mark_line(
-            interpolate="monotone", 
-            point=alt.OverlayMarkDef(filled=True, size=80)
+            interpolate="monotone",
+            point=alt.OverlayMarkDef(filled=True, size=80),
         ).encode(
             x=alt.X("Année:N", sort=df_comp["Année"].tolist(), title="Année"),
             y=alt.Y("Volume:Q", title=f"Volume total ({val_choix})"),
-            color=alt.Color("Type:N", scale=alt.Scale(
-                domain=["Réalisé", "Prévision"], 
-                range=[COULEUR_REALISE, COULEUR_PREVISION]
-            ), legend=alt.Legend(title="Type de donnée")),
-            strokeDash=alt.StrokeDash("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[[1, 0], [5, 5]]), legend=None),
-            tooltip=["Année", "Type", alt.Tooltip("Volume:Q", format=",.0f")]
+            color=alt.Color(
+                "Type:N",
+                scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[COULEUR_REALISE, COULEUR_PREVISION]),
+                legend=alt.Legend(title="Type de donnée"),
+            ),
+            strokeDash=alt.StrokeDash(
+                "Type:N",
+                scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[[1, 0], [5, 5]]),
+                legend=None,
+            ),
+            tooltip=["Année", "Type", alt.Tooltip("Volume:Q", format=",.0f")],
         )
-        
         st.altair_chart(chart.properties(height=450, width="container"), use_container_width=True)
 
 # ==============================================================================
@@ -678,18 +879,21 @@ with tab_is:
     st.subheader("Indice de saisonnalité par mois")
     annees_reelles = sorted(int(a) for a in df_brut.loc[df_brut["nature"].eq("Réalisé"), "annee"].unique())
     annees_debut_possibles = annees_reelles[:-1]
-    
+
     indices_saisonnalite = pd.DataFrame()
     if annees_debut_possibles:
         c1, c2 = st.columns(2)
         annee_debut = c1.selectbox("Année début", options=annees_debut_possibles, index=0, key="sais_deb")
         annees_fin = [a for a in annees_reelles if a > annee_debut]
-        if st.session_state.get("sais_fin") not in annees_fin: st.session_state["sais_fin"] = annees_fin[-1]
+        if st.session_state.get("sais_fin") not in annees_fin:
+            st.session_state["sais_fin"] = annees_fin[-1]
         annee_fin = c2.selectbox("Année fin", options=annees_fin, key="sais_fin")
-        
+
         d_is = d.loc[~d["article"].astype(str).str.lower().str.contains("total", na=False)]
-        indices_saisonnalite = calculer_indices_saisonnalite(d_is, val_choix, int(annee_debut), int(annee_fin), int(annee_cloture), int(mois_cloture))
-        
+        indices_saisonnalite = calculer_indices_saisonnalite(
+            d_is, val_choix, int(annee_debut), int(annee_fin), int(annee_cloture), int(mois_cloture),
+        )
+
         if not indices_saisonnalite.empty and indices_saisonnalite["Indice saisonnier"].notna().any():
             df_graph_is = indices_saisonnalite.set_index("Mois")[["Indice saisonnier"]]
             afficher_vue(df_graph_is, mode_affichage, dec=2, hauteur=350)
@@ -703,10 +907,26 @@ with tab_is:
 # --- Export ---
 st.markdown("---")
 tampon = io.BytesIO()
+written = 0
 with pd.ExcelWriter(tampon, engine="openpyxl") as xl:
-    if not d.empty: d.to_excel(xl, index=False, sheet_name="Données Filtrées")
-    if not df_previsions_toutes.empty: df_previsions_toutes.to_excel(xl, index=False, sheet_name="Prévisions Historiques")
+    if not d.empty:
+        d.to_excel(xl, index=False, sheet_name="Données Filtrées")
+        written += 1
+    if not df_previsions_toutes.empty:
+        df_previsions_toutes.to_excel(xl, index=False, sheet_name="Prévisions Historiques")
+        written += 1
     df_annee_cible = d_tendance[d_tendance["annee"] == annee_cible].copy()
-    if not df_annee_cible.empty: df_annee_cible.to_excel(xl, index=False, sheet_name=f"Prévisions {annee_cible}")
+    if not df_annee_cible.empty:
+        df_annee_cible.to_excel(xl, index=False, sheet_name=f"Prévisions {annee_cible}")
+        written += 1
 
-st.download_button("📥 Télécharger l'export complet (.xlsx)", data=tampon.getvalue(), file_name=f"Export_SOP_{annee_cible}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+if written == 0:
+    st.warning("⚠️ Aucune donnée disponible pour l'export.")
+else:
+    st.download_button(
+        "📥 Télécharger l'export complet (.xlsx)",
+        data=tampon.getvalue(),
+        file_name=f"Export_SOP_{annee_cible}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+    )

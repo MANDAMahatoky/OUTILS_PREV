@@ -84,6 +84,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         df_ventes = lire_ventes(fichier_ventes.getvalue())
         df_ref = lire_referentiel(fichier_ref.getvalue())
         
+        # Fusion (Étape 1)
         df_enrichi = df_ref.merge(df_ventes, on="cle_article", how="left")
         df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
         df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
@@ -93,7 +94,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         df_enrichi = df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
 
-    # --- Paramètres de Cutoff ---
+    # --- Paramètres de Cutoff (Étape 2 & 3) ---
     st.sidebar.header("⚙️ Paramètres S&OP")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
@@ -103,7 +104,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
     sel_agence = st.sidebar.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
-    # 3. Séparation Réalisé / Prévision
+    # --- Séparation Réalisé / Prévision ---
     condition_realise = (df_enrichi["annee"] < annee_cloture) | ((df_enrichi["annee"] == annee_cloture) & (df_enrichi["mois"] <= mois_cloture))
     
     df_realise = df_enrichi[condition_realise].copy()
@@ -113,7 +114,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         df_realise = df_realise[df_realise["agence"].isin(sel_agence)]
         df_prevision = df_prevision[df_prevision["agence"].isin(sel_agence)]
 
-    # 4. Calcul du Réalisé Cumulé (Table_Réalisé)
+    # --- Calcul du Réalisé Cumulé (Table_Réalisé) ---
     df_cumul_realise = df_realise.groupby(["annee", "mois", "agence", "article"])["hl"].sum().reset_index()
     
     # ==============================================================================
@@ -132,12 +133,18 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab1:
         st.write("Voici la table aggrégée du réalisé. **L'affichage est arrondi à 0 décimale, exactement comme dans Excel.**")
         
-        # FIX : use_container_width=True
+        # FIX : Utilisation de st.column_config qui est beaucoup plus stable
         st.dataframe(
-            df_cumul_realise.style.format({"hl": "{:,.0f}"}), 
-            use_container_width=True
+            df_cumul_realise,
+            column_config={
+                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.0f")
+            }
         )
         
     with tab2:
-        # FIX : use_container_width=True
-        st.dataframe(df_prevision.style.format({"hl": "{:,.0f}"}), use_container_width=True)
+        st.dataframe(
+            df_prevision,
+            column_config={
+                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.0f")
+            }
+        )

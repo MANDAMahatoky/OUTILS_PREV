@@ -6,7 +6,7 @@ import io
 import unicodedata
 
 st.set_page_config(page_title="Étape 1 : Données Brutes", layout="wide")
-st.title("Étape 1 : Ingestion & Enrichissement des Données")
+st.title("Étape 1 : Ingestion & Enrichissement (Périmètre Référentiel)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -35,13 +35,14 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# LECTURE DES DEUX FICHIERS
+# LECTURE DES FICHIERS
 # ==============================================================================
 def lire_referentiel(contenu_excel: bytes) -> pd.DataFrame:
     flux = io.BytesIO(contenu_excel)
+    # On lit l'onglet 'Ref actif'
     df_ref = pd.read_excel(flux, sheet_name="Ref actif")
     
-    # FIX : Renommage complet pour tout mettre en minuscules
+    # Uniformisation des noms de colonnes
     df_ref = df_ref.rename(columns={
         "Article": "article", 
         "Positionnement": "positionnement",
@@ -70,7 +71,7 @@ def lire_ventes(contenu_excel: bytes) -> pd.DataFrame:
         df["mois"] = df["mois"].apply(normaliser_mois)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
         
-        # Suppression des lignes "Total" ET des lignes vides
+        # Suppression des lignes "Total" et des lignes vides
         masque_total = (
             df["segment"].astype(str).str.contains("total", case=False, na=False) |
             df["produit"].astype(str).str.contains("total", case=False, na=False) |
@@ -80,6 +81,7 @@ def lire_ventes(contenu_excel: bytes) -> pd.DataFrame:
         )
         df = df[~masque_total].copy()
         
+        # Extraction de l'article
         df["article"] = df["nature"].apply(extraire_article)
         df["agence"] = df["agence"].astype(str).str.strip()
         
@@ -100,46 +102,35 @@ with col2:
     fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"], key="ref")
 
 if fichier_ventes is not None and fichier_ref is not None:
-    with st.spinner("Lecture et fusion des données..."):
+    with st.spinner("Lecture et filtrage sur le référentiel..."):
         df_ventes = lire_ventes(fichier_ventes.getvalue())
         df_ref = lire_referentiel(fichier_ref.getvalue())
         
-        # Fusion
-        df_enrichi = df_ventes.merge(df_ref, on="article", how="left")
+        # FIX : On utilise how="inner" pour ne garder QUE les articles présents dans le référentiel
+        df_enrichi = df_ventes.merge(df_ref, on="article", how="inner")
         
-        # Remplissage des valeurs manquantes
+        # Sécurité pour les valeurs manquantes
         df_enrichi["positionnement"] = df_enrichi["positionnement"].fillna("Non renseigné")
         df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné")
         df_enrichi["contenance_hl"] = df_enrichi["contenance_hl"].fillna(0.0)
         
-    st.success(f"✅ Données fusionnées avec succès ! {len(df_enrichi):,} lignes prêtes pour l'analyse.".replace(",", " "))
+    st.success(f"✅ Données fusionnées et filtrées avec succès ! {len(df_enrichi):,} lignes prêtes pour l'analyse.".replace(",", " "))
     
     # --- Vérifications ---
     st.subheader("Vérifications de base")
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Lignes de ventes", f"{len(df_ventes):,}".replace(",", " "))
-    kpi2.metric("Lignes après fusion", f"{len(df_enrichi):,}".replace(",", " "))
+    kpi1.metric("Lignes de ventes initiales", f"{len(df_ventes):,}".replace(",", " "))
+    
+    # On affiche la différence
+    lignes_supprimees = len(df_ventes) - len(df_enrichi)
+    kpi2.metric("Lignes conservées (Réf.)", f"{len(df_enrichi):,}".replace(",", " "), 
+                delta=f"-{lignes_supprimees:,} lignes hors réf.".replace(",", " "), delta_color="inverse")
+    
     kpi3.metric("Articles uniques", df_enrichi["article"].nunique())
     kpi4.metric("Volume total (HL)", f"{df_enrichi['hl'].sum():,.0f}".replace(",", " "))
     
-    if len(df_ventes) == len(df_enrichi):
-        st.success("🎉 Aucune ligne de vente n'a été perdue. Le tableau est complet.")
+    st.info("ℹ️ Le tableau a été filtré pour ne conserver que les articles présents dans votre fichier `Classeur2.xlsx`.")
     
-    # --- Diagnostic des articles manquants ---
-    non_renseignes = df_enrichi[df_enrichi["positionnement"] == "Non renseigné"]
-    if not non_renseignes.empty:
-        st.info(f"ℹ️ **Note :** {len(non_renseignes):,} lignes concernent des articles absents de votre fichier `Classeur2.xlsx`. Elles sont conservées et seront incluses dans les calculs.".replace(",", " "))
-        
-        missing_summary = non_renseignes.groupby("article")["hl"].sum().reset_index()
-        missing_summary = missing_summary.sort_values("hl", ascending=False)
-        missing_summary.columns = ["Article non référencé", "Volume total (HL)"]
-        
-        with st.expander("🔍 Voir la liste des articles non référencés (Top 50)"):
-            st.dataframe(missing_summary.head(50), width="stretch", hide_index=True)
-            
-    else:
-        st.success("🎉 100% des articles ont été trouvés dans le Référentiel !")
-        
     # --- Aperçu ---
-    st.subheader("Aperçu du DataFrame enrichi")
+    st.subheader("Aperçu du DataFrame enrichi (Périmètre Référentiel)")
     st.dataframe(df_enrichi.head(100), width="stretch")

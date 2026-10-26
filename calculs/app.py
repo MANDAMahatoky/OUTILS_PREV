@@ -210,7 +210,7 @@ def assurer_dimensions_filtres(df: pd.DataFrame, catalogue: dict, types: dict) -
         if col not in df.columns:
             df[col] = "Non renseigné"
 
-        # FIX 2026-04 : cast en object AVANT affectation de chaîne.
+        # FIX #1 : cast object AVANT affectation de chaîne (LossySetitemError)
         if df[col].dtype != object:
             df[col] = df[col].astype(object)
 
@@ -274,7 +274,7 @@ def _detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3 and mois1.notna().sum() > len(df) * 0.3
 
 def _extraire_article(nature_str: str) -> str:
-    """Retire le préfixe numérique d'un nom d'article : '190-Cristalline 100 cl PET' -> 'Cristalline 100 cl PET'."""
+    """Retire le préfixe numérique : '190-Cristalline 100 cl PET' -> 'Cristalline 100 cl PET'."""
     match = re.match(r"^\d+-(.*)$", str(nature_str).strip())
     if match:
         return match.group(1).strip()
@@ -314,7 +314,7 @@ def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list
         for c in ("segment", "produit", "agence", "nature"):
             df[c] = df[c].astype(str).str.strip()
 
-        # FIX 2026-04 : filtrer aussi les lignes où 'nature' (col F) contient 'Total'.
+        # FIX #2 : filtrer aussi 'Total' en colonne nature (col F)
         masque_total = (
             df["segment"].str.contains("total", case=False, na=False)
             | df["produit"].str.contains("total", case=False, na=False)
@@ -327,8 +327,7 @@ def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list
         df["colis"] = 0.0
         df["origine"] = "Donnée source"
 
-        # FIX 2026-04 : l'article réel est en colonne F (nature). On l'extrait
-        # en retirant le préfixe numérique, puis on le résout contre le catalogue.
+        # FIX #3 : article réel = colonne F (nature) sans préfixe numérique
         df["article"] = df["nature"].apply(_extraire_article)
         df["article"] = df["article"].apply(lambda a: _resoudre_article(a, ""))
 
@@ -406,7 +405,7 @@ def lire_et_normaliser(
     return df
 
 # ==============================================================================
-# 5. MOTEUR DE CALCUL AJUSTÉ (SAAR & Saisonnalité)
+# 5. MOTEUR DE CALCUL (SAAR, Saisonnalité, CAGR, Projection)
 # ==============================================================================
 
 def annees_completes_saisonnalite(
@@ -460,6 +459,36 @@ def calculer_indices_saisonnalite(
         "Indice saisonnier": indices.to_numpy(),
     })
 
+# ---------------------------------------------------------------------------- #
+# FIX #4 : CAGR à périmètre égal (YTD N-1 vs YTD N-2, mois comparables)
+# ---------------------------------------------------------------------------- #
+def _cagr_a_periode_egale(
+    df: pd.DataFrame, annee_cible: int, mois_cloture: int, cles: list[str],
+) -> pd.Series:
+    """Croissance N-1 / N-2 calculée sur la même fenêtre mensuelle.
+
+    L'ancienne version comparait YTD N-1 (ex. 2026 Jan-Sep) à N-2 full-year
+    (2025 complet) → ratio artificiellement écrasé (~0.75). On compare ici
+    des périodes comparables : 2026 Jan-Sep / 2025 Jan-Sep.
+    """
+    def _vol_ytd(annee: int) -> pd.Series:
+        selection = df.loc[
+            (df["annee"] == annee)
+            & (df["nature"] == "Réalisé")
+            & (df["mois"] <= mois_cloture)
+        ]
+        if selection.empty:
+            return pd.Series(dtype=float)
+        return selection.groupby(cles)["hl"].sum()
+
+    v1 = _vol_ytd(annee_cible - 1)
+    v2 = _vol_ytd(annee_cible - 2)
+    if v1.empty or v2.empty:
+        return pd.Series(dtype=float)
+    croissance = v1 / v2.replace(0, np.nan)
+    return croissance.replace([np.inf, -np.inf], np.nan).fillna(1.0)
+
+
 def appliquer_projection_saar(
     df: pd.DataFrame,
     annee_cloture: int,
@@ -486,6 +515,7 @@ def appliquer_projection_saar(
     cumul_ytd = realise_ytd.groupby(cles)[["hl", "colis"]].sum()
     derniere_ligne = realise_ytd.sort_values(["annee", "mois"]).drop_duplicates(cles, keep="last").set_index(cles)
 
+    # ① Profils saisonniers à partir de N-1 et N-2
     df_ref = df.loc[df["annee"].isin([annee_cible - 1, annee_cible - 2]) & (df["nature"] == "Réalisé")]
     profils_ref = {}
     if not df_ref.empty:
@@ -500,12 +530,14 @@ def appliquer_projection_saar(
             if totaux.loc[c] > 0
         }
 
-    real_n_1 = df[(df["annee"] == annee_cible - 1) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
-    real_n_2 = df[(df["annee"] == annee_cible - 2) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
-    croissance_observee = (real_n_1 / real_n_2.replace(0, np.nan)).fillna(1.0)
+    # ③ CAGR à périmètre égal (FIX #4)
+    croissance_observee = _cagr_a_periode_egale(df, annee_cible, mois_cloture, cles)
     taux_min = 1.0 + max(taux_croissance_force, 0.0) / 100.0
-    taux_croissance_couple = np.maximum(croissance_observee, taux_min)
-    taux_croissance_couple = np.minimum(taux_croissance_couple, 1.5)
+    if croissance_observee.empty:
+        taux_croissance_couple = pd.Series(dtype=float)
+    else:
+        taux_croissance_couple = np.maximum(croissance_observee, taux_min)
+        taux_croissance_couple = np.minimum(taux_croissance_couple, 1.5)
 
     projections = []
     for cle, volumes in cumul_ytd.iterrows():
@@ -515,11 +547,16 @@ def appliquer_projection_saar(
         if profil[:mois_cloture].sum() <= 0:
             profil = np.ones(12, dtype=float)
 
+        # ② SARR : annualisation du YTD via poids saisonnier écoulé
         poids_ecoule = profil[:mois_cloture].sum()
         base_hl_ytd = max(0.0, float(volumes["hl"]) / poids_ecoule * 12.0)
         base_colis_ytd = max(0.0, float(volumes["colis"]) / poids_ecoule * 12.0)
 
-        taux = taux_croissance_couple.get(cle, 1.0)
+        # ③ Application du CAGR
+        if hasattr(taux_croissance_couple, "get"):
+            taux = float(taux_croissance_couple.get(cle, 1.0))
+        else:
+            taux = 1.0
         facteur = taux ** (annee_cible - annee_cloture)
 
         base_hl_target = base_hl_ytd * facteur
@@ -527,6 +564,7 @@ def appliquer_projection_saar(
 
         ligne_ref = derniere_ligne.loc[cle]
 
+        # ④ Projection mensuelle = profil × hausse saisonnière
         for mois in range(1, 13):
             if annee_cible == annee_cloture and mois <= mois_cloture:
                 continue
@@ -734,7 +772,7 @@ if df_brut is None or df_brut.empty:
     st.warning("⚠️ Aucune donnée. Importez un fichier via la barre latérale.")
     st.stop()
 
-# --- Application des filtres (UI seulement) ---
+# --- Filtres UI (uniquement) ---
 st.sidebar.markdown("---")
 st.sidebar.header("🔍 Filtres")
 if st.sidebar.button("🔄 Réinitialiser les filtres"):
@@ -762,14 +800,13 @@ for col, label in FILTRES:
 
 recherche = st.sidebar.text_input("🔎 Recherche article", "")
 
-# --- SAAR & Cumuls (UI) ---
+# --- Moteur SAAR ---
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Moteur SAAR")
 activer_saar = st.sidebar.checkbox("Activer la projection SAAR", value=True)
 afficher_prev_hist = st.sidebar.checkbox("Afficher les prévisions historiques", value=True)
 taux_saar = st.sidebar.number_input("Hausse annuelle minimale (%)", min_value=0.0, value=1.0, step=0.5)
 
-# --- Moteur SAAR (calculs) ---
 df_previsions_hist = df_brut.iloc[0:0].copy()
 df_previsions_toutes = df_brut.iloc[0:0].copy()
 
@@ -787,8 +824,7 @@ if activer_saar:
                 df_brut, int(annee_cloture), int(mois_cloture), a_proj, float(taux_saar)
             )
 
-# FIX 2026-04 : filtrage APRÈS la génération des prévisions pour que
-# `d` et `d_tendance` contiennent bien les projections 2026/2027.
+# FIX #5 : filtrage APRÈS génération des prévisions
 d = df_brut.copy()
 for col, _ in FILTRES:
     if selections_filtres[col]:

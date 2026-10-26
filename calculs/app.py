@@ -33,8 +33,20 @@ def normaliser_nom(nom: str) -> str:
     return re.sub(r"[^a-z0-9_]+", "_", texte.strip().lower()).strip("_")
 
 def normaliser_mois(valeur) -> int:
-    mois_map = {"janvier": 1, "janv": 1, "fevrier": 2, "fevr": 2, "mars": 3, "avril": 4, "avr": 4, "mai": 5, "juin": 6, "juillet": 7, "juil": 7, "aout": 8, "septembre": 9, "sept": 9, "octobre": 10, "oct": 10, "novembre": 11, "nov": 11, "decembre": 12, "dec": 12}
-    if isinstance(valeur, (int, float)): return int(valeur)
+    # FIX : Intercepter les valeurs vides (NaN) avant toute conversion
+    if pd.isna(valeur):
+        return 1
+        
+    if isinstance(valeur, (int, float)):
+        return int(valeur)
+        
+    mois_map = {
+        "janvier": 1, "janv": 1, "jan": 1, "fevrier": 2, "fevr": 2, "fev": 2, 
+        "mars": 3, "mar": 3, "avril": 4, "avr": 4, "mai": 5, "juin": 6, "jun": 6, 
+        "juillet": 7, "juil": 7, "jul": 7, "aout": 8, "aug": 8, "septembre": 9, 
+        "sept": 9, "sep": 9, "octobre": 10, "oct": 10, "novembre": 11, "nov": 11, 
+        "decembre": 12, "dec": 12
+    }
     texte = unicodedata.normalize("NFD", str(valeur)).encode("ascii", "ignore").decode("utf-8").lower().strip()
     return mois_map.get(texte, 1)
 

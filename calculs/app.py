@@ -5,8 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Étapes 1 à 4 : S&OP", layout="wide")
-st.title("Étapes 1 à 4 : S&OP (Format Excel)")
+st.set_page_config(page_title="Étapes 1 à 5 : S&OP", layout="wide")
+st.title("Étapes 1 à 5 : S&OP (Moteur SARR & Prévisions)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -32,12 +32,20 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
-    df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (hl)": "contenance_hl"})
     
-    for col in ["article_original", "positionnement", "occasion", "contenance_hl"]:
+    # FIX : On récupère aussi la Contenance (Cl) pour convertir les HL en Unités
+    df_ref = df_ref.rename(columns={
+        "Article": "article_original", 
+        "Positionnement": "positionnement", 
+        "Occasion": "occasion", 
+        "Contenance (hl)": "contenance_hl",
+        "Contenance (Cl)": "contenance_cl"
+    })
+    
+    for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
         if col not in df_ref.columns: df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
         
-    df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl"]].copy()
+    df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
@@ -77,6 +85,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
     
+    # FIX : Conversion des HL en Unités pour coller à votre Excel
+    df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
+    df_enrichi["volume_unites"] = df_enrichi["hl"] * (10000 / df_enrichi["contenance_cl"].replace(0, 100.0))
+    
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
         df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
@@ -90,7 +102,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
     
-    return df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
+    return df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "volume_unites", "article", "positionnement", "occasion"]]
 
 # ==============================================================================
 # ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
@@ -103,9 +115,14 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     if df_realise.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    agences_uniques = df_realise['agence'].unique()
-    articles_uniques = df_realise['article'].unique()
-    annees_uniques = df_realise['annee'].unique()
+    # FIX : On calcule les coefficients UNIQUEMENT sur les années complètes (on exclut l'année de clôture)
+    df_hist_coef = df_realise[df_realise['annee'] < annee_cloture].copy()
+    if df_hist_coef.empty:
+        df_hist_coef = df_realise.copy()
+
+    agences_uniques = df_hist_coef['agence'].unique()
+    articles_uniques = df_hist_coef['article'].unique()
+    annees_uniques = df_hist_coef['annee'].unique()
     mois_uniques = range(1, 13)
 
     grille_complete = pd.MultiIndex.from_product(
@@ -113,16 +130,16 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         names=['agence', 'article', 'annee', 'mois']
     ).to_frame(index=False)
 
-    df_realise_complet = grille_complete.merge(df_realise, on=['agence', 'article', 'annee', 'mois'], how='left')
-    df_realise_complet['hl'] = df_realise_complet['hl'].fillna(0.0)
+    df_hist_complet = grille_complete.merge(df_hist_coef, on=['agence', 'article', 'annee', 'mois'], how='left')
+    df_hist_complet['volume_unites'] = df_hist_complet['volume_unites'].fillna(0.0)
 
-    nb_annees = df_realise_complet.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
+    nb_annees = df_hist_complet.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
 
-    vol_mois = df_realise_complet.groupby(['agence', 'article', 'mois'])['hl'].sum().reset_index()
+    vol_mois = df_hist_complet.groupby(['agence', 'article', 'mois'])['volume_unites'].sum().reset_index()
     moy_mois = vol_mois.merge(nb_annees, on=['agence', 'article'])
-    moy_mois['Moy_Mois'] = moy_mois['hl'] / moy_mois['nb_annees']
+    moy_mois['Moy_Mois'] = moy_mois['volume_unites'] / moy_mois['nb_annees']
 
-    vol_total = df_realise_complet.groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'vol_total'})
+    vol_total = df_hist_complet.groupby(['agence', 'article'])['volume_unites'].sum().reset_index().rename(columns={'volume_unites': 'vol_total'})
     moy_ann = vol_total.merge(nb_annees, on=['agence', 'article'])
     moy_ann['Moy_Ann'] = moy_ann['vol_total'] / (moy_ann['nb_annees'] * 12)
 
@@ -132,9 +149,12 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
 
     table_indices = indices[['agence', 'article', 'mois', 'Indice']]
 
+    # On applique les indices sur toutes les données (réalisé + prévision)
     df_sarr = df_perimetre.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
-    df_sarr['SARR'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
+    
+    # Le SARR est calculé en Unités
+    df_sarr['SARR'] = df_sarr['volume_unites'] / df_sarr['Indice'].replace(0, 1.0)
 
     return table_indices, df_sarr
 
@@ -145,7 +165,6 @@ def creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture):
     agence = row['agence']
     article = row['article']
     
-    # 1. Infos de base
     res = {
         "Agences": agence,
         "Segment": row['segment'],
@@ -153,7 +172,7 @@ def creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture):
         "Articles": article
     }
 
-    # 2. Boucle sur les 12 derniers mois (M à M-11)
+    # Boucle sur les 12 derniers mois (M à M-11)
     sarr_precedent = None
     for i in range(12):
         m = mois_cloture - i
@@ -164,18 +183,14 @@ def creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture):
         
         date_str = f"{MOIS_ABB[m-1]}-{str(y)[-2:]}"
         
-        # Récupération Volume
         vol_data = df_sarr[(df_sarr['annee'] == y) & (df_sarr['mois'] == m) & (df_sarr['agence'] == agence) & (df_sarr['article'] == article)]
-        vol = vol_data['hl'].sum() if not vol_data.empty else 0.0
+        vol = vol_data['volume_unites'].sum() if not vol_data.empty else 0.0
         
-        # Récupération Coef
         coef_data = table_indices[(table_indices['mois'] == m) & (table_indices['agence'] == agence) & (table_indices['article'] == article)]
         coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
         
-        # Calcul SARR
         sarr = vol / coef if coef > 0 else vol
         
-        # Calcul Variance (SARR_M - SARR_M-1)
         variance = (sarr - sarr_precedent) if sarr_precedent is not None else 0.0
         sarr_precedent = sarr
 
@@ -186,7 +201,6 @@ def creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture):
         res[f"SARR M-{i}"] = sarr
         res[f"Var M-{i}"] = variance
 
-    # 3. Coefficients fixes Janvier à Décembre
     for m in range(1, 13):
         coef_data = table_indices[(table_indices['mois'] == m) & (table_indices['agence'] == agence) & (table_indices['article'] == article)]
         coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
@@ -235,58 +249,41 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
     st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ Étape 3 & 4 : Cutoff & SARR")
+    st.sidebar.header("⚙️ Étape 3, 4 & 5 : Cutoff & SARR")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    # Calculs
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
 
-    # Affichage
-    st.success("✅ Étapes 1 à 4 complétées !")
+    st.success("✅ Étapes 1 à 4 complétées ! (Volumes convertis en Unités)")
     
-    tab_etape2, tab_etape3, tab_etape4, tab_excel = st.tabs([
-        "📊 Étape 2 (Data_Périmètre)", 
-        "📈 Étape 3 (Table_Réalisé)", 
-        "🧮 Étape 4 (Indices & SARR)",
-        "📑 Vue Excel (Glissante)"
+    tab_etape4, tab_excel = st.tabs([
+        "🧮 Étape 4 (Indices & SARR en Unités)",
+        "📑 Vue Excel (Glissante en Unités)"
     ])
-    
-    with tab_etape2:
-        st.dataframe(df_perimetre.head(100), use_container_width=True)
-        
-    with tab_etape3:
-        df_cumul = df_perimetre.groupby(["annee", "mois", "agence", "article"])["hl"].sum().reset_index()
-        st.dataframe(
-            df_cumul.head(100),
-            column_config={"hl": st.column_config.NumberColumn("Volume Réalisé (HL)", format="%.0f")},
-            use_container_width=True
-        )
 
     with tab_etape4:
-        st.markdown("#### Table standard du SARR")
+        st.markdown("#### Table standard du SARR (en Unités)")
         st.dataframe(
-            df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR"]].head(100),
+            df_sarr[["annee", "mois", "agence", "article", "volume_unites", "Indice", "SARR"]].head(100),
             column_config={
-                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.0f"),
+                "volume_unites": st.column_config.NumberColumn("Volume (Unités)", format="%.0f"),
                 "Indice": st.column_config.NumberColumn("Indice", format="%.2f"),
-                "SARR": st.column_config.NumberColumn("SARR (HL)", format="%.0f")
+                "SARR": st.column_config.NumberColumn("SARR (Unités)", format="%.0f")
             },
             use_container_width=True
         )
 
     with tab_excel:
-        st.markdown("#### Reproduction exacte de votre tableau Excel")
+        st.markdown("#### Reproduction exacte de votre tableau Excel (en Unités)")
         
         if df_perimetre.empty:
             st.warning("Veuillez sélectionner au moins un article pour voir le tableau.")
         else:
-            # FIX : On garde bien 'segment' dans les lignes uniques
             articles_uniques = df_perimetre[['agence', 'segment', 'article']].drop_duplicates()
             lignes = [creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture) for _, row in articles_uniques.iterrows()]
             df_excel = pd.DataFrame(lignes)
             
-            # Formatage visuel
             format_dict = {}
             for col in df_excel.columns:
                 if "Vol" in col or "SARR" in col or "Var" in col:
@@ -294,5 +291,4 @@ if fichier_ventes is not None and fichier_ref is not None:
                 elif "Coef" in col:
                     format_dict[col] = "{:.1f}"
                     
-            # Affichage
             st.dataframe(df_excel.style.format(format_dict), use_container_width=True)

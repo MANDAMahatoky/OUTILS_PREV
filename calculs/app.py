@@ -281,8 +281,8 @@ if fichier_ventes is not None and fichier_ref is not None:
         if df_perimetre.empty:
             st.warning("Veuillez sélectionner au moins un article pour voir le tableau.")
         else:
-            # On génère le tableau pour les articles filtrés
-            articles_uniques = df_perimetre[['agence', 'article']].drop_duplicates()
+            # FIX : On garde bien 'segment' dans les lignes uniques
+            articles_uniques = df_perimetre[['agence', 'segment', 'article']].drop_duplicates()
             lignes = [creer_ligne_excel(row, df_sarr, table_indices, annee_cloture, mois_cloture) for _, row in articles_uniques.iterrows()]
             df_excel = pd.DataFrame(lignes)
             
@@ -294,5 +294,5 @@ if fichier_ventes is not None and fichier_ref is not None:
                 elif "Coef" in col:
                     format_dict[col] = "{:.1f}"
                     
-            # Affichage (transposé ou non, ici on garde l'horizontal)
+            # Affichage
             st.dataframe(df_excel.style.format(format_dict), use_container_width=True)

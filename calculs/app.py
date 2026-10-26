@@ -5,8 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Étape 3 : Réalisé", layout="wide")
-st.title("Étape 3 : Séparation du Réalisé et Calcul du Cumul")
+st.set_page_config(page_title="Étapes 2 & 3 : Périmètre & Réalisé", layout="wide")
+st.title("Étapes 2 & 3 : Data_Périmètre et Réalisé Cumulé")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -34,7 +34,7 @@ def creer_cle_article(nom_article) -> str:
     return re.sub(r'[^a-z0-9]', '', texte.lower())
 
 # ==============================================================================
-# LECTURE DES FICHIERS
+# LECTURE DES FICHIERS (Étape 1)
 # ==============================================================================
 def lire_referentiel(contenu_excel: bytes) -> pd.DataFrame:
     flux = io.BytesIO(contenu_excel)
@@ -80,11 +80,14 @@ with col2:
     fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"], key="ref")
 
 if fichier_ventes is not None and fichier_ref is not None:
-    with st.spinner("Chargement des données..."):
+    
+    # --------------------------------------------------------------------------
+    # ÉTAPE 1 : CHARGEMENT (DataFrame Enrichi)
+    # --------------------------------------------------------------------------
+    with st.spinner("Étape 1 : Chargement..."):
         df_ventes = lire_ventes(fichier_ventes.getvalue())
         df_ref = lire_referentiel(fichier_ref.getvalue())
         
-        # Fusion (Étape 1)
         df_enrichi = df_ref.merge(df_ventes, on="cle_article", how="left")
         df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
         df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
@@ -94,57 +97,72 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         df_enrichi = df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
 
-    # --- Paramètres de Cutoff (Étape 2 & 3) ---
-    st.sidebar.header("⚙️ Paramètres S&OP")
+    # --------------------------------------------------------------------------
+    # ÉTAPE 2 : PÉRIMÈTRE (Filtrage)
+    # --------------------------------------------------------------------------
+    st.sidebar.header("🔍 Étape 2 : Filtres de Périmètre")
+    
+    agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
+    articles_dispo = sorted(df_enrichi["article"].unique())
+    pos_dispo = sorted(df_enrichi["positionnement"].unique())
+    occ_dispo = sorted(df_enrichi["occasion"].unique())
+
+    sel_agences = st.sidebar.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
+    sel_articles = st.sidebar.multiselect("Article", options=articles_dispo, placeholder="Tous")
+    sel_pos = st.sidebar.multiselect("Positionnement", options=pos_dispo, placeholder="Tous")
+    sel_occ = st.sidebar.multiselect("Occasion", options=occ_dispo, placeholder="Toutes")
+
+    # Création du Data_Périmètre
+    df_perimetre = df_enrichi.copy()
+    if sel_agences:
+        df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
+    if sel_articles:
+        df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
+    if sel_pos:
+        df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_pos)]
+    if sel_occ:
+        df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occ)]
+
+    # --------------------------------------------------------------------------
+    # ÉTAPE 3 : RÉALISÉ CUMULÉ
+    # --------------------------------------------------------------------------
+    st.sidebar.markdown("---")
+    st.sidebar.header("⚙️ Étape 3 : Cutoff S&OP")
+    
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    st.sidebar.markdown("---")
-    st.sidebar.header("🔍 Filtre de Périmètre")
-    agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
-    sel_agence = st.sidebar.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
-
-    # --- Séparation Réalisé / Prévision ---
-    condition_realise = (df_enrichi["annee"] < annee_cloture) | ((df_enrichi["annee"] == annee_cloture) & (df_enrichi["mois"] <= mois_cloture))
+    # Séparation Réalisé / Prévision basée sur le Data_Périmètre
+    condition_realise = (df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cloture))
     
-    df_realise = df_enrichi[condition_realise].copy()
-    df_prevision = df_enrichi[~condition_realise].copy()
+    df_realise = df_perimetre[condition_realise].copy()
+    df_prevision = df_perimetre[~condition_realise].copy()
 
-    if sel_agence:
-        df_realise = df_realise[df_realise["agence"].isin(sel_agence)]
-        df_prevision = df_prevision[df_prevision["agence"].isin(sel_agence)]
-
-    # --- Calcul du Réalisé Cumulé (Table_Réalisé) ---
+    # Table_Réalisé (Somme par mois)
     df_cumul_realise = df_realise.groupby(["annee", "mois", "agence", "article"])["hl"].sum().reset_index()
-    
-    # ==============================================================================
-    # AFFICHAGE DES RÉSULTATS
-    # ==============================================================================
-    st.success(f"✅ Données séparées avec succès pour un Cutoff au {mois_cloture}/{annee_cloture}.")
-    
-    st.subheader("Résumé de l'Étape 3")
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Volume Réalisé Total", f"{df_realise['hl'].sum():,.0f} HL")
-    kpi2.metric(f"Volume Réalisé YTD ({annee_cloture})", f"{df_realise[df_realise['annee'] == annee_cloture]['hl'].sum():,.0f} HL")
-    kpi3.metric("Volume Futur (Prévisions)", f"{df_prevision['hl'].sum():,.0f} HL")
 
-    tab1, tab2 = st.tabs(["📊 Table_Réalisé (Cumulé)", "🔮 Données Futures (à projeter)"])
+    # --------------------------------------------------------------------------
+    # AFFICHAGE
+    # --------------------------------------------------------------------------
+    st.success("✅ Étapes 2 et 3 complétées !")
     
-    with tab1:
-        st.write("Voici la table aggrégée du réalisé. **L'affichage est arrondi à 0 décimale, exactement comme dans Excel.**")
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Data Enrichi (Étape 1)", f"{len(df_enrichi):,.0f} lignes".replace(",", " "))
+    col_b.metric("Data Périmètre (Étape 2)", f"{len(df_perimetre):,.0f} lignes".replace(",", " "))
+    col_c.metric("Volume Réalisé (Étape 3)", f"{df_realise['hl'].sum():,.0f} HL".replace(",", " "))
+
+    tab_etape2, tab_etape3 = st.tabs(["📊 Résultat Étape 2 (Data_Périmètre)", "📈 Résultat Étape 3 (Table_Réalisé)"])
+    
+    with tab_etape2:
+        st.write("Voici les données après application de vos filtres (Étape 2).")
+        st.dataframe(df_perimetre.head(100), use_container_width=True)
         
-        # FIX : Utilisation de st.column_config qui est beaucoup plus stable
+    with tab_etape3:
+        st.write(f"Voici le cumul du réalisé jusqu'à {mois_cloture}/{annee_cloture} (Étape 3).")
         st.dataframe(
-            df_cumul_realise,
+            df_cumul_realise.head(100),
             column_config={
-                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.0f")
-            }
-        )
-        
-    with tab2:
-        st.dataframe(
-            df_prevision,
-            column_config={
-                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.0f")
-            }
+                "hl": st.column_config.NumberColumn("Volume Réalisé (HL)", format="%.0f")
+            },
+            use_container_width=True
         )

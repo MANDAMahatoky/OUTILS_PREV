@@ -165,7 +165,7 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
 # ÉTAPE 6 : CALCUL DU GAP
 # ==============================================================================
 def calculer_gap(df_sarr, df_previsions, annee_cloture, objectif_global):
-    cond_realise = (df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= 9) # On suppose Septembre comme cutoff
+    cond_realise = (df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= 9)
     realise_hl = df_sarr[cond_realise]["hl"].sum()
     cond_prevision = (df_previsions["Annee"] == annee_cloture)
     prevision_hl = df_previsions[cond_prevision]["Prevision_HL"].sum()
@@ -197,7 +197,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
-    # Input pour l'objectif
     objectif_annuel_hl = st.sidebar.number_input("Objectif Annuel (HL)", min_value=0.0, value=10000000.0, step=100000.0)
 
     # Calculs
@@ -210,38 +209,31 @@ if fichier_ventes is not None and fichier_ref is not None:
     # --- Affichage Dashboard (Étape 7) ---
     st.success("✅ Tableau de bord généré avec succès.")
     
-    # KPI
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("Réalisé YTD", f"{realise_hl:,.0f} HL")
     kpi2.metric("Prévisions (M+1 à Déc)", f"{prevision_hl:,.0f} HL")
     kpi3.metric("Total Projeté Fin d'Année", f"{total_projete:,.0f} HL")
     
-    # Alerte GAP
     if gap > 0:
         kpi4.metric("GAP vs Objectif", f"{gap:,.0f} HL", delta="- Manque", delta_color="inverse")
     else:
         kpi4.metric("GAP vs Objectif", f"{gap:,.0f} HL", delta="+ Dépassement", delta_color="normal")
 
-    # Onglets
     tab_tcd, tab_graph, tab_gap, tab_export = st.tabs(["🎯 Tableau Croisé (TCD)", "📈 Graphique", "🚨 Détail du GAP", "📥 Export"])
 
     with tab_tcd:
         st.subheader("Tableau Croisé des Prévisions (Format Excel)")
-        
-        # On génère le TCD pour l'année de clôture
         df_tcd = df_previsions[df_previsions["Annee"] == annee_cloture]
         
         if not df_tcd.empty:
             pivot = pd.pivot_table(df_tcd, values="Prevision_HL", index="Article", columns="Agence", aggfunc="sum", margins=True, margins_name="Total").fillna(0)
-            # FIX : Remplacement de background_gradient par un formatage simple pour éviter l'ImportError
-            st.dataframe(pivot.style.format("{:,.0f}"), use_container_width=True)
+            # FIX pour le TCD : on utilise NumberColumn pour le pivot via reset_index ou style.format simple
+            st.dataframe(pivot, use_container_width=True) # On laisse Streamlit gérer l'affichage par défaut
         else:
             st.info("Aucune prévision disponible.")
 
     with tab_graph:
         st.subheader("Évolution : Réalisé vs Prévisions")
-        
-        # On prépare les données pour le graphique
         df_reel = df_sarr.groupby(["annee", "mois"])["hl"].sum().reset_index()
         df_reel["Type"] = "Réalisé"
         df_reel["Date"] = df_reel["annee"].astype(str) + "-" + df_reel["mois"].astype(str).str.zfill(2)
@@ -261,26 +253,33 @@ if fichier_ventes is not None and fichier_ref is not None:
             color=alt.Color("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=["#9E6315EF", "#9BD69E"])),
             tooltip=["Date", "Type", alt.Tooltip("Volume:Q", format=",.0f")]
         ).properties(height=400)
-        
         st.altair_chart(chart, use_container_width=True)
 
     with tab_gap:
         st.subheader("Analyse du GAP par Article")
-        
-        # Calcul du GAP par article
         real_art = df_sarr[df_sarr["annee"] == annee_cloture].groupby("article")["hl"].sum().rename("Réalisé")
         prev_art = df_previsions[df_previsions["Annee"] == annee_cloture].groupby("Article")["Prevision_HL"].sum().rename("Prévisions")
         
         df_gap = pd.concat([real_art, prev_art], axis=1).fillna(0)
         df_gap["Total Projeté"] = df_gap["Réalisé"] + df_gap["Prévisions"]
         
-        # Répartition de l'objectif au prorata du projeté
         poids = df_gap["Total Projeté"] / df_gap["Total Projeté"].sum()
         df_gap["Objectif (Estimé)"] = poids * objectif_annuel_hl
         df_gap["GAP"] = df_gap["Objectif (Estimé)"] - df_gap["Total Projeté"]
         df_gap["Alerte"] = np.where(df_gap["GAP"] < 0, "🔴 Sous l'objectif", "🟢 Sur l'objectif")
         
-        st.dataframe(df_gap.sort_values("GAP", ascending=True).style.format("{:,.0f}"), use_container_width=True)
+        # FIX : Utilisation de st.column_config au lieu de style.format pour ignorer la colonne texte
+        st.dataframe(
+            df_gap.sort_values("GAP", ascending=True),
+            column_config={
+                "Réalisé": st.column_config.NumberColumn(format="%.0f"),
+                "Prévisions": st.column_config.NumberColumn(format="%.0f"),
+                "Total Projeté": st.column_config.NumberColumn(format="%.0f"),
+                "Objectif (Estimé)": st.column_config.NumberColumn(format="%.0f"),
+                "GAP": st.column_config.NumberColumn(format="%.0f"),
+            },
+            use_container_width=True
+        )
 
     with tab_export:
         st.subheader("Exporter les données")

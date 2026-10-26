@@ -209,12 +209,22 @@ def assurer_dimensions_filtres(df: pd.DataFrame, catalogue: dict, types: dict) -
     for col in ["positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl", "region", "type_format"]:
         if col not in df.columns:
             df[col] = "Non renseigné"
+
+        # 🔧 FIX : cast en object AVANT toute affectation de chaîne.
+        # Sans cela, une colonne numérique (float64, ex. contenance_ci = 0.0 par défaut)
+        # provoque un LossySetitemError / TypeError quand on lui affecte "Non renseigné".
+        if df[col].dtype != object:
+            df[col] = df[col].astype(object)
+
         if catalogue:
             champ = "type_format_lib" if col == "type_format" else col
             articles = df["article"].astype(str).str.lower().str.strip()
             correspondances = {a: m.get(champ, "Non renseigné") for a, m in catalogue.items()}
-            masque_vide = df[col].astype(str).str.strip().isin(["", "Non renseigné", "nan", "None"])
-            df.loc[masque_vide, col] = articles[masque_vide].map(correspondances).fillna("Non renseigné")
+            masque_vide = df[col].astype(str).str.strip().isin(["", "Non renseigné", "nan", "None", "0.0", "0"])
+            df.loc[masque_vide, col] = (
+                articles[masque_vide].map(correspondances).fillna("Non renseigné")
+            )
+
         df[col] = df[col].astype(str).str.strip()
     return df
 
@@ -264,15 +274,7 @@ def _detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3 and mois1.notna().sum() > len(df) * 0.3
 
 def _resoudre_article(produit: str, segment: str) -> str:
-    """Résout un nom d'article (potentiellement suffixé du segment) vers le nom canonique du catalogue.
-
-    Le format pivot produit `article = f"{produit} {segment}"`, alors que le catalogue
-    stocke uniquement le nom canonique (`"Caprice Ananas 100 cl VER"`). On tente donc :
-      1. la clé exacte `produit`,
-      2. la clé `produit + segment`,
-      3. la clé `produit` avec le segment retiré du suffixe,
-    avant de retomber sur la valeur d'origine.
-    """
+    """Résout un nom d'article (potentiellement suffixé du segment) vers le nom canonique du catalogue."""
     produit_clean = str(produit).strip()
     if not produit_clean:
         return produit_clean
@@ -311,7 +313,6 @@ def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list
         df["periode"] = df["annee"].astype(str) + "-" + df["mois"].astype(str).str.zfill(2)
         df["colis"] = 0.0
         df["origine"] = "Donnée source"
-        # 🔧 Correctif #2 : résolution canonique de l'article
         df["article"] = df.apply(lambda r: _resoudre_article(r["produit"], r["segment"]), axis=1)
         return df.reset_index(drop=True)
     return df_raw
@@ -323,7 +324,6 @@ def lire_et_normaliser(
     annee_cloture: int,
     mois_cloture: int,
 ) -> pd.DataFrame:
-    # 🔧 Correctif vigilance #1 : garde-fou si aucun flux n'est fourni
     if contenu is None and chemin is None:
         raise ValueError("lire_et_normaliser : aucun contenu ni chemin fourni.")
 
@@ -357,7 +357,6 @@ def lire_et_normaliser(
         "hl": "hl", "volume": "hl", "colis": "colis",
     }
     df = df.rename(columns={c: col_map[normaliser_nom(c)] for c in df.columns if normaliser_nom(c) in col_map})
-    # 🔧 Correctif #1 : déduplication des colonnes après renommage
     df = df.loc[:, ~df.columns.duplicated()].copy()
 
     defaut = {
@@ -443,7 +442,6 @@ def calculer_indices_saisonnalite(
         "Indice saisonnier": indices.to_numpy(),
     })
 
-# 🔧 Correctif #4 : pas de cache sur cette fonction (appelée en boucle avec un df changeant)
 def appliquer_projection_saar(
     df: pd.DataFrame,
     annee_cloture: int,
@@ -487,7 +485,6 @@ def appliquer_projection_saar(
     real_n_1 = df[(df["annee"] == annee_cible - 1) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
     real_n_2 = df[(df["annee"] == annee_cible - 2) & (df["nature"] == "Réalisé")].groupby(cles)["hl"].sum()
     croissance_observee = (real_n_1 / real_n_2.replace(0, np.nan)).fillna(1.0)
-    # 🔧 Correctif #5 : respecter strictement la valeur saisie (plus de plancher caché à 1 %)
     taux_min = 1.0 + max(taux_croissance_force, 0.0) / 100.0
     taux_croissance_couple = np.maximum(croissance_observee, taux_min)
     taux_croissance_couple = np.minimum(taux_croissance_couple, 1.5)
@@ -668,7 +665,6 @@ st.markdown('<div class="titre">Moteur S&OP : Prévision SAAR & Rolling Forecast
 
 st.sidebar.header("📁 Source & Import")
 if st.sidebar.button("Réinitialiser les imports"):
-    # 🔧 Correctif vigilance #4 : ne supprime que les clés métier, préserve la config
     for cle in list(st.session_state.keys()):
         if cle.startswith("f_") or cle in ("df_courant", "empreinte_import", "sais_deb", "sais_fin"):
             del st.session_state[cle]
@@ -736,7 +732,6 @@ for col, label in FILTRES:
     options = options_filtre_cascade(df_brut, col, FILTRES, selections_filtres)
     options = [o for o in options if pd.notna(o) and str(o).strip().lower() not in ("", "nan", "none")]
     if col == "agence":
-        # 🔧 Correctif #6 : union référentiel + données présentes
         options = sorted({*AGENCES_REFERENCE, *[str(o) for o in options]})
     else:
         options = trier(options, col)

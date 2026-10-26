@@ -91,7 +91,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
         df_enrichi["article"] = df_enrichi["article_original_x"]
         
-        # On garde les colonnes utiles
         df_enrichi = df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
 
     # --- Paramètres de Cutoff ---
@@ -124,7 +123,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     st.subheader("Résumé de l'Étape 3")
     kpi1, kpi2, kpi3 = st.columns(3)
-    # On arrondit à l'entier dans les KPI pour faire comme Excel
     kpi1.metric("Volume Réalisé Total", f"{df_realise['hl'].sum():,.0f} HL")
     kpi2.metric(f"Volume Réalisé YTD ({annee_cloture})", f"{df_realise[df_realise['annee'] == annee_cloture]['hl'].sum():,.0f} HL")
     kpi3.metric("Volume Futur (Prévisions)", f"{df_prevision['hl'].sum():,.0f} HL")
@@ -134,11 +132,12 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab1:
         st.write("Voici la table aggrégée du réalisé. **L'affichage est arrondi à 0 décimale, exactement comme dans Excel.**")
         
-        # FIX : On force l'affichage à 0 décimale avec la fonction de formatage de Streamlit
+        # FIX : use_container_width=True
         st.dataframe(
             df_cumul_realise.style.format({"hl": "{:,.0f}"}), 
-            width="stretch"
+            use_container_width=True
         )
         
     with tab2:
-        st.dataframe(df_prevision.style.format({"hl": "{:,.0f}"}), width="stretch")
+        # FIX : use_container_width=True
+        st.dataframe(df_prevision.style.format({"hl": "{:,.0f}"}), use_container_width=True)

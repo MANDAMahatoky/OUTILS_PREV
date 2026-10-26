@@ -5,11 +5,11 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Étapes 1, 2 & 3 : S&OP", layout="wide")
-st.title("Étapes 1, 2 & 3 : Données, Périmètre et Réalisé (Optimisé)")
+st.set_page_config(page_title="Étapes 1 à 4 : S&OP", layout="wide")
+st.title("Étapes 1 à 4 : Données, Périmètre, Réalisé & SARR")
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES (Vectorisées pour la vitesse)
+# FONCTIONS UTILITAIRES
 # ==============================================================================
 def normaliser_mois(valeur) -> int:
     if pd.isna(valeur): return 1
@@ -26,7 +26,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 # ==============================================================================
 # ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (MIS EN CACHE)
 # ==============================================================================
-@st.cache_data(show_spinner="Chargement des fichiers et fusion (opération faite 1 seule fois)...")
+@st.cache_data(show_spinner="Chargement des fichiers et fusion...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     # 1. Lecture du Référentiel
     flux_ref = io.BytesIO(ref_bytes)
@@ -38,7 +38,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
         
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
-    # Vectorisation de la clé article
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
@@ -51,10 +50,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
         df = df_raw.rename(columns=rename).copy()
         
         df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
-        df["mois"] = df["mois"].apply(normaliser_mois) # Seule petite boucle tolérée (colonnes de texte)
+        df["mois"] = df["mois"].apply(normaliser_mois)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
         
-        # Filtrage des totaux (Vectorisé)
         masque_total = (
             df["segment"].astype(str).str.contains("total", case=False, na=False) | 
             df["produit"].astype(str).str.contains("total", case=False, na=False) |
@@ -64,13 +62,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
         )
         df = df[~masque_total].copy()
         
-        # Extraction de l'article (Vectorisé)
         df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
         df["agence"] = df["agence"].astype(str).str.strip()
         df["annee"] = df["annee"].fillna(2026).astype(int)
         df["mois"] = df["mois"].fillna(1).astype(int)
-        
-        # Clé article (Vectorisé)
         df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     else:
         return pd.DataFrame()
@@ -85,7 +80,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
     
-    # 5. Attribution du Segment (Vectorisé avec np.select : ultra rapide)
+    # 5. Attribution du Segment
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
         df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
@@ -102,6 +97,46 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
 
 # ==============================================================================
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (MIS EN CACHE)
+# ==============================================================================
+@st.cache_data(show_spinner="Calcul des indices et du SARR...")
+def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
+    # On isole le réalisé (strictement supérieur à 0 pour ne pas fausser les moyennes avec les articles non vendus)
+    condition_realise = (df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cloture))
+    df_realise = df_perimetre[condition_realise & (df_perimetre["hl"] > 0)].copy()
+
+    if df_realise.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # 1. Nombre d'années par (Agence, Article)
+    nb_annees = df_realise.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
+
+    # 2. Moy_Mois = SUM(Vol_Mois) / Nb_Annees
+    vol_mois = df_realise.groupby(['agence', 'article', 'mois'])['hl'].sum().reset_index()
+    moy_mois = vol_mois.merge(nb_annees, on=['agence', 'article'])
+    moy_mois['Moy_Mois'] = moy_mois['hl'] / moy_mois['nb_annees']
+
+    # 3. Moy_Ann = SUM(Vol_Total) / (Nb_Annees * 12)
+    vol_total = df_realise.groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'vol_total'})
+    moy_ann = vol_total.merge(nb_annees, on=['agence', 'article'])
+    moy_ann['Moy_Ann'] = moy_ann['vol_total'] / (moy_ann['nb_annees'] * 12)
+
+    # 4. Calcul de l'Indice
+    indices = moy_mois.merge(moy_ann[['agence', 'article', 'Moy_Ann']], on=['agence', 'article'])
+    indices['Indice'] = indices['Moy_Mois'] / indices['Moy_Ann'].replace(0, np.nan)
+    indices['Indice'] = indices['Indice'].fillna(1.0) # Sécurité si Moy_Ann = 0
+
+    table_indices = indices[['agence', 'article', 'mois', 'Indice']]
+
+    # 5. Calcul du SARR
+    # On rattache l'indice à tout le df_perimetre (pour avoir aussi le SARR sur le réalisé)
+    df_sarr = df_perimetre.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
+    df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
+    df_sarr['SARR'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
+
+    return table_indices, df_sarr
+
+# ==============================================================================
 # INTERFACE STREAMLIT
 # ==============================================================================
 col1, col2 = st.columns(2)
@@ -112,17 +147,13 @@ with col2:
 
 if fichier_ventes is not None and fichier_ref is not None:
     
-    # Lecture via le cache (si les fichiers ne changent pas, c'est instantané)
+    # Étape 1
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --------------------------------------------------------------------------
-    # ÉTAPE 2 : PÉRIMÈTRE (Filtrage en cascade)
-    # --------------------------------------------------------------------------
+    # Étape 2
     st.sidebar.header("🔍 Étape 2 : Périmètre")
-    
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     
-    # Gestion du filtre en cascade
     if 'previous_segments' not in st.session_state:
         st.session_state.previous_segments = []
         
@@ -142,61 +173,64 @@ if fichier_ventes is not None and fichier_ref is not None:
     agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
     sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
     
-    pos_dispo = sorted(df_enrichi["positionnement"].unique())
-    sel_pos = st.sidebar.multiselect("📍 Positionnement", options=pos_dispo, placeholder="Tous")
-    
-    occ_dispo = sorted(df_enrichi["occasion"].unique())
-    sel_occ = st.sidebar.multiselect("🎯 Occasion", options=occ_dispo, placeholder="Toutes")
-
-    # Application finale
     df_perimetre = df_enrichi.copy()
     if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
-    if sel_pos: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_pos)]
-    if sel_occ: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occ)]
 
-    # --------------------------------------------------------------------------
-    # ÉTAPE 3 : RÉALISÉ CUMULÉ
-    # --------------------------------------------------------------------------
+    # Étape 3 & 4
     st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ Étape 3 : Cutoff S&OP")
-    
+    st.sidebar.header("⚙️ Étape 3 & 4 : Cutoff & SARR")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    condition_realise = (df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cloture))
-    df_realise = df_perimetre[condition_realise].copy()
-    df_prevision = df_perimetre[~condition_realise].copy()
+    # Appel du moteur (Étape 4)
+    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
 
-    df_cumul_realise = df_realise.groupby(["annee", "mois", "agence", "article"])["hl"].sum().reset_index()
-
+    condition_realise = (df_sarr["annee"] < annee_cloture) | ((df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture))
+    df_realise = df_sarr[condition_realise].copy()
+    
     # --------------------------------------------------------------------------
     # AFFICHAGE
     # --------------------------------------------------------------------------
-    st.success("✅ Étapes 1, 2 et 3 complétées ! (Filtres ultra-rapides)")
+    st.success("✅ Étapes 1 à 4 complétées !")
     
     col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Data Enrichi (Étape 1)", f"{len(df_enrichi):,.0f} lignes".replace(",", " "))
-    col_b.metric("Data Périmètre (Étape 2)", f"{len(df_perimetre):,.0f} lignes".replace(",", " "))
-    col_c.metric("Volume Réalisé (Étape 3)", f"{df_realise['hl'].sum():,.0f} HL".replace(",", " "))
+    col_a.metric("Data Périmètre", f"{len(df_perimetre):,.0f} lignes".replace(",", " "))
+    col_b.metric("Volume Réalisé", f"{df_realise['hl'].sum():,.0f} HL".replace(",", " "))
+    col_c.metric("Nombre d'indices calculés", f"{len(table_indices):,.0f}")
 
-    tab_etape1, tab_etape2, tab_etape3 = st.tabs(["📋 Étape 1 (Data Enrichi)", "📊 Étape 2 (Data_Périmètre)", "📈 Étape 3 (Table_Réalisé)"])
+    tab_etape2, tab_etape3, tab_etape4 = st.tabs(["📊 Étape 2 (Data_Périmètre)", "📈 Étape 3 (Table_Réalisé)", "🧮 Étape 4 (Indices & SARR)"])
     
-    with tab_etape1:
-        st.write("Voici les 69 articles avec leur Segment :")
-        st.dataframe(df_enrichi[["article", "segment", "positionnement"]].drop_duplicates().head(100), use_container_width=True)
-        
     with tab_etape2:
-        st.write("Voici les données après filtrage. Le filtre est maintenant instantané.")
         st.dataframe(df_perimetre.head(100), use_container_width=True)
         
     with tab_etape3:
-        st.write(f"Voici le cumul du réalisé jusqu'à {mois_cloture}/{annee_cloture} :")
+        st.write(f"Voici le cumul du réalisé jusqu'à {mois_cloture}/{annee_cloture} (Étape 3).")
+        df_cumul = df_realise.groupby(["annee", "mois", "agence", "article"])["hl"].sum().reset_index()
         st.dataframe(
-            df_cumul_realise.head(100),
+            df_cumul.head(100),
+            column_config={"hl": st.column_config.NumberColumn("Volume Réalisé (HL)", format="%.0f")},
+            use_container_width=True
+        )
+
+    with tab_etape4:
+        st.write("Voici les tables calculées (Étape 4).")
+        st.markdown("#### Table des Indices Saisonniers")
+        st.write("L'indice représente le poids du mois par rapport à la moyenne annuelle (1.0 = moyenne).")
+        
+        # Affichage d'un extrait des indices
+        pivot_indices = table_indices.pivot_table(index="article", columns="mois", values="Indice", aggfunc="mean").fillna(1.0)
+        st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
+
+        st.markdown("#### Table SARR")
+        st.write("Le SARR est le volume lissé (désaisonnalisé).")
+        st.dataframe(
+            df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR"]].head(100),
             column_config={
-                "hl": st.column_config.NumberColumn("Volume Réalisé (HL)", format="%.0f")
+                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.0f"),
+                "Indice": st.column_config.NumberColumn("Indice", format="%.2f"),
+                "SARR": st.column_config.NumberColumn("SARR (HL)", format="%.0f")
             },
             use_container_width=True
         )

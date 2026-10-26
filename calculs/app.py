@@ -6,7 +6,7 @@ import io
 import unicodedata
 
 st.set_page_config(page_title="Étape 5 : S&OP", layout="wide")
-st.title("Étape 5 : Prévisions (Calcul 100% Dynamique)")
+st.title("Étape 5 : Prévisions (Projection basée sur l'historique)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -96,51 +96,83 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "volume_unites", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (PROJECTION AVEC INDICES HISTORIQUES)
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices et du SARR...")
+@st.cache_data(show_spinner="Calcul des indices et projection...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
-    condition_realise = (df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cloture))
-    df_realise = df_perimetre[condition_realise].copy()
-
+    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    df_hist_coef = df_realise[df_realise['annee'] < annee_cloture].copy()
-    if df_hist_coef.empty:
-        df_hist_coef = df_realise.copy()
-
-    grille_complete = pd.MultiIndex.from_product(
-        [df_hist_coef['agence'].unique(), df_hist_coef['article'].unique(), df_hist_coef['annee'].unique(), range(1, 13)],
+    # 1. Calcul des indices UNIQUEMENT sur les années complètes (N-1, N-2...)
+    df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
+    if df_hist.empty:
+        df_hist = df_realise.copy()
+        
+    grille_hist = pd.MultiIndex.from_product(
+        [df_hist['agence'].unique(), df_hist['article'].unique(), df_hist['annee'].unique(), range(1, 13)],
         names=['agence', 'article', 'annee', 'mois']
     ).to_frame(index=False)
+    df_hist_grille = grille_hist.merge(df_hist, on=['agence', 'article', 'annee', 'mois'], how='left')
+    df_hist_grille['volume_unites'] = df_hist_grille['volume_unites'].fillna(0.0)
 
-    df_hist_complet = grille_complete.merge(df_hist_coef, on=['agence', 'article', 'annee', 'mois'], how='left')
-    df_hist_complet['volume_unites'] = df_hist_complet['volume_unites'].fillna(0.0)
-
-    nb_annees = df_hist_complet.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
-    vol_mois = df_hist_complet.groupby(['agence', 'article', 'mois'])['volume_unites'].sum().reset_index()
+    nb_annees = df_hist_grille.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
+    vol_mois = df_hist_grille.groupby(['agence', 'article', 'mois'])['volume_unites'].sum().reset_index()
     moy_mois = vol_mois.merge(nb_annees, on=['agence', 'article'])
     moy_mois['Moy_Mois'] = moy_mois['volume_unites'] / moy_mois['nb_annees']
 
-    vol_total = df_hist_complet.groupby(['agence', 'article'])['volume_unites'].sum().reset_index().rename(columns={'volume_unites': 'vol_total'})
+    vol_total = df_hist_grille.groupby(['agence', 'article'])['volume_unites'].sum().reset_index().rename(columns={'volume_unites': 'vol_total'})
     moy_ann = vol_total.merge(nb_annees, on=['agence', 'article'])
     moy_ann['Moy_Ann'] = moy_ann['vol_total'] / (moy_ann['nb_annees'] * 12)
 
     indices = moy_mois.merge(moy_ann[['agence', 'article', 'Moy_Ann']], on=['agence', 'article'])
     indices['Indice'] = indices['Moy_Mois'] / indices['Moy_Ann'].replace(0, np.nan)
     indices['Indice'] = indices['Indice'].fillna(1.0)
-
     table_indices = indices[['agence', 'article', 'mois', 'Indice']]
 
-    df_sarr = df_perimetre.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
+    # 2. Projection des mois manquants de l'année en cours
+    df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
+    df_projete = df_ytd.copy()
+    
+    ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(
+        vol_ytd=('volume_unites', 'sum'),
+        contenance=('contenance_cl', 'first')
+    ).reset_index()
+
+    for _, row in ytd_totaux.iterrows():
+        ag, art = row['agence'], row['article']
+        
+        # Somme des indices des mois écoulés
+        coefs_ecoules = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] <= mois_cloture)]['Indice'].sum()
+        if coefs_ecoules == 0: coefs_ecoules = mois_cloture
+        
+        # Volume annuel projeté (SARR annuel projeté)
+        vol_annuel_proj = (row['vol_ytd'] / coefs_ecoules) * 12
+        
+        # On crée les lignes pour les mois manquants
+        for m in range(mois_cloture + 1, 13):
+            coef_mois = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]['Indice'].values[0]
+            vol_projete = (vol_annuel_proj / 12) * coef_mois
+            
+            df_projete = pd.concat([df_projete, pd.DataFrame([{
+                'annee': annee_cloture, 'mois': m, 'segment': row.get('segment', ''), 'produit': row.get('produit', ''),
+                'agence': ag, 'nature': 'Projeté', 'hl': vol_projete * (row['contenance'] / 10000),
+                'volume_unites': vol_projete, 'article': art, 'positionnement': row.get('positionnement', ''),
+                'occasion': row.get('occasion', ''), 'contenance_cl': row['contenance']
+            }])], ignore_index=True)
+
+    # 3. Fusion des données Réelles et Projetées
+    df_final = pd.concat([df_realise, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
+
+    # 4. Calcul du SARR
+    df_sarr = df_final.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR'] = df_sarr['volume_unites'] / df_sarr['Indice'].replace(0, 1.0)
 
     return table_indices, df_sarr
 
 # ==============================================================================
-# ÉTAPE 5 : CALCUL DU MOMENTUM ET DES PRÉVISIONS (SANS CACHE)
+# ÉTAPE 5 : CALCUL DU MOMENTUM ET DES PRÉVISIONS
 # ==============================================================================
 def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, annee_cloture: int, mois_cloture: int):
     condition_realise = (df_sarr["annee"] < annee_cloture) | ((df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture))
@@ -156,19 +188,16 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
     verification = []
     
     for (agence, article), group in df_derniers.groupby(['agence', 'article']):
-        # Récupération des SARR
         sarr_m = group[group['rang'] == 0]['SARR'].values[0] if len(group[group['rang'] == 0]) > 0 else 0
         sarr_m1 = group[group['rang'] == 1]['SARR'].values[0] if len(group[group['rang'] == 1]) > 0 else 0
         sarr_m2 = group[group['rang'] == 2]['SARR'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
         sarr_m3 = group[group['rang'] == 3]['SARR'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
         
-        # 1. Momentum
         var1 = sarr_m - sarr_m1
         var2 = sarr_m1 - sarr_m2
         var3 = sarr_m2 - sarr_m3
         momentum = np.mean([var1, var2, var3])
         
-        # 2. Base
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
         base = max(sarr_m, moy_3_mois)
         
@@ -196,7 +225,7 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
             indice_data = table_indices[(table_indices['agence'] == agence) & (table_indices['article'] == article) & (table_indices['mois'] == mois_futur)]
             indice = indice_data['Indice'].values[0] if not indice_data.empty else 1.0
             
-            # CALCUL DYNAMIQUE SANS ARRONDI
+            # Formule de calcul
             prev_unites = (indice * base) + momentum
             prev_unites = max(0.0, prev_unites)
             
@@ -211,10 +240,7 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
                 "Indice": indice,
                 "Base": base,
                 "Momentum": momentum,
-                "Prevision_Unites": prev_unites,
-                "Prevision_HL": prev_hl,
-                # Colonne pour expliquer le calcul exact
-                "Formule": f"({indice:.4f} * {base:,.0f}) + {momentum:,.0f} = {prev_unites:,.0f} Unités"
+                "Prevision_HL": prev_hl
             })
             
     return pd.DataFrame(previsions), pd.DataFrame(verification)
@@ -264,7 +290,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
     df_previsions, df_verification = calculer_previsions(df_sarr, table_indices, annee_cloture, mois_cloture)
 
-    st.success("✅ Étapes 1 à 5 complétées ! (Calcul Dynamique)")
+    st.success("✅ Étapes 1 à 5 complétées ! Projection basée sur les années complètes.")
     
     tab_verif, tab_etape5 = st.tabs([
         "🔍 Vérification des calculs (Momentum & Base)",
@@ -272,8 +298,8 @@ if fichier_ventes is not None and fichier_ref is not None:
     ])
 
     with tab_verif:
-        st.markdown("#### Détail des calculs (SARR, Base, Momentum)")
-        st.write("Voici les chiffres exacts utilisés par le moteur de calcul. Ils sont extraits de l'historique de vos données.")
+        st.markdown("#### Détail des calculs")
+        st.write("Les coefficients sont fixes (basés sur l'historique). Les mois manquants sont projetés avec ces coefficients.")
         
         if not df_verification.empty:
             st.dataframe(
@@ -292,17 +318,15 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_etape5:
         st.markdown("#### Table des Prévisions (Étape 5)")
-        st.write("Le moteur utilise toute la précision des indices pour calculer les prévisions. La colonne **Formule** vous montre le calcul exact.")
         
         if not df_previsions.empty:
             st.dataframe(
-                df_previsions[["Annee", "Mois", "Date", "Agence", "Article", "Indice", "Base", "Momentum", "Prevision_HL", "Formule"]],
+                df_previsions[["Annee", "Mois", "Date", "Agence", "Article", "Indice", "Base", "Momentum", "Prevision_HL"]],
                 column_config={
                     "Indice": st.column_config.NumberColumn("Indice", format="%.4f"),
                     "Base": st.column_config.NumberColumn("Base (SARR)", format="%.0f"),
                     "Momentum": st.column_config.NumberColumn("Momentum", format="%.0f"),
-                    "Prevision_HL": st.column_config.NumberColumn("Prévision (HL)", format="%.2f"),
-                    "Formule": st.column_config.TextColumn("Détail du calcul exact")
+                    "Prevision_HL": st.column_config.NumberColumn("Prévision (HL)", format="%.2f")
                 },
                 use_container_width=True
             )

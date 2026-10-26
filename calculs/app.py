@@ -31,7 +31,6 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
-    # (Le code de l'étape 1 reste identique)
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"})
@@ -90,7 +89,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 
 @st.cache_data(show_spinner="Calcul des indices et projection...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
-    # (Le code des étapes 2, 3 et 4 reste identique)
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
@@ -133,7 +131,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
 def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, annee_cloture: int, mois_cloture: int):
-    # (Le code de l'étape 5 reste identique)
     condition_realise = (df_sarr["annee"] < annee_cloture) | ((df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture))
     df_hist = df_sarr[condition_realise].sort_values(['agence', 'article', 'annee', 'mois'])
     if df_hist.empty: return pd.DataFrame()
@@ -168,20 +165,12 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
 # ÉTAPE 6 : CALCUL DU GAP
 # ==============================================================================
 def calculer_gap(df_sarr, df_previsions, annee_cloture, objectif_global):
-    # 1. Réalisé YTD
     cond_realise = (df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= 9) # On suppose Septembre comme cutoff
     realise_hl = df_sarr[cond_realise]["hl"].sum()
-    
-    # 2. Prévisions (Oct-Déc de l'année en cours)
     cond_prevision = (df_previsions["Annee"] == annee_cloture)
     prevision_hl = df_previsions[cond_prevision]["Prevision_HL"].sum()
-    
-    # 3. Total Projeté
     total_projete = realise_hl + prevision_hl
-    
-    # 4. GAP
     gap = objectif_global - total_projete
-    
     return realise_hl, prevision_hl, total_projete, gap
 
 # ==============================================================================
@@ -244,7 +233,8 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         if not df_tcd.empty:
             pivot = pd.pivot_table(df_tcd, values="Prevision_HL", index="Article", columns="Agence", aggfunc="sum", margins=True, margins_name="Total").fillna(0)
-            st.dataframe(pivot.style.format("{:,.0f}").background_gradient(cmap="Blues", axis=None), use_container_width=True)
+            # FIX : Remplacement de background_gradient par un formatage simple pour éviter l'ImportError
+            st.dataframe(pivot.style.format("{:,.0f}"), use_container_width=True)
         else:
             st.info("Aucune prévision disponible.")
 

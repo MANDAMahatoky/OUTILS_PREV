@@ -5,8 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Étapes 1 à 5 : S&OP", layout="wide")
-st.title("Moteur de Prévision S&OP : Étape 5 (Cohérence Excel)")
+st.set_page_config(page_title="Étape 5 : S&OP", layout="wide")
+st.title("Étape 5 : Prévisions (Calcul 100% Dynamique)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -140,9 +140,9 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     return table_indices, df_sarr
 
 # ==============================================================================
-# ÉTAPE 5 : CALCUL DU MOMENTUM ET DES PRÉVISIONS
+# ÉTAPE 5 : CALCUL DU MOMENTUM ET DES PRÉVISIONS (SANS CACHE)
 # ==============================================================================
-def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, annee_cloture: int, mois_cloture: int, arrondir_indice: bool):
+def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, annee_cloture: int, mois_cloture: int):
     condition_realise = (df_sarr["annee"] < annee_cloture) | ((df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture))
     df_hist = df_sarr[condition_realise].sort_values(['agence', 'article', 'annee', 'mois'])
     
@@ -156,16 +156,19 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
     verification = []
     
     for (agence, article), group in df_derniers.groupby(['agence', 'article']):
+        # Récupération des SARR
         sarr_m = group[group['rang'] == 0]['SARR'].values[0] if len(group[group['rang'] == 0]) > 0 else 0
         sarr_m1 = group[group['rang'] == 1]['SARR'].values[0] if len(group[group['rang'] == 1]) > 0 else 0
         sarr_m2 = group[group['rang'] == 2]['SARR'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
         sarr_m3 = group[group['rang'] == 3]['SARR'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
         
+        # 1. Momentum
         var1 = sarr_m - sarr_m1
         var2 = sarr_m1 - sarr_m2
         var3 = sarr_m2 - sarr_m3
         momentum = np.mean([var1, var2, var3])
         
+        # 2. Base
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
         base = max(sarr_m, moy_3_mois)
         
@@ -193,10 +196,8 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
             indice_data = table_indices[(table_indices['agence'] == agence) & (table_indices['article'] == article) & (table_indices['mois'] == mois_futur)]
             indice = indice_data['Indice'].values[0] if not indice_data.empty else 1.0
             
-            # FIX : On arrondit l'indice à 1 décimale si demandé
-            indice_calcul = round(indice, 1) if arrondir_indice else indice
-            
-            prev_unites = (indice_calcul * base) + momentum
+            # CALCUL DYNAMIQUE SANS ARRONDI
+            prev_unites = (indice * base) + momentum
             prev_unites = max(0.0, prev_unites)
             
             prev_hl = prev_unites * (contenance / 10000)
@@ -207,11 +208,13 @@ def calculer_previsions(df_sarr: pd.DataFrame, table_indices: pd.DataFrame, anne
                 "Annee": annee_futur,
                 "Mois": mois_futur,
                 "Date": f"{MOIS_ABB[mois_futur-1]}-{str(annee_futur)[-2:]}",
-                "Indice": indice_calcul,
+                "Indice": indice,
                 "Base": base,
                 "Momentum": momentum,
                 "Prevision_Unites": prev_unites,
-                "Prevision_HL": prev_hl
+                "Prevision_HL": prev_hl,
+                # Colonne pour expliquer le calcul exact
+                "Formule": f"({indice:.4f} * {base:,.0f}) + {momentum:,.0f} = {prev_unites:,.0f} Unités"
             })
             
     return pd.DataFrame(previsions), pd.DataFrame(verification)
@@ -257,23 +260,20 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    # FIX : Option pour arrondir comme Excel
-    arrondir_indice = st.sidebar.checkbox("Arrondir les indices (comme Excel)", value=True)
-
     # Calculs
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
-    df_previsions, df_verification = calculer_previsions(df_sarr, table_indices, annee_cloture, mois_cloture, arrondir_indice)
+    df_previsions, df_verification = calculer_previsions(df_sarr, table_indices, annee_cloture, mois_cloture)
 
-    st.success("✅ Étapes 1 à 5 complétées !")
+    st.success("✅ Étapes 1 à 5 complétées ! (Calcul Dynamique)")
     
     tab_verif, tab_etape5 = st.tabs([
         "🔍 Vérification des calculs (Momentum & Base)",
-        "🚀 Tableau des Prévisions (Oct-26 à Sept-27)"
+        "🚀 Tableau des Prévisions"
     ])
 
     with tab_verif:
         st.markdown("#### Détail des calculs (SARR, Base, Momentum)")
-        st.write("Ce tableau vous montre exactement les SARR utilisés. Si les chiffres correspondent à votre Excel, le reste suivra.")
+        st.write("Voici les chiffres exacts utilisés par le moteur de calcul. Ils sont extraits de l'historique de vos données.")
         
         if not df_verification.empty:
             st.dataframe(
@@ -292,16 +292,17 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_etape5:
         st.markdown("#### Table des Prévisions (Étape 5)")
-        st.info("Les indices sont arrondis à 1 décimale pour correspondre au calcul Excel. Exemple : 1.074 devient 1.1.")
+        st.write("Le moteur utilise toute la précision des indices pour calculer les prévisions. La colonne **Formule** vous montre le calcul exact.")
         
         if not df_previsions.empty:
             st.dataframe(
-                df_previsions[["Annee", "Mois", "Date", "Agence", "Article", "Indice", "Base", "Momentum", "Prevision_HL"]],
+                df_previsions[["Annee", "Mois", "Date", "Agence", "Article", "Indice", "Base", "Momentum", "Prevision_HL", "Formule"]],
                 column_config={
-                    "Indice": st.column_config.NumberColumn("Indice", format="%.1f"),
+                    "Indice": st.column_config.NumberColumn("Indice", format="%.4f"),
                     "Base": st.column_config.NumberColumn("Base (SARR)", format="%.0f"),
                     "Momentum": st.column_config.NumberColumn("Momentum", format="%.0f"),
-                    "Prevision_HL": st.column_config.NumberColumn("Prévision (HL)", format="%.2f")
+                    "Prevision_HL": st.column_config.NumberColumn("Prévision (HL)", format="%.2f"),
+                    "Formule": st.column_config.TextColumn("Détail du calcul exact")
                 },
                 use_container_width=True
             )

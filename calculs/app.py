@@ -6,10 +6,10 @@ import io
 import unicodedata
 
 st.set_page_config(page_title="Étapes 1, 2 & 3 : S&OP", layout="wide")
-st.title("Étapes 1, 2 & 3 : Données, Périmètre et Réalisé")
+st.title("Étapes 1, 2 & 3 : Données, Périmètre et Réalisé (Optimisé)")
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES
+# FONCTIONS UTILITAIRES (Vectorisées pour la vitesse)
 # ==============================================================================
 def normaliser_mois(valeur) -> int:
     if pd.isna(valeur): return 1
@@ -18,69 +18,88 @@ def normaliser_mois(valeur) -> int:
     texte = unicodedata.normalize("NFD", str(valeur)).encode("ascii", "ignore").decode("utf-8").lower().strip()
     return mois_map.get(texte, 1)
 
-def extraire_article(nature_str: str) -> str:
-    if pd.isna(nature_str): return ""
-    match = re.match(r"^[^-]+-(.*)$", str(nature_str).strip())
-    return match.group(1).strip() if match else str(nature_str).strip()
-
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-def creer_cle_article(nom_article) -> str:
-    if pd.isna(nom_article): return ""
-    texte = unicodedata.normalize("NFD", str(nom_article)).encode("ascii", "ignore").decode("utf-8")
-    return re.sub(r'[^a-z0-9]', '', texte.lower())
-
-# Application exacte de votre arborescence de segments
-def attribuer_segment(article: str) -> str:
-    art_lower = str(article).lower()
-    if "booster" in art_lower or "alcoomix" in art_lower: return "5-ALCOMIX"
-    elif any(x in art_lower for x in ["caprice", "tonic", "world cola", "d jino", "youzou", "coca", "fanta", "sprite"]): return "2-BG"
-    elif any(x in art_lower for x in ["beaufort", "fresh", "thb", "gold", "queen", "skol", "castel", "libertalia"]): return "1-BIERES"
-    elif any(x in art_lower for x in ["cristal", "cristalline", "eau vive", "eau"]): return "4-EAUX"
-    elif any(x in art_lower for x in ["xxl", "fosa"]): return "3-ENERGY"
-    elif any(x in art_lower for x in ["judor", "jus"]): return "4-JUS"
-    elif any(x in art_lower for x in ["vin"]): return "7-VIN"
-    elif any(x in art_lower for x in ["negoce"]): return "6-NEGOCE"
-    else: return "AUTRE / INCONNU"
-
 # ==============================================================================
-# LECTURE DES FICHIERS
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (MIS EN CACHE)
 # ==============================================================================
-def lire_referentiel(contenu_excel: bytes) -> pd.DataFrame:
-    flux = io.BytesIO(contenu_excel)
-    df_ref = pd.read_excel(flux, sheet_name="Ref actif")
+@st.cache_data(show_spinner="Chargement des fichiers et fusion (opération faite 1 seule fois)...")
+def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
+    # 1. Lecture du Référentiel
+    flux_ref = io.BytesIO(ref_bytes)
+    df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (hl)": "contenance_hl"})
+    
     for col in ["article_original", "positionnement", "occasion", "contenance_hl"]:
         if col not in df_ref.columns: df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
+        
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
-    df_ref["cle_article"] = df_ref["article_original"].apply(creer_cle_article)
-    return df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
+    # Vectorisation de la clé article
+    df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+    df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
-def lire_ventes(contenu_excel: bytes) -> pd.DataFrame:
-    flux = io.BytesIO(contenu_excel)
-    df_raw = pd.read_excel(flux, sheet_name=0, header=None)
-    rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])}
-    df = df_raw.rename(columns=rename).copy()
-    df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
-    df["mois"] = df["mois"].apply(normaliser_mois)
-    df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
+    # 2. Lecture des Ventes
+    flux_ventes = io.BytesIO(ventes_bytes)
+    df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
     
-    masque_total = (
-        df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) |
-        df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) |
-        df["nature"].isna()
-    )
-    df = df[~masque_total].copy()
-    df["article_original"] = df["nature"].apply(extraire_article)
-    df["agence"] = df["agence"].astype(str).str.strip()
-    df["annee"] = df["annee"].fillna(2026).astype(int)
-    df["mois"] = df["mois"].fillna(1).astype(int)
-    df["cle_article"] = df["article_original"].apply(creer_cle_article)
-    return df
+    if detecter_format_pivote(df_raw):
+        rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])}
+        df = df_raw.rename(columns=rename).copy()
+        
+        df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
+        df["mois"] = df["mois"].apply(normaliser_mois) # Seule petite boucle tolérée (colonnes de texte)
+        df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
+        
+        # Filtrage des totaux (Vectorisé)
+        masque_total = (
+            df["segment"].astype(str).str.contains("total", case=False, na=False) | 
+            df["produit"].astype(str).str.contains("total", case=False, na=False) |
+            df["agence"].astype(str).str.contains("total", case=False, na=False) | 
+            df["nature"].astype(str).str.contains("total", case=False, na=False) |
+            df["nature"].isna()
+        )
+        df = df[~masque_total].copy()
+        
+        # Extraction de l'article (Vectorisé)
+        df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
+        df["agence"] = df["agence"].astype(str).str.strip()
+        df["annee"] = df["annee"].fillna(2026).astype(int)
+        df["mois"] = df["mois"].fillna(1).astype(int)
+        
+        # Clé article (Vectorisé)
+        df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+    else:
+        return pd.DataFrame()
+
+    # 3. Fusion
+    df_enrichi = df_ref.merge(df, on="cle_article", how="left")
+    
+    # 4. Remplissage des vides
+    df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
+    df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
+    df_enrichi["hl"] = df_enrichi["hl"].fillna(0.0)
+    df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
+    df_enrichi["article"] = df_enrichi["article_original_x"]
+    
+    # 5. Attribution du Segment (Vectorisé avec np.select : ultra rapide)
+    conditions = [
+        df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
+        df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
+        df_enrichi["article"].str.contains("beaufort|fresh|thb|gold|queen|skol|castel|libertalia", case=False, na=False),
+        df_enrichi["article"].str.contains("cristal|cristalline|eau vive|eau", case=False, na=False),
+        df_enrichi["article"].str.contains("xxl|fosa", case=False, na=False),
+        df_enrichi["article"].str.contains("judor|jus", case=False, na=False),
+        df_enrichi["article"].str.contains("vin", case=False, na=False),
+        df_enrichi["article"].str.contains("negoce", case=False, na=False)
+    ]
+    choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
+    df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
+    
+    return df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -93,53 +112,33 @@ with col2:
 
 if fichier_ventes is not None and fichier_ref is not None:
     
-    # --------------------------------------------------------------------------
-    # ÉTAPE 1 : CHARGEMENT & ENRICHISSEMENT
-    # --------------------------------------------------------------------------
-    with st.spinner("Étape 1 : Chargement..."):
-        df_ventes = lire_ventes(fichier_ventes.getvalue())
-        df_ref = lire_referentiel(fichier_ref.getvalue())
-        
-        df_enrichi = df_ref.merge(df_ventes, on="cle_article", how="left")
-        df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
-        df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
-        df_enrichi["hl"] = df_enrichi["hl"].fillna(0.0)
-        df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
-        df_enrichi["article"] = df_enrichi["article_original_x"]
-        df_enrichi["segment"] = df_enrichi["article"].apply(attribuer_segment)
-        
-        df_enrichi = df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
+    # Lecture via le cache (si les fichiers ne changent pas, c'est instantané)
+    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
     # --------------------------------------------------------------------------
     # ÉTAPE 2 : PÉRIMÈTRE (Filtrage en cascade)
     # --------------------------------------------------------------------------
     st.sidebar.header("🔍 Étape 2 : Périmètre")
     
-    # 1. Sélection du Segment
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     
-    # Initialisation du session_state pour éviter les conflits
+    # Gestion du filtre en cascade
     if 'previous_segments' not in st.session_state:
         st.session_state.previous_segments = []
         
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
     
-    # Si le segment change, on réinitialise la sélection des articles
     if sel_segments != st.session_state.previous_segments:
         st.session_state.sel_articles = []
         st.session_state.previous_segments = sel_segments
 
-    # 2. Filtre Article (dépend du Segment)
     df_temp = df_enrichi.copy()
     if sel_segments:
         df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
     
     articles_dispo = sorted(df_temp["article"].unique())
-    
-    # On utilise 'key' pour que Streamlit gère la mise à jour
     sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous", key="sel_articles")
     
-    # 3. Autres filtres
     agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
     sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
     
@@ -149,18 +148,13 @@ if fichier_ventes is not None and fichier_ref is not None:
     occ_dispo = sorted(df_enrichi["occasion"].unique())
     sel_occ = st.sidebar.multiselect("🎯 Occasion", options=occ_dispo, placeholder="Toutes")
 
-    # --- Application finale (Data_Périmètre) ---
+    # Application finale
     df_perimetre = df_enrichi.copy()
-    if sel_segments:
-        df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
-    if sel_articles:
-        df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
-    if sel_agences:
-        df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
-    if sel_pos:
-        df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_pos)]
-    if sel_occ:
-        df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occ)]
+    if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
+    if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
+    if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
+    if sel_pos: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_pos)]
+    if sel_occ: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occ)]
 
     # --------------------------------------------------------------------------
     # ÉTAPE 3 : RÉALISÉ CUMULÉ
@@ -180,7 +174,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     # --------------------------------------------------------------------------
     # AFFICHAGE
     # --------------------------------------------------------------------------
-    st.success("✅ Étapes 1, 2 et 3 complétées !")
+    st.success("✅ Étapes 1, 2 et 3 complétées ! (Filtres ultra-rapides)")
     
     col_a, col_b, col_c = st.columns(3)
     col_a.metric("Data Enrichi (Étape 1)", f"{len(df_enrichi):,.0f} lignes".replace(",", " "))
@@ -194,7 +188,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.dataframe(df_enrichi[["article", "segment", "positionnement"]].drop_duplicates().head(100), use_container_width=True)
         
     with tab_etape2:
-        st.write("Voici les données après filtrage. **Si vous avez choisi '1-BIERES', il ne doit rester que les bières ici.**")
+        st.write("Voici les données après filtrage. Le filtre est maintenant instantané.")
         st.dataframe(df_perimetre.head(100), use_container_width=True)
         
     with tab_etape3:

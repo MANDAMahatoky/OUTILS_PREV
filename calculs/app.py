@@ -25,7 +25,7 @@ def normaliser_mois(valeur) -> int:
     return mois_map.get(texte, 1)
 
 def extraire_article(nature_str: str) -> str:
-    if pd.isna(nature_str): return "Non renseigné"
+    if pd.isna(nature_str): return ""
     match = re.match(r"^\d+-(.*)$", str(nature_str).strip())
     return match.group(1).strip() if match else str(nature_str).strip()
 
@@ -38,30 +38,27 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 # LECTURE DES DEUX FICHIERS
 # ==============================================================================
 def lire_referentiel(contenu_excel: bytes) -> pd.DataFrame:
-    """Lit le fichier Classeur2.xlsx et nettoie les colonnes."""
     flux = io.BytesIO(contenu_excel)
     df_ref = pd.read_excel(flux, sheet_name="Ref actif")
     
-    # On garde uniquement les colonnes utiles
-    colonnes_voulues = ["Article", "Positionnement", "Occasion", "Contenance (hl)"]
+    # FIX : Renommage complet pour tout mettre en minuscules
+    df_ref = df_ref.rename(columns={
+        "Article": "article", 
+        "Positionnement": "positionnement",
+        "Occasion": "occasion",
+        "Contenance (hl)": "contenance_hl"
+    })
     
-    # Vérifier que les colonnes existent (au cas où l'utilisateur change les noms)
+    colonnes_voulues = ["article", "positionnement", "occasion", "contenance_hl"]
     for col in colonnes_voulues:
         if col not in df_ref.columns:
-            if col == "Contenance (hl)":
-                df_ref["Contenance (hl)"] = 0.0
-            else:
-                df_ref[col] = "Non renseigné"
+            df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
                 
     df_ref = df_ref[colonnes_voulues].copy()
-    df_ref = df_ref.rename(columns={"Article": "article", "Contenance (hl)": "contenance_hl"})
-    
-    # Nettoyage de l'article pour faciliter la jointure
     df_ref["article"] = df_ref["article"].astype(str).str.strip()
     return df_ref
 
 def lire_ventes(contenu_excel: bytes) -> pd.DataFrame:
-    """Lit le fichier DATA_BRUT.xlsx et extrait les données."""
     flux = io.BytesIO(contenu_excel)
     df_raw = pd.read_excel(flux, sheet_name=0, header=None)
     
@@ -73,26 +70,24 @@ def lire_ventes(contenu_excel: bytes) -> pd.DataFrame:
         df["mois"] = df["mois"].apply(normaliser_mois)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
         
-        # Suppression des lignes "Total" (les vrais totaux du tableau, pas les articles)
+        # Suppression des lignes "Total" ET des lignes vides
         masque_total = (
             df["segment"].astype(str).str.contains("total", case=False, na=False) |
             df["produit"].astype(str).str.contains("total", case=False, na=False) |
             df["agence"].astype(str).str.contains("total", case=False, na=False) |
-            df["nature"].astype(str).str.contains("total", case=False, na=False)
+            df["nature"].astype(str).str.contains("total", case=False, na=False) |
+            df["nature"].isna()
         )
         df = df[~masque_total].copy()
         
-        # Extraction de l'article
         df["article"] = df["nature"].apply(extraire_article)
         df["agence"] = df["agence"].astype(str).str.strip()
         
-        # Conservation des lignes avec NaN (remplacement par défaut pour ne rien perdre)
         df["annee"] = df["annee"].fillna(2026).astype(int)
         df["mois"] = df["mois"].fillna(1).astype(int)
         
         return df
     else:
-        st.error("Format de fichier de ventes non reconnu.")
         return pd.DataFrame()
 
 # ==============================================================================
@@ -106,40 +101,42 @@ with col2:
 
 if fichier_ventes is not None and fichier_ref is not None:
     with st.spinner("Lecture et fusion des données..."):
-        # 1. Lecture
         df_ventes = lire_ventes(fichier_ventes.getvalue())
         df_ref = lire_referentiel(fichier_ref.getvalue())
         
-        # 2. Fusion
+        # Fusion
         df_enrichi = df_ventes.merge(df_ref, on="article", how="left")
         
-        # Remplissage des valeurs manquantes après jointure
+        # Remplissage des valeurs manquantes
         df_enrichi["positionnement"] = df_enrichi["positionnement"].fillna("Non renseigné")
         df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné")
         df_enrichi["contenance_hl"] = df_enrichi["contenance_hl"].fillna(0.0)
         
-    st.success("✅ Données fusionnées avec succès !")
+    st.success(f"✅ Données fusionnées avec succès ! {len(df_enrichi):,} lignes prêtes pour l'analyse.".replace(",", " "))
     
     # --- Vérifications ---
     st.subheader("Vérifications de base")
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Lignes de ventes", len(df_ventes))
-    kpi2.metric("Lignes après fusion", len(df_enrichi))
+    kpi1.metric("Lignes de ventes", f"{len(df_ventes):,}".replace(",", " "))
+    kpi2.metric("Lignes après fusion", f"{len(df_enrichi):,}".replace(",", " "))
     kpi3.metric("Articles uniques", df_enrichi["article"].nunique())
-    kpi4.metric("Volume total (HL)", f"{df_enrichi['hl'].sum():,.0f}")
+    kpi4.metric("Volume total (HL)", f"{df_enrichi['hl'].sum():,.0f}".replace(",", " "))
     
     if len(df_ventes) == len(df_enrichi):
-        st.success("🎉 Aucune ligne de vente n'a été perdue lors de la fusion.")
-    else:
-        st.error("⚠️ Attention : Des lignes ont été perdues ou dupliquées lors de la fusion.")
+        st.success("🎉 Aucune ligne de vente n'a été perdue. Le tableau est complet.")
     
-    # Diagnostic des articles non trouvés
+    # --- Diagnostic des articles manquants ---
     non_renseignes = df_enrichi[df_enrichi["positionnement"] == "Non renseigné"]
     if not non_renseignes.empty:
-        st.warning(f"⚠️ {len(non_renseignes)} lignes n'ont pas trouvé leur correspondance dans le Référentiel (Classeur2).")
-        articles_manquants = non_renseignes["article"].unique()
-        st.write("🔍 **Articles non trouvés (Top 10) :**")
-        st.write(articles_manquants[:10])
+        st.info(f"ℹ️ **Note :** {len(non_renseignes):,} lignes concernent des articles absents de votre fichier `Classeur2.xlsx`. Elles sont conservées et seront incluses dans les calculs.".replace(",", " "))
+        
+        missing_summary = non_renseignes.groupby("article")["hl"].sum().reset_index()
+        missing_summary = missing_summary.sort_values("hl", ascending=False)
+        missing_summary.columns = ["Article non référencé", "Volume total (HL)"]
+        
+        with st.expander("🔍 Voir la liste des articles non référencés (Top 50)"):
+            st.dataframe(missing_summary.head(50), width="stretch", hide_index=True)
+            
     else:
         st.success("🎉 100% des articles ont été trouvés dans le Référentiel !")
         

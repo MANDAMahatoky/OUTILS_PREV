@@ -27,7 +27,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPES 1 à 5 (MOTEUR DE CALCUL)
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
@@ -87,6 +87,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "volume_unites", "article", "positionnement", "occasion", "contenance_cl"]]
 
+# ==============================================================================
+# ÉTAPES 4 & 5 : CALCUL DES INDICES, SARR ET PRÉVISIONS
+# ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et projection...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
@@ -185,13 +188,51 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    st.sidebar.header("🔍 Paramètres")
+    # --------------------------------------------------------------------------
+    # ÉTAPE 2 : PÉRIMÈTRE (Filtres restaurés)
+    # --------------------------------------------------------------------------
+    st.sidebar.header("🔍 Étape 2 : Périmètre")
+    
+    # 1. Filtre Segment
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
+    if 'previous_segments' not in st.session_state:
+        st.session_state.previous_segments = []
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
     
+    if sel_segments != st.session_state.previous_segments:
+        st.session_state.sel_articles = []
+        st.session_state.previous_segments = sel_segments
+
+    # 2. Filtre Article
+    df_temp = df_enrichi.copy()
+    if sel_segments:
+        df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
+    articles_dispo = sorted(df_temp["article"].unique())
+    sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous", key="sel_articles")
+
+    # 3. Filtre Agence
+    agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
+    sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
+
+    # 4. Filtre Positionnement
+    pos_dispo = sorted(df_enrichi["positionnement"].unique())
+    sel_pos = st.sidebar.multiselect("📍 Positionnement", options=pos_dispo, placeholder="Tous")
+
+    # 5. Filtre Occasion
+    occ_dispo = sorted(df_enrichi["occasion"].unique())
+    sel_occ = st.sidebar.multiselect("🎯 Occasion", options=occ_dispo, placeholder="Toutes")
+
+    # Application des filtres
     df_perimetre = df_enrichi.copy()
     if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
+    if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
+    if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
+    if sel_pos: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_pos)]
+    if sel_occ: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occ)]
 
+    # --------------------------------------------------------------------------
+    # PARAMÈTRES DE CALCUL
+    # --------------------------------------------------------------------------
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Objectif")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
@@ -199,16 +240,17 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     objectif_annuel_hl = st.sidebar.number_input("Objectif Annuel (HL)", min_value=0.0, value=10000000.0, step=100000.0)
 
-    # Calculs
+    # Calculs (Étapes 3, 4, 5, 6)
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
     df_previsions = calculer_previsions(df_sarr, table_indices, annee_cloture, mois_cloture)
-
-    # Étape 6
     realise_hl, prevision_hl, total_projete, gap = calculer_gap(df_sarr, df_previsions, annee_cloture, objectif_annuel_hl)
 
-    # --- Affichage Dashboard (Étape 7) ---
+    # --------------------------------------------------------------------------
+    # AFFICHAGE DASHBOARD (Étape 7)
+    # --------------------------------------------------------------------------
     st.success("✅ Tableau de bord généré avec succès.")
     
+    # KPI
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("Réalisé YTD", f"{realise_hl:,.0f} HL")
     kpi2.metric("Prévisions (M+1 à Déc)", f"{prevision_hl:,.0f} HL")
@@ -227,8 +269,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         if not df_tcd.empty:
             pivot = pd.pivot_table(df_tcd, values="Prevision_HL", index="Article", columns="Agence", aggfunc="sum", margins=True, margins_name="Total").fillna(0)
-            # FIX pour le TCD : on utilise NumberColumn pour le pivot via reset_index ou style.format simple
-            st.dataframe(pivot, use_container_width=True) # On laisse Streamlit gérer l'affichage par défaut
+            st.dataframe(pivot, use_container_width=True)
         else:
             st.info("Aucune prévision disponible.")
 
@@ -268,7 +309,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         df_gap["GAP"] = df_gap["Objectif (Estimé)"] - df_gap["Total Projeté"]
         df_gap["Alerte"] = np.where(df_gap["GAP"] < 0, "🔴 Sous l'objectif", "🟢 Sur l'objectif")
         
-        # FIX : Utilisation de st.column_config au lieu de style.format pour ignorer la colonne texte
         st.dataframe(
             df_gap.sort_values("GAP", ascending=True),
             column_config={

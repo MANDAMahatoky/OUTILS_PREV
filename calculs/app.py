@@ -4,21 +4,85 @@ import numpy as np
 import re
 import io
 import unicodedata
+from pathlib import Path
 
-st.set_page_config(page_title="Étape 2 : Périmètre", layout="wide")
-st.title("Étape 2 : Création du Data_Périmètre (Filtrage)")
+st.set_page_config(page_title="Étape 1 : Données Brutes", layout="wide")
+st.title("Étape 1 : Ingestion & Enrichissement des Données")
 
 # ==============================================================================
-# RÉFÉRENTIEL (Simulé)
+# RÉFÉRENTIEL COMPLET (Simule le Fichier PDF)
 # ==============================================================================
 def generer_catalogue_complet():
     data_raw = [
-        ("Cristalline 100 cl PET", "PREMIUM", "IC"),
-        ("Cristalline 200 cl PET", "PREMIUM", "FC"),
-        ("Caprice Orange 33 cl CAN", "MILIEU", "IC"),
-        ("Caprice Orange 100 cl VER", "MILIEU", "FC"),
-        ("Gold Blonde 65 cl VER", "PREMIUM", "CU"),
-        # (Liste raccourcie pour l'exemple, ajoutez le reste si besoin)
+        ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU (Convivial Units)"),
+        ("Booster Tornado 50CL VER VER", "PREMIUM", "CU (Convivial Units)"),
+        ("Caprice Ananas 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Ananas 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Ananas 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Bonbon Anglais 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Bonbon Anglais 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Bonbon Anglais 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Bonbon Anglais 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Bonbon Anglais 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Bonbon Anglais 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Grenadine 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Grenadine 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Grenadine 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Grenadine 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Grenadine 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Grenadine 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Orange 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Orange 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Orange 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Orange 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Orange 35 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Orange 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Citron 100 cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Caprice Citron 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Caprice Citron 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Caprice Citron 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Tonic 100 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Tonic 30 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 100cl VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("World Cola 100cl WOCO VER", "MILIEU", "FC (Family/Future Consumption)"),
+        ("World Cola 150cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("World Cola 30cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 30cl WOCO VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 33 cl CAN", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 35cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("World Cola 50cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Beaufort 33 CL CAN", "MILIEU", "SS (Single serve)"),
+        ("Beaufort 33CL VER", "PREMIUM", "SS (Single serve)"),
+        ("FRESH 33 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("THB Fresh 33 cl VER", "ENTREE", "SS (Single serve)"),
+        ("THB Fresh 65 cl VER", "ENTREE", "CU (Convivial Units)"),
+        ("Gold 8 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+        ("Gold 8 50 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blanche 33cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blanche 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blanche 50 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 33 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 50 cl CAN", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 50 cl VER", "PREMIUM", "SS (Single serve)"),
+        ("Gold Blonde 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
+        ("Queen s 65 cl VER", "PREMIUM", "CU (Convivial Units)"),
+        ("THB Pilsener 33 cl VER", "MILIEU", "SS (Single serve)"),
+        ("THB Pilsener 50 cl CAN", "MILIEU", "CU (Convivial Units)"),
+        ("THB Pilsener 65 cl VER", "MILIEU", "CU (Convivial Units)"),
+        ("Cristal 100 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("Cristal 150 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Cristal 30 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("Cristal 50 cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("Cristalline 100 cl PET", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("Cristalline 200 cl PET", "PREMIUM", "FC (Family/Future Consumption)"),
+        ("Eau vive 150 cl PET", "MILIEU", "FC (Family/Future Consumption)"),
+        ("Eau vive 50 cl PET", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("Eau vive 50 cl VER", "MILIEU", "IC (Individual/Immediat Consumption)"),
+        ("FOSA 50 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("XXL 30cl BOB VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("XXL 30cl VER", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("XXL 33 cl CAN", "PREMIUM", "IC (Individual/Immediat Consumption)"),
+        ("XXL 35cl PET", "PREMIUM", "IC (Individual/Immediat Consumption)"),
     ]
     return pd.DataFrame(data_raw, columns=["article", "positionnement", "occasion"])
 
@@ -32,9 +96,17 @@ def normaliser_nom(nom: str) -> str:
     return re.sub(r"[^a-z0-9_]+", "_", texte.strip().lower()).strip("_")
 
 def normaliser_mois(valeur) -> int:
-    if pd.isna(valeur): return 1
-    if isinstance(valeur, (int, float)): return int(valeur)
-    mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
+    if pd.isna(valeur):
+        return 1
+    if isinstance(valeur, (int, float)):
+        return int(valeur)
+    mois_map = {
+        "janvier": 1, "janv": 1, "jan": 1, "fevrier": 2, "fevr": 2, "fev": 2, 
+        "mars": 3, "mar": 3, "avril": 4, "avr": 4, "mai": 5, "juin": 6, "jun": 6, 
+        "juillet": 7, "juil": 7, "jul": 7, "aout": 8, "aug": 8, "septembre": 9, 
+        "sept": 9, "sep": 9, "octobre": 10, "oct": 10, "novembre": 11, "nov": 11, 
+        "decembre": 12, "dec": 12
+    }
     texte = unicodedata.normalize("NFD", str(valeur)).encode("ascii", "ignore").decode("utf-8").lower().strip()
     return mois_map.get(texte, 1)
 
@@ -48,7 +120,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : INGESTION
+# INGESTION DES DONNÉES (Fichier Excel)
 # ==============================================================================
 def charger_et_enrichir(contenu_excel: bytes) -> pd.DataFrame:
     flux = io.BytesIO(contenu_excel)
@@ -87,60 +159,43 @@ def charger_et_enrichir(contenu_excel: bytes) -> pd.DataFrame:
         df["agence"] = df.get("agence", "Non renseigné").astype(str).str.strip()
         df["hl"] = pd.to_numeric(df.get("hl", 0.0), errors="coerce").fillna(0.0)
 
-    # Nettoyage des articles "nan" ou vides
-    df = df[df["article"].str.lower().isin(["nan", ""]) == False].copy()
-
-    # Fusion avec le Référentiel
+    # Fusion avec le Référentiel Complet
     df = df.merge(CATALOGUE, on="article", how="left")
     df["positionnement"] = df["positionnement"].fillna("Non renseigné")
     df["occasion"] = df["occasion"].fillna("Non renseigné")
     
-    # Ajout de la région (simulée ici, à adapter avec votre vraie map)
-    df["region"] = "Non renseigné" 
-    
     return df
 
 # ==============================================================================
-# ÉTAPE 2 : FILTRAGE (PÉRIMÈTRE)
+# INTERFACE STREAMLIT
 # ==============================================================================
-st.sidebar.header("🔍 Filtres (Étape 2)")
-fichier = st.sidebar.file_uploader("Fichier Excel (.xlsx)", type=["xlsx"])
+st.write("Chargez le fichier `DATA_BRUT.xlsx` pour générer le DataFrame enrichi.")
+
+fichier = st.file_uploader("Fichier Excel (.xlsx)", type=["xlsx"])
 
 if fichier is not None:
-    # On charge les données de l'étape 1
-    df_brut = charger_et_enrichir(fichier.getvalue())
+    with st.spinner("Lecture et enrichissement des données..."):
+        df_enrichi = charger_et_enrichir(fichier.getvalue())
+        
+    st.success(f"✅ Données chargées avec succès : {len(df_enrichi)} lignes.")
     
-    # --- Création des filtres dynamiques ---
-    filtres = {}
+    st.subheader("Aperçu du DataFrame enrichi")
+    st.dataframe(df_enrichi.head(50), width="stretch")
     
-    # 1. Filtre Article
-    articles_dispo = sorted(df_brut["article"].dropna().unique().tolist())
-    filtres["article"] = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
-    
-    # 2. Filtre Agence
-    agences_dispo = sorted(df_brut["agence"].dropna().unique().tolist())
-    filtres["agence"] = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
-    
-    # 3. Filtre Positionnement
-    pos_dispo = sorted(df_brut["positionnement"].dropna().unique().tolist())
-    filtres["positionnement"] = st.sidebar.multiselect("📍 Positionnement", options=pos_dispo, placeholder="Tous")
-
-    # --- Application des filtres (Data_Périmètre) ---
-    df_perimetre = df_brut.copy()
-    
-    for col, selection in filtres.items():
-        if selection: # Si le filtre n'est pas vide
-            df_perimetre = df_perimetre[df_perimetre[col].isin(selection)]
-            
-    # --- Affichage des résultats ---
-    st.success(f"✅ Données brutes : {len(df_brut)} lignes.")
-    st.info(f"🎯 Data_Périmètre (filtré) : {len(df_perimetre)} lignes.")
-    
-    st.subheader("Aperçu du Data_Périmètre")
-    st.dataframe(df_perimetre.head(50), width="stretch")
-    
-    # Diagnostics
+    st.subheader("Vérifications de base")
     col1, col2, col3 = st.columns(3)
-    col1.metric("Articles dans le périmètre", df_perimetre["article"].nunique())
-    col2.metric("Agences dans le périmètre", df_perimetre["agence"].nunique())
-    col3.metric("Volume dans le périmètre (HL)", f"{df_perimetre['hl'].sum():,.0f}")
+    col1.metric("Nombre d'articles uniques", df_enrichi["article"].nunique())
+    col2.metric("Nombre d'agences", df_enrichi["agence"].nunique())
+    col3.metric("Volume total (HL)", f"{df_enrichi['hl'].sum():,.0f}")
+    
+    # Vérification de l'enrichissement
+    non_renseignes = df_enrichi[df_enrichi["positionnement"] == "Non renseigné"]
+    if not non_renseignes.empty:
+        st.warning(f"⚠️ {len(non_renseignes)} lignes n'ont pas trouvé leur correspondance.")
+        
+        # Afficher les articles manquants pour diagnostic
+        articles_manquants = non_renseignes["article"].unique()
+        st.write("🔍 **Articles non trouvés dans le référentiel (Top 10) :**")
+        st.write(articles_manquants[:10])
+    else:
+        st.success("🎉 100% des articles ont été trouvés dans le référentiel !")

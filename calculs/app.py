@@ -24,11 +24,10 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (MIS EN CACHE)
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
-@st.cache_data(show_spinner="Chargement des fichiers et fusion...")
+@st.cache_data(show_spinner="Chargement des fichiers...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
-    # 1. Lecture du Référentiel
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (hl)": "contenance_hl"})
@@ -41,7 +40,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
-    # 2. Lecture des Ventes
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
     
@@ -70,17 +68,13 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     else:
         return pd.DataFrame()
 
-    # 3. Fusion
     df_enrichi = df_ref.merge(df, on="cle_article", how="left")
-    
-    # 4. Remplissage des vides
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
     df_enrichi["hl"] = df_enrichi["hl"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
     
-    # 5. Attribution du Segment
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
         df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
@@ -97,44 +91,79 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "nature", "hl", "article", "positionnement", "occasion"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (MIS EN CACHE)
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
-    # On isole le réalisé (strictement supérieur à 0 pour ne pas fausser les moyennes avec les articles non vendus)
     condition_realise = (df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cloture))
-    df_realise = df_perimetre[condition_realise & (df_perimetre["hl"] > 0)].copy()
+    df_realise = df_perimetre[condition_realise].copy()
 
     if df_realise.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # 1. Nombre d'années par (Agence, Article)
-    nb_annees = df_realise.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
+    # Grille complète pour prendre en compte les mois sans ventes (comme dans Excel)
+    agences_uniques = df_realise['agence'].unique()
+    articles_uniques = df_realise['article'].unique()
+    annees_uniques = df_realise['annee'].unique()
+    mois_uniques = range(1, 13)
 
-    # 2. Moy_Mois = SUM(Vol_Mois) / Nb_Annees
-    vol_mois = df_realise.groupby(['agence', 'article', 'mois'])['hl'].sum().reset_index()
+    grille_complete = pd.MultiIndex.from_product(
+        [agences_uniques, articles_uniques, annees_uniques, mois_uniques],
+        names=['agence', 'article', 'annee', 'mois']
+    ).to_frame(index=False)
+
+    df_realise_complet = grille_complete.merge(df_realise, on=['agence', 'article', 'annee', 'mois'], how='left')
+    df_realise_complet['hl'] = df_realise_complet['hl'].fillna(0.0)
+
+    nb_annees = df_realise_complet.groupby(['agence', 'article'])['annee'].nunique().reset_index().rename(columns={'annee': 'nb_annees'})
+
+    vol_mois = df_realise_complet.groupby(['agence', 'article', 'mois'])['hl'].sum().reset_index()
     moy_mois = vol_mois.merge(nb_annees, on=['agence', 'article'])
     moy_mois['Moy_Mois'] = moy_mois['hl'] / moy_mois['nb_annees']
 
-    # 3. Moy_Ann = SUM(Vol_Total) / (Nb_Annees * 12)
-    vol_total = df_realise.groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'vol_total'})
+    vol_total = df_realise_complet.groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'vol_total'})
     moy_ann = vol_total.merge(nb_annees, on=['agence', 'article'])
     moy_ann['Moy_Ann'] = moy_ann['vol_total'] / (moy_ann['nb_annees'] * 12)
 
-    # 4. Calcul de l'Indice
     indices = moy_mois.merge(moy_ann[['agence', 'article', 'Moy_Ann']], on=['agence', 'article'])
     indices['Indice'] = indices['Moy_Mois'] / indices['Moy_Ann'].replace(0, np.nan)
-    indices['Indice'] = indices['Indice'].fillna(1.0) # Sécurité si Moy_Ann = 0
+    indices['Indice'] = indices['Indice'].fillna(1.0)
 
     table_indices = indices[['agence', 'article', 'mois', 'Indice']]
 
-    # 5. Calcul du SARR
-    # On rattache l'indice à tout le df_perimetre (pour avoir aussi le SARR sur le réalisé)
     df_sarr = df_perimetre.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
     return table_indices, df_sarr
+
+# ==============================================================================
+# FORMATAGE "VUE EXCEL" AVEC NOMS DE MOIS
+# ==============================================================================
+def generer_vue_excel(df_sarr, table_indices):
+    # 1. Base table (Agences, Segment, Marque, Articles)
+    base = df_sarr[['agence', 'segment', 'article']].drop_duplicates().reset_index(drop=True)
+    base['Marque'] = base['article'].apply(lambda x: str(x).split()[0] if isinstance(x, str) else "")
+
+    # 2. Pivot des indices (1 à 12)
+    pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice').fillna(1.0)
+    
+    # 3. Renommer les colonnes avec les noms de mois
+    mois_noms = {1: 'Janvier', 2: 'Février', 3: 'Mars', 4: 'Avril', 5: 'Mai', 6: 'Juin', 
+                 7: 'Juillet', 8: 'Août', 9: 'Septembre', 10: 'Octobre', 11: 'Novembre', 12: 'Décembre'}
+    
+    # 4. Fusionner avec la base
+    resultat = base.merge(pivot_indices.reset_index(), on=['agence', 'article'], how='left')
+    
+    # 5. Renommer et ordonner
+    resultat = resultat.rename(columns={'agence': 'Agences', 'segment': 'Segment', 'article': 'Articles'})
+    resultat = resultat.rename(columns=mois_noms)
+    
+    # Ajouter le préfixe "Coef " aux noms de mois
+    colonnes_coeff = [f"Coef {m}" for m in mois_noms.values()]
+    resultat.columns = ['Agences', 'Segment', 'Marque', 'Articles'] + colonnes_coeff
+    
+    return resultat
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -147,10 +176,8 @@ with col2:
 
 if fichier_ventes is not None and fichier_ref is not None:
     
-    # Étape 1
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # Étape 2
     st.sidebar.header("🔍 Étape 2 : Périmètre")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     
@@ -178,36 +205,30 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # Étape 3 & 4
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Étape 3 & 4 : Cutoff & SARR")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    # Appel du moteur (Étape 4)
+    # Calculs
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
+    df_vue_excel = generer_vue_excel(df_sarr, table_indices)
 
-    condition_realise = (df_sarr["annee"] < annee_cloture) | ((df_sarr["annee"] == annee_cloture) & (df_sarr["mois"] <= mois_cloture))
-    df_realise = df_sarr[condition_realise].copy()
-    
-    # --------------------------------------------------------------------------
-    # AFFICHAGE
-    # --------------------------------------------------------------------------
+    # Affichage
     st.success("✅ Étapes 1 à 4 complétées !")
     
-    col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Data Périmètre", f"{len(df_perimetre):,.0f} lignes".replace(",", " "))
-    col_b.metric("Volume Réalisé", f"{df_realise['hl'].sum():,.0f} HL".replace(",", " "))
-    col_c.metric("Nombre d'indices calculés", f"{len(table_indices):,.0f}")
-
-    tab_etape2, tab_etape3, tab_etape4 = st.tabs(["📊 Étape 2 (Data_Périmètre)", "📈 Étape 3 (Table_Réalisé)", "🧮 Étape 4 (Indices & SARR)"])
+    tab_etape2, tab_etape3, tab_etape4, tab_excel = st.tabs([
+        "📊 Étape 2 (Data_Périmètre)", 
+        "📈 Étape 3 (Table_Réalisé)", 
+        "🧮 Étape 4 (Indices & SARR)",
+        "📑 Vue Excel (Coefs Mensuels)"
+    ])
     
     with tab_etape2:
         st.dataframe(df_perimetre.head(100), use_container_width=True)
         
     with tab_etape3:
-        st.write(f"Voici le cumul du réalisé jusqu'à {mois_cloture}/{annee_cloture} (Étape 3).")
-        df_cumul = df_realise.groupby(["annee", "mois", "agence", "article"])["hl"].sum().reset_index()
+        df_cumul = df_perimetre.groupby(["annee", "mois", "agence", "article"])["hl"].sum().reset_index()
         st.dataframe(
             df_cumul.head(100),
             column_config={"hl": st.column_config.NumberColumn("Volume Réalisé (HL)", format="%.0f")},
@@ -215,16 +236,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_etape4:
-        st.write("Voici les tables calculées (Étape 4).")
-        st.markdown("#### Table des Indices Saisonniers")
-        st.write("L'indice représente le poids du mois par rapport à la moyenne annuelle (1.0 = moyenne).")
-        
-        # Affichage d'un extrait des indices
-        pivot_indices = table_indices.pivot_table(index="article", columns="mois", values="Indice", aggfunc="mean").fillna(1.0)
-        st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
-
-        st.markdown("#### Table SARR")
-        st.write("Le SARR est le volume lissé (désaisonnalisé).")
+        st.markdown("#### Table standard des Indices")
         st.dataframe(
             df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR"]].head(100),
             column_config={
@@ -234,3 +246,12 @@ if fichier_ventes is not None and fichier_ref is not None:
             },
             use_container_width=True
         )
+
+    with tab_excel:
+        st.markdown("#### Reproduction exacte de votre Excel")
+        st.write("Ce tableau affiche les coefficients fixes pour chaque mois, exactement comme dans votre capture.")
+        
+        # Formatage visuel : 1 décimale pour les coefs
+        format_dict = {f"Coef {m}": "{:.1f}" for m in ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']}
+        
+        st.dataframe(df_vue_excel.style.format(format_dict), use_container_width=True)

@@ -16,7 +16,7 @@ import streamlit as st
 # ==============================================================================
 
 st.set_page_config(
-    page_title="Suivi & Prévision SAAR (S&OP)",
+    page_title="Suivi & Prévision SARR (S&OP)",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -38,7 +38,7 @@ MOIS_NOMS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "
 
 COULEUR_REALISE = "#9E6315EF"
 COULEUR_PREVISION = "#9BD69E"
-HAUSSE_SAISONNIERE_PREVISION = {6: 1.20, 12: 1.20}
+COULEUR_OBJECTIF = "#d7193f"
 
 FILTRES = [
     ("article", "🛒 Article"),
@@ -150,18 +150,13 @@ def _generer_catalogue_exact():
     data = []
     for art, pos, occ in data_raw:
         art_lower = art.lower()
-        if "cristal" in art_lower or "eau" in art_lower:
-            segment = "EAUX"
-        elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]):
-            segment = "BIERES"
-        else:
-            segment = "BOISSONS"
+        if "cristal" in art_lower or "eau" in art_lower: segment = "EAUX"
+        elif any(x in art_lower for x in ["gold", "thb", "beaufort", "queen", "booster"]): segment = "BIERES"
+        else: segment = "BOISSONS"
 
         fmt = art.split()[-1].upper() if art.split()[-1].upper() in ["VER", "PET", "CAN"] else "VER"
-        if "WOCO" in art_lower:
-            fmt = "VER"
-        if "BOB" in art_lower:
-            fmt = "VER"
+        if "WOCO" in art_lower: fmt = "VER"
+        if "BOB" in art_lower: fmt = "VER"
 
         match = re.search(r"(\d+)\s*cl", art_lower)
         c_cl = int(match.group(1)) if match else 50
@@ -180,7 +175,7 @@ CATALOGUE_PAR_ARTICLE = {meta["article"].lower().strip(): meta for meta in CATAL
 ARTICLES_REFERENTIEL = CATALOGUE["article"].tolist()
 
 # ==============================================================================
-# 3. UTILITAIRES & FILTRES
+# 3. UTILITAIRES
 # ==============================================================================
 
 def _sans_accents(texte: str) -> str:
@@ -196,10 +191,7 @@ def normaliser_agence(valeur: object) -> str:
         if normaliser_nom(a) == cle or normaliser_nom(a.split("-", 1)[1]) == cle:
             return a
     if re.fullmatch(r"\d+(_0)?", cle):
-        return next(
-            (a for a in AGENCES_REFERENCE if a.startswith(f"{int(cle.split('_', 1)[0]):02d}-")),
-            nom,
-        )
+        return next((a for a in AGENCES_REFERENCE if a.startswith(f"{int(cle.split('_', 1)[0]):02d}-")), nom)
     return nom
 
 def region_depuis_agence(valeur: object) -> str:
@@ -207,30 +199,19 @@ def region_depuis_agence(valeur: object) -> str:
 
 def assurer_dimensions_filtres(df: pd.DataFrame, catalogue: dict, types: dict) -> pd.DataFrame:
     for col in ["positionnement", "occasion", "conditionnement", "contenance_ci", "contenance_hl", "region", "type_format"]:
-        if col not in df.columns:
-            df[col] = "Non renseigné"
-
-        # FIX #1 : cast object AVANT affectation de chaîne (LossySetitemError)
-        if df[col].dtype != object:
-            df[col] = df[col].astype(object)
-
+        if col not in df.columns: df[col] = "Non renseigné"
+        if df[col].dtype != object: df[col] = df[col].astype(object)
         if catalogue:
             champ = "type_format_lib" if col == "type_format" else col
             articles = df["article"].astype(str).str.lower().str.strip()
             correspondances = {a: m.get(champ, "Non renseigné") for a, m in catalogue.items()}
-            masque_vide = df[col].astype(str).str.strip().isin(
-                ["", "Non renseigné", "nan", "None", "0.0", "0"]
-            )
-            df.loc[masque_vide, col] = (
-                articles[masque_vide].map(correspondances).fillna("Non renseigné")
-            )
-
+            masque_vide = df[col].astype(str).str.strip().isin(["", "Non renseigné", "nan", "None", "0.0", "0"])
+            df.loc[masque_vide, col] = articles[masque_vide].map(correspondances).fillna("Non renseigné")
         df[col] = df[col].astype(str).str.strip()
     return df
 
 def options_filtre_cascade(df: pd.DataFrame, col: str, filtres: list, selections: dict) -> list:
-    if col not in df.columns:
-        return []
+    if col not in df.columns: return []
     df_filtre = df.copy()
     for c, _ in filtres:
         if c != col and selections.get(c) and c in df_filtre.columns:
@@ -241,7 +222,7 @@ def options_filtre_cascade(df: pd.DataFrame, col: str, filtres: list, selections
     return options
 
 # ==============================================================================
-# 4. LECTURE DES DONNÉES
+# 4. LECTURE DES DONNÉES (Étape 1)
 # ==============================================================================
 
 _MOIS_MAP = {
@@ -254,67 +235,48 @@ _MOIS_MAP = {
 }
 
 def normaliser_mois(valeur) -> float:
-    if pd.isna(valeur):
-        return np.nan
-    if isinstance(valeur, (int, float)):
-        return float(valeur)
+    if pd.isna(valeur): return np.nan
+    if isinstance(valeur, (int, float)): return float(valeur)
     texte = str(valeur).strip().lower()
-    try:
-        return float(texte.replace(",", "."))
-    except ValueError:
-        pass
+    try: return float(texte.replace(",", "."))
+    except ValueError: pass
     cle = re.sub(r"[^a-z]", "", _sans_accents(texte))
     return float(_MOIS_MAP.get(cle, np.nan))
 
 def _detecter_format_pivote(df: pd.DataFrame) -> bool:
-    if df.shape[1] < 7:
-        return False
+    if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     mois1 = df.iloc[:, 1].map(normaliser_mois)
     return annee0.between(1990, 2100).sum() > len(df) * 0.3 and mois1.notna().sum() > len(df) * 0.3
 
 def _extraire_article(nature_str: str) -> str:
-    """Retire le préfixe numérique : '190-Cristalline 100 cl PET' -> 'Cristalline 100 cl PET'."""
     match = re.match(r"^\d+-(.*)$", str(nature_str).strip())
-    if match:
-        return match.group(1).strip()
-    return str(nature_str).strip()
+    return match.group(1).strip() if match else str(nature_str).strip()
 
 def _resoudre_article(produit: str, segment: str) -> str:
     produit_clean = str(produit).strip()
-    if not produit_clean:
-        return produit_clean
-
+    if not produit_clean: return produit_clean
     candidats = [produit_clean.lower()]
     seg = str(segment).strip() if segment else ""
     if seg:
         candidats.append(f"{produit_clean} {seg}".lower())
         suffixe = f" {seg.lower()}"
-        if candidats[0].endswith(suffixe):
-            candidats.append(candidats[0][: -len(suffixe)].strip())
-
+        if candidats[0].endswith(suffixe): candidats.append(candidats[0][: -len(suffixe)].strip())
     for cle in candidats:
-        if cle in CATALOGUE_PAR_ARTICLE:
-            return CATALOGUE_PAR_ARTICLE[cle]["article"]
+        if cle in CATALOGUE_PAR_ARTICLE: return CATALOGUE_PAR_ARTICLE[cle]["article"]
     return produit_clean
 
 def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list[str]) -> pd.DataFrame:
     if _detecter_format_pivote(df_raw):
-        rename = {
-            df_raw.columns[i]: col
-            for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])
-        }
+        rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])}
         df = df_raw.rename(columns=rename).copy()
         df["annee"] = pd.to_numeric(df["annee"], errors="coerce").astype("Int64")
         df["mois"] = df["mois"].map(normaliser_mois)
         df = df.dropna(subset=["annee", "mois"]).copy()
         df["mois"] = df["mois"].astype(int)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
-
         for c in ("segment", "produit", "agence", "nature"):
             df[c] = df[c].astype(str).str.strip()
-
-        # FIX #2 : filtrer aussi 'Total' en colonne nature (col F)
         masque_total = (
             df["segment"].str.contains("total", case=False, na=False)
             | df["produit"].str.contains("total", case=False, na=False)
@@ -322,28 +284,16 @@ def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list
             | df["nature"].str.contains("total", case=False, na=False)
         )
         df = df[~masque_total].copy()
-
         df["periode"] = df["annee"].astype(str) + "-" + df["mois"].astype(str).str.zfill(2)
         df["colis"] = 0.0
         df["origine"] = "Donnée source"
-
-        # FIX #3 : article réel = colonne F (nature) sans préfixe numérique
         df["article"] = df["nature"].apply(_extraire_article)
         df["article"] = df["article"].apply(lambda a: _resoudre_article(a, ""))
-
         return df.reset_index(drop=True)
     return df_raw
 
-def lire_et_normaliser(
-    contenu: bytes | None,
-    nom: str,
-    chemin: str | None,
-    annee_cloture: int,
-    mois_cloture: int,
-) -> pd.DataFrame:
-    if contenu is None and chemin is None:
-        raise ValueError("lire_et_normaliser : aucun contenu ni chemin fourni.")
-
+def lire_et_normaliser(contenu: bytes | None, nom: str, chemin: str | None, annee_cloture: int, mois_cloture: int) -> pd.DataFrame:
+    if contenu is None and chemin is None: raise ValueError("Aucun contenu fourni.")
     nom_fichier = Path(nom if contenu is not None else chemin or "").name.lower()
     est_data_brut = nom_fichier == "data_brut.xlsx"
 
@@ -367,27 +317,13 @@ def lire_et_normaliser(
     df = normaliser_lignes_data_brut(df_raw, ARTICLES_REFERENTIEL) if est_data_brut else df_raw.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
-    col_map = {
-        "annee": "annee", "mois": "mois", "agence": "agence", "agences": "agence",
-        "segment": "segment", "produit": "produit", "marque": "produit",
-        "article": "article", "articles": "article", "nature": "nature",
-        "hl": "hl", "volume": "hl", "colis": "colis",
-    }
+    col_map = {"annee": "annee", "mois": "mois", "agence": "agence", "agences": "agence", "segment": "segment", "produit": "produit", "marque": "produit", "article": "article", "articles": "article", "nature": "nature", "hl": "hl", "volume": "hl", "colis": "colis"}
     df = df.rename(columns={c: col_map[normaliser_nom(c)] for c in df.columns if normaliser_nom(c) in col_map})
     df = df.loc[:, ~df.columns.duplicated()].copy()
 
-    defaut = {
-        "annee": 2026, "mois": 1, "periode": "2026-01", "agence": "Non renseigné",
-        "region": "Non renseigné", "segment": "Non renseigné", "produit": "Non renseigné",
-        "parfum": "Non renseigné", "format": "Non renseigné", "type_format": "Non renseigné",
-        "article": "Non renseigné", "nature": "Prévision", "colis": 0.0, "hl": 0.0,
-        "origine": "Donnée source", "positionnement": "Non renseigné",
-        "occasion": "Non renseigné", "conditionnement": "Non renseigné",
-        "contenance_ci": 0.0, "contenance_hl": 0.0,
-    }
+    defaut = {"annee": 2026, "mois": 1, "periode": "2026-01", "agence": "Non renseigné", "region": "Non renseigné", "segment": "Non renseigné", "produit": "Non renseigné", "parfum": "Non renseigné", "format": "Non renseigné", "type_format": "Non renseigné", "article": "Non renseigné", "nature": "Prévision", "colis": 0.0, "hl": 0.0, "origine": "Donnée source", "positionnement": "Non renseigné", "occasion": "Non renseigné", "conditionnement": "Non renseigné", "contenance_ci": 0.0, "contenance_hl": 0.0}
     for k, v in defaut.items():
-        if k not in df.columns:
-            df[k] = v
+        if k not in df.columns: df[k] = v
 
     df = df[COLONNES].copy()
     df["annee"] = pd.to_numeric(df["annee"], errors="coerce").fillna(2026).astype(int)
@@ -395,255 +331,133 @@ def lire_et_normaliser(
     df["periode"] = df["annee"].astype(str) + "-" + df["mois"].astype(str).str.zfill(2)
     df["agence"] = df["agence"].map(normaliser_agence)
     df["region"] = df["agence"].map(region_depuis_agence)
-    for c in ["colis", "hl"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    for c in ["colis", "hl"]: df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
 
     df = assurer_dimensions_filtres(df, CATALOGUE_PAR_ARTICLE, TYPES)
     df = df[~df["article"].str.lower().isin(["", "non renseigné", "total", "nan"])].copy()
+    
+    # Étape 3 : Séparation Réalisé vs Prévision en fonction du cutoff
     cond_realise = (df["annee"] < annee_cloture) | ((df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture))
     df["nature"] = np.where(cond_realise, "Réalisé", "Prévision")
     return df
 
 # ==============================================================================
-# 5. MOTEUR DE CALCUL (SAAR, Saisonnalité, CAGR, Projection)
+# 5. MOTEUR DE CALCUL (SARR, INDICES, MOMENTUM, PREVISION) - Étapes 3, 4 & 5
 # ==============================================================================
 
-def annees_completes_saisonnalite(
-    donnees: pd.DataFrame, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int,
-) -> list[int]:
-    realise = donnees.loc[donnees["nature"].eq("Réalisé") & donnees["mois"].between(1, 12)]
-    if realise.empty:
-        return []
-    mois_par_annee = (
-        realise.loc[realise["annee"].between(annee_debut, annee_fin)]
-        .drop_duplicates(["annee", "mois"])
-        .groupby("annee")["mois"]
-        .nunique()
-    )
-    res = []
-    for annee in sorted(mois_par_annee.index):
-        annee = int(annee)
-        if annee == annee_cloture and mois_cloture < 12:
-            continue
-        if int(mois_par_annee.loc[annee]) == 12:
-            res.append(annee)
-    return res
-
-def calculer_indices_saisonnalite(
-    donnees: pd.DataFrame, valeur: str, annee_debut: int, annee_fin: int, annee_cloture: int, mois_cloture: int,
-) -> pd.DataFrame:
-    annees = annees_completes_saisonnalite(donnees, annee_debut, annee_fin, annee_cloture, mois_cloture)
-    if not annees:
-        return pd.DataFrame({
-            "Mois": MOIS_NOMS, "Volume moyen": 0.0,
-            "Nombre de périodes": 0, "Indice saisonnier": float("nan"),
-        })
-    selection = donnees.loc[
-        donnees["nature"].eq("Réalisé")
-        & donnees["annee"].isin(annees)
-        & donnees["mois"].between(1, 12)
-    ]
-    volumes = (
-        selection.groupby(["annee", "mois"])[valeur].sum()
-        .unstack("mois").reindex(index=annees, columns=range(1, 13)).fillna(0.0)
-    )
-    moyennes_annuelles = volumes.sum(axis=1) / 12.0
-    ratios = volumes.div(moyennes_annuelles.replace(0, np.nan), axis=0)
-    indices = ratios.mean(axis=0).fillna(0.0)
-    if float(indices.sum()) > 0:
-        indices = indices * 12.0 / float(indices.sum())
-    return pd.DataFrame({
-        "Mois": MOIS_NOMS,
-        "Volume moyen": volumes.mean(axis=0).to_numpy(),
-        "Nombre de périodes": len(annees),
-        "Indice saisonnier": indices.to_numpy(),
-    })
-
-# ---------------------------------------------------------------------------- #
-# FIX #4 : CAGR à périmètre égal (YTD N-1 vs YTD N-2, mois comparables)
-# ---------------------------------------------------------------------------- #
-def _cagr_a_periode_egale(
-    df: pd.DataFrame, annee_cible: int, mois_cloture: int, cles: list[str],
-) -> pd.Series:
-    """Croissance N-1 / N-2 calculée sur la même fenêtre mensuelle.
-
-    L'ancienne version comparait YTD N-1 (ex. 2026 Jan-Sep) à N-2 full-year
-    (2025 complet) → ratio artificiellement écrasé (~0.75). On compare ici
-    des périodes comparables : 2026 Jan-Sep / 2025 Jan-Sep.
-    """
-    def _vol_ytd(annee: int) -> pd.Series:
-        selection = df.loc[
-            (df["annee"] == annee)
-            & (df["nature"] == "Réalisé")
-            & (df["mois"] <= mois_cloture)
-        ]
-        if selection.empty:
-            return pd.Series(dtype=float)
-        return selection.groupby(cles)["hl"].sum()
-
-    v1 = _vol_ytd(annee_cible - 1)
-    v2 = _vol_ytd(annee_cible - 2)
-    if v1.empty or v2.empty:
-        return pd.Series(dtype=float)
-    croissance = v1 / v2.replace(0, np.nan)
-    return croissance.replace([np.inf, -np.inf], np.nan).fillna(1.0)
-
-
-def appliquer_projection_saar(
-    df: pd.DataFrame,
-    annee_cloture: int,
-    mois_cloture: int,
-    annee_cible: int,
-    taux_croissance_force: float,
-) -> pd.DataFrame:
-    if annee_cible < annee_cloture:
-        return df
-
-    cles = ["agence", "article"]
-    dimensions = [
-        "agence", "region", "segment", "produit", "parfum", "format", "type_format",
-        "article", "origine", "positionnement", "occasion", "conditionnement",
-        "contenance_ci", "contenance_hl",
-    ]
-
-    realise_ytd = df.loc[
-        (df["nature"] == "Réalisé") & (df["annee"] == annee_cloture) & (df["mois"] <= mois_cloture)
-    ]
-    if realise_ytd.empty:
-        return df
-
-    cumul_ytd = realise_ytd.groupby(cles)[["hl", "colis"]].sum()
-    derniere_ligne = realise_ytd.sort_values(["annee", "mois"]).drop_duplicates(cles, keep="last").set_index(cles)
-
-    # ① Profils saisonniers à partir de N-1 et N-2
-    df_ref = df.loc[df["annee"].isin([annee_cible - 1, annee_cible - 2]) & (df["nature"] == "Réalisé")]
-    profils_ref = {}
-    if not df_ref.empty:
-        volumes_mensuels = (
-            df_ref.groupby([*cles, "mois"])["hl"].sum()
-            .unstack("mois").fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0).clip(lower=0.0)
-        )
-        totaux = volumes_mensuels.sum(axis=1)
-        profils_ref = {
-            c: p.to_numpy(dtype=float)
-            for c, p in volumes_mensuels.div(totaux.where(totaux > 0), axis=0).mul(12.0).iterrows()
-            if totaux.loc[c] > 0
-        }
-
-    # ③ CAGR à périmètre égal (FIX #4)
-    croissance_observee = _cagr_a_periode_egale(df, annee_cible, mois_cloture, cles)
-    taux_min = 1.0 + max(taux_croissance_force, 0.0) / 100.0
-    if croissance_observee.empty:
-        taux_croissance_couple = pd.Series(dtype=float)
-    else:
-        taux_croissance_couple = np.maximum(croissance_observee, taux_min)
-        taux_croissance_couple = np.minimum(taux_croissance_couple, 1.5)
-
+def moteur_saar_complet(df_brut: pd.DataFrame, annee_cutoff: int, mois_cutoff: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Applique le calcul SARR, Indices, Momentum et Prévisions selon le diagramme."""
+    
+    # 1. Isoler le réalisé pour construire l'historique
+    df_hist = df_brut[df_brut["nature"] == "Réalisé"].copy()
+    
+    # 2. Calcul des Indices (Moy_Mois / Moy_Ann)
+    # Pivot : index=(agence, article, mois), columns=annee, values=hl
+    pivot = df_hist.pivot_table(
+        index=["agence", "article", "mois"], 
+        columns="annee", 
+        values="hl", 
+        aggfunc="sum"
+    ).fillna(0.0)
+    
+    # Moyenne par mois (sur les années dispo) -> Moy_Mois
+    pivot["Moy_Mois"] = pivot.mean(axis=1)
+    
+    # Moyenne annuelle par (agence, article) -> Moy_Ann
+    moy_ann = df_hist.groupby(["agence", "article", "annee"])["hl"].sum().groupby(["agence", "article"]).mean() / 12.0
+    
+    # Fusion et calcul de l'indice
+    pivot = pivot.reset_index()
+    pivot = pivot.merge(moy_ann.rename("Moy_Ann"), on=["agence", "article"], how="left")
+    pivot["Indice"] = np.where(pivot["Moy_Ann"] > 0, pivot["Moy_Mois"] / pivot["Moy_Ann"], 1.0)
+    
+    # Sauvegarde des indices sous forme de dict pour lookup rapide
+    dict_indices = pivot.set_index(["agence", "article", "mois"])["Indice"].to_dict()
+    
+    # 3. Calcul du SARR sur l'historique
+    # SARR = Volume / Indice
+    df_hist["Indice"] = df_hist.apply(lambda r: dict_indices.get((r["agence"], r["article"], r["mois"]), 1.0), axis=1)
+    df_hist["SARR"] = df_hist["hl"] / df_hist["Indice"]
+    
+    # 4. Calcul Momentum et Base (nécessite un tri chronologique)
+    df_hist = df_hist.sort_values(["agence", "article", "annee", "mois"])
+    
+    # Momentum : AVERAGE(SARR_M - SARR_M-1, ...) sur les 3 derniers mois
+    # On utilise shift(1), shift(2), shift(3)
+    df_hist["SARR_prev1"] = df_hist.groupby(["agence", "article"])["SARR"].shift(1)
+    df_hist["SARR_prev2"] = df_hist.groupby(["agence", "article"])["SARR"].shift(2)
+    df_hist["SARR_prev3"] = df_hist.groupby(["agence", "article"])["SARR"].shift(3)
+    
+    df_hist["Delta1"] = df_hist["SARR"] - df_hist["SARR_prev1"]
+    df_hist["Delta2"] = df_hist["SARR_prev1"] - df_hist["SARR_prev2"]
+    df_hist["Delta3"] = df_hist["SARR_prev2"] - df_hist["SARR_prev3"]
+    
+    df_hist["Momentum"] = df_hist[["Delta1", "Delta2", "Delta3"]].mean(axis=1).fillna(0.0)
+    
+    # Base : MAX(SARR_M, AVERAGE(SARR_M-1, M-2, M-3))
+    df_hist["Moy_3_derniers"] = df_hist[["SARR_prev1", "SARR_prev2", "SARR_prev3"]].mean(axis=1)
+    df_hist["Base"] = np.maximum(df_hist["SARR"], df_hist["Moy_3_derniers"].fillna(0.0))
+    
+    # 5. Génération des Prévisions
+    # On extrait les dernières infos connues (dernier mois réalisé) par (agence, article)
+    dernier_etat = df_hist.sort_values(["annee", "mois"]).groupby(["agence", "article"]).last().reset_index()
+    
     projections = []
-    for cle, volumes in cumul_ytd.iterrows():
-        cle = cle if isinstance(cle, tuple) else (cle,)
-
-        profil = profils_ref.get(cle, np.ones(12, dtype=float))
-        if profil[:mois_cloture].sum() <= 0:
-            profil = np.ones(12, dtype=float)
-
-        # ② SARR : annualisation du YTD via poids saisonnier écoulé
-        poids_ecoule = profil[:mois_cloture].sum()
-        base_hl_ytd = max(0.0, float(volumes["hl"]) / poids_ecoule * 12.0)
-        base_colis_ytd = max(0.0, float(volumes["colis"]) / poids_ecoule * 12.0)
-
-        # ③ Application du CAGR
-        if hasattr(taux_croissance_couple, "get"):
-            taux = float(taux_croissance_couple.get(cle, 1.0))
-        else:
-            taux = 1.0
-        facteur = taux ** (annee_cible - annee_cloture)
-
-        base_hl_target = base_hl_ytd * facteur
-        base_colis_target = base_colis_ytd * facteur
-
-        ligne_ref = derniere_ligne.loc[cle]
-
-        # ④ Projection mensuelle = profil × hausse saisonnière
-        for mois in range(1, 13):
-            if annee_cible == annee_cloture and mois <= mois_cloture:
-                continue
-
-            facteur_mois = HAUSSE_SAISONNIERE_PREVISION.get(mois, 1.0)
-            ligne = {col: cle[cles.index(col)] if col in cles else ligne_ref[col] for col in dimensions}
-
-            vol_hl = base_hl_target * profil[mois - 1] / 12.0 * facteur_mois
-            vol_colis = base_colis_target * profil[mois - 1] / 12.0 * facteur_mois
-
-            ligne.update({
-                "annee": annee_cible, "mois": mois, "periode": f"{annee_cible}-{mois:02d}",
-                "nature": "Prévision", "hl": vol_hl, "colis": vol_colis,
-            })
-            projections.append(ligne)
-
-    if not projections:
-        return df
-
-    masque_existant = (df["annee"] == annee_cible) & (df["nature"] == "Prévision")
-    if annee_cible == annee_cloture:
-        masque_existant &= df["mois"].gt(mois_cloture)
-
-    return pd.concat(
-        [df.loc[~masque_existant], pd.DataFrame(projections).reindex(columns=df.columns)],
-        ignore_index=True,
-    )
-
-@st.cache_data(show_spinner="Reconstitution des prévisions historiques...")
-def reconstituer_previsions_historiques(
-    df: pd.DataFrame, annee_cloture: int, taux_croissance: float,
-) -> pd.DataFrame:
-    annees_presentes = set(df["annee"].unique())
-    annees_completes = {
-        int(a)
-        for a, p in df.groupby("annee")["mois"].agg(["min", "max"]).iterrows()
-        if p["min"] == 1 and p["max"] == 12
-    }
-    previsions, previsions_par_annee = [], {}
-    facteur_min = 1.0 + max(taux_croissance, 0.0) / 100.0
-
-    for annee_cible in sorted(annees_presentes):
-        annee_precedente = int(annee_cible) - 1
-        if annee_cible >= annee_cloture or annee_precedente not in annees_completes:
-            continue
-        historique = df.loc[df["annee"] < annee_cible].copy()
-        historique["nature"] = "Réalisé"
-        prevision = appliquer_projection_saar(
-            historique, annee_precedente, 12, int(annee_cible), taux_croissance
-        )
-        prevision = prevision.loc[
-            prevision["annee"].eq(annee_cible) & prevision["nature"].eq("Prévision")
-        ].copy()
-
-        references = (
-            previsions_par_annee[annee_precedente].groupby(["agence", "article"])[["hl", "colis"]].sum()
-            if annee_precedente in previsions_par_annee
-            else df.loc[df["annee"].eq(annee_precedente)].groupby(["agence", "article"])[["hl", "colis"]].sum()
-        )
-        for cle, indices in prevision.groupby(["agence", "article"]).groups.items():
-            if cle not in references.index:
-                continue
-            for col in ("hl", "colis"):
-                v_prev = prevision.loc[indices, col].sum()
-                v_min = max(0.0, float(references.loc[cle, col])) * facteur_min
-                if 0 < v_prev < v_min:
-                    prevision.loc[indices, col] *= v_min / v_prev
-
-        prevision["nature"] = "Prévision reconstituée"
-        previsions_par_annee[int(annee_cible)] = prevision
-        previsions.append(prevision)
-    return pd.concat(previsions, ignore_index=True) if previsions else df.iloc[0:0]
+    annees_a_projeter = range(annee_cutoff, annee_cutoff + 3) # On projette sur 2-3 ans max pour le rolling
+    
+    for _, row in dernier_etat.iterrows():
+        ag, art = row["agence"], row["article"]
+        base = row["Base"]
+        momentum = row["Momentum"]
+        
+        for an in annees_a_projeter:
+            for mo in range(1, 13):
+                if an == annee_cutoff and mo <= mois_cutoff:
+                    continue # Déjà dans le réalisé
+                
+                indice_mois = dict_indices.get((ag, art, mo), 1.0)
+                
+                # Formule du diagramme : Prévision = (Indice * Base) + Momentum
+                prev_hl = (indice_mois * base) + momentum
+                prev_hl = max(0.0, prev_hl) # Pas de volumes négatifs
+                
+                projections.append({
+                    "annee": an,
+                    "mois": mo,
+                    "periode": f"{an}-{mo:02d}",
+                    "agence": ag,
+                    "article": art,
+                    "region": row["region"],
+                    "segment": row["segment"],
+                    "produit": row["produit"],
+                    "parfum": row["parfum"],
+                    "format": row["format"],
+                    "type_format": row["type_format"],
+                    "nature": "Prévision",
+                    "origine": "Moteur SARR",
+                    "colis": 0.0,
+                    "hl": prev_hl,
+                    "positionnement": row["positionnement"],
+                    "occasion": row["occasion"],
+                    "conditionnement": row["conditionnement"],
+                    "contenance_ci": row["contenance_ci"],
+                    "contenance_hl": row["contenance_hl"]
+                })
+                
+    df_prev = pd.DataFrame(projections)
+    
+    if not df_prev.empty:
+        df_prev = df_prev.reindex(columns=df_brut.columns)
+    
+    # On renvoie le dataframe complet (réalisé + prévisions) et le dataframe des indices
+    df_final = pd.concat([df_hist[df_brut.columns], df_prev], ignore_index=True)
+    return df_final, pivot[["agence", "article", "mois", "Indice"]]
 
 # ==============================================================================
 # 6. AFFICHAGE & UI
 # ==============================================================================
 
-st.markdown(
-    """
+st.markdown("""
 <style>
 :root { --red: #d7193f; --green: #0e8a4a; }
 .stApp { background: radial-gradient(1000px 400px at 100% -10%, #fff1f4, transparent), radial-gradient(1000px 400px at 0% 110%, #eaf7f0, transparent), #fff; }
@@ -655,43 +469,28 @@ div[data-testid="stColumn"]:nth-child(even) div[data-testid="stMetric"] { border
 div[data-testid="stMetric"] label { font-weight: 700; color: #5c5665; text-transform: uppercase; font-size: 0.78rem; }
 div[data-testid="stMetricValue"] { font-weight: 800; color: #121017; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-def nombre(x: float, dec: int) -> str:
-    return f"{x:,.{dec}f}".replace(",", " ")
+def nombre(x: float, dec: int) -> str: return f"{x:,.{dec}f}".replace(",", " ")
 
-def etiquette(periode: str) -> str:
-    p = str(periode).split("-")
-    return f"{MOIS[int(p[1]) - 1]}-{p[0][-2:]}" if len(p) == 2 and p[1].isdigit() else str(periode)
-
-def afficher_vue(df: pd.DataFrame, mode: str, dec: int = 0, couleur=None, hauteur=350):
+def afficher_vue(df: pd.DataFrame, mode: str, dec: int = 0, hauteur=350):
     if mode == "Tableau":
         st.dataframe(df.round(dec), width="stretch")
         return
-    df_graphique = (
-        df.apply(pd.to_numeric, errors="coerce")
-        .replace([np.inf, -np.inf], np.nan)
-        .dropna(axis=1, how="all")
-        .dropna(axis=0, how="all")
-    )
-    if df_graphique.empty:
-        return st.info("Aucune valeur numérique.")
-
+    df_graphique = df.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna(axis=1, how="all").dropna(axis=0, how="all")
+    if df_graphique.empty: return st.info("Aucune valeur numérique.")
+    
     nom_axe = df_graphique.index.name or "Période"
     df_melt = df_graphique.reset_index().melt(id_vars=nom_axe, var_name="Série", value_name="Valeur")
     df_melt[nom_axe] = df_melt[nom_axe].astype(str)
     ordre_index = df_graphique.index.astype(str).tolist()
-
+    
     if mode == "Courbes":
-        chart = alt.Chart(df_melt).mark_line(
-            interpolate="monotone", point=alt.OverlayMarkDef(filled=True, size=35)
-        ).encode(
+        chart = alt.Chart(df_melt).mark_line(interpolate="monotone", point=alt.OverlayMarkDef(filled=True, size=35)).encode(
             x=alt.X(f"{nom_axe}:N", sort=ordre_index, title=nom_axe),
             y=alt.Y("Valeur:Q", title="Volume"),
             color=alt.Color("Série:N", scale=alt.Scale(scheme="tableau10"), legend=alt.Legend(title=None)),
-            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")],
+            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")]
         )
         st.altair_chart(chart.properties(height=hauteur), use_container_width=True)
     elif mode == "Histogramme":
@@ -699,25 +498,23 @@ def afficher_vue(df: pd.DataFrame, mode: str, dec: int = 0, couleur=None, hauteu
             x=alt.X(f"{nom_axe}:N", sort=ordre_index, title=nom_axe),
             y=alt.Y("Valeur:Q", title="Volume"),
             color=alt.Color("Série:N", scale=alt.Scale(scheme="tableau10"), legend=alt.Legend(title=None)),
-            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")],
+            tooltip=[nom_axe, "Série", alt.Tooltip("Valeur:Q", format=",.2f")]
         )
         st.altair_chart(chart.properties(height=hauteur), use_container_width=True)
 
 def trier(valeurs, col):
     v = [x for x in valeurs if pd.notna(x)]
-    if col in {"contenance_ci", "contenance_hl"}:
-        return sorted(v, key=lambda x: float(x) if str(x).replace(".", "", 1).isdigit() else 999)
-    if col == "conditionnement":
-        return sorted(v, key=lambda x: ({"CAN": 0, "PET": 1, "VER": 2}.get(str(x), 99), str(x)))
+    if col in {"contenance_ci", "contenance_hl"}: return sorted(v, key=lambda x: float(x) if str(x).replace('.','',1).isdigit() else 999)
+    if col == "conditionnement": return sorted(v, key=lambda x: ({"CAN": 0, "PET": 1, "VER": 2}.get(str(x), 99), str(x)))
     return sorted(v)
 
 # ==============================================================================
-# 7. INITIALISATION
+# 7. INITIALISATION & UI PRINCIPALE
 # ==============================================================================
 
 FICHIERS_EXISTANTS = [d / f for d in DOSSIERS for f in FICHIERS_CANDIDATS if (d / f).exists()]
 
-st.markdown('<div class="titre">Moteur S&OP : Prévision SAAR & Rolling Forecast</div>', unsafe_allow_html=True)
+st.markdown('<div class="titre">Moteur S&OP : Prévision SARR & Rolling Forecast</div>', unsafe_allow_html=True)
 
 st.sidebar.header("📁 Source & Import")
 if st.sidebar.button("Réinitialiser les imports"):
@@ -733,21 +530,14 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Cutoff S&OP")
 col_c1, col_c2 = st.sidebar.columns(2)
 annee_cloture = col_c1.number_input("Année Clôture", min_value=2000, max_value=2036, value=2026)
-mois_cloture = col_c2.selectbox(
-    "Mois Pivot", options=list(range(1, 13)), index=8,
-    format_func=lambda m: f"{m} - {MOIS[m - 1]}",
-)
+mois_cloture = col_c2.selectbox("Mois Pivot", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS[m-1]}")
 
 st.sidebar.markdown("---")
 st.sidebar.header("🎯 Cible & Affichage")
 annee_cible = st.sidebar.number_input("Année Cible", min_value=2000, max_value=2040, value=int(annee_cloture) + 1)
-mois_cible_str = st.sidebar.selectbox("Mois Cible", options=["Tous les mois"] + MOIS_COMPLETS, index=0)
+objectif_global = st.sidebar.number_input("Objectif Annuel (HL)", min_value=0.0, value=1000000.0, step=10000.0)
 
-val_choix = st.sidebar.radio(
-    "Métrique", options=["hl", "colis"],
-    format_func=lambda x: "Hectolitres (hl)" if x == "hl" else "Colis (cs)",
-    horizontal=True,
-)
+val_choix = st.sidebar.radio("Métrique", options=["hl", "colis"], format_func=lambda x: "Hectolitres (hl)" if x == "hl" else "Colis (cs)", horizontal=True)
 dec = st.sidebar.number_input("Décimales", min_value=0, max_value=4, value=0)
 mode_affichage = st.sidebar.selectbox("Mode d'affichage", options=["Tableau", "Courbes", "Histogramme"], index=1)
 
@@ -757,9 +547,7 @@ if importe is not None:
     contenu_import = importe.getvalue()
     empreinte = hashlib.sha256(contenu_import).hexdigest()
     if st.session_state.get("empreinte_import") != empreinte:
-        st.session_state["df_courant"] = lire_et_normaliser(
-            contenu_import, importe.name, None, int(annee_cloture), int(mois_cloture)
-        )
+        st.session_state["df_courant"] = lire_et_normaliser(contenu_import, importe.name, None, int(annee_cloture), int(mois_cloture))
         st.session_state["empreinte_import"] = empreinte
     df_brut = st.session_state.get("df_courant")
 elif "df_courant" in st.session_state:
@@ -772,218 +560,202 @@ if df_brut is None or df_brut.empty:
     st.warning("⚠️ Aucune donnée. Importez un fichier via la barre latérale.")
     st.stop()
 
-# --- Filtres UI (uniquement) ---
+# --- Filtres UI ---
 st.sidebar.markdown("---")
 st.sidebar.header("🔍 Filtres")
 if st.sidebar.button("🔄 Réinitialiser les filtres"):
     for col, _ in FILTRES:
-        if f"f_{col}" in st.session_state:
-            del st.session_state[f"f_{col}"]
+        if f"f_{col}" in st.session_state: del st.session_state[f"f_{col}"]
     st.rerun()
 
 selections_filtres = {col: st.session_state.get(f"f_{col}", []) for col, _ in FILTRES}
 for col, label in FILTRES:
-    if col not in df_brut.columns:
-        continue
+    if col not in df_brut.columns: continue
     options = options_filtre_cascade(df_brut, col, FILTRES, selections_filtres)
     options = [o for o in options if pd.notna(o) and str(o).strip().lower() not in ("", "nan", "none")]
-    if col == "agence":
-        options = sorted({*AGENCES_REFERENCE, *[str(o) for o in options]})
-    else:
-        options = trier(options, col)
-    if not options:
-        continue
+    if col == "agence": options = sorted({*AGENCES_REFERENCE, *[str(o) for o in options]})
+    else: options = trier(options, col)
+    if not options: continue
     cle = f"f_{col}"
-    if cle in st.session_state:
-        st.session_state[cle] = [v for v in st.session_state[cle] if v in options]
+    if cle in st.session_state: st.session_state[cle] = [v for v in st.session_state[cle] if v in options]
     selections_filtres[col] = st.sidebar.multiselect(label, options, key=cle, placeholder="Tous")
 
 recherche = st.sidebar.text_input("🔎 Recherche article", "")
 
-# --- Moteur SAAR ---
+# --- ÉTAPE 1, 2, 3, 4, 5 : EXECUTION DU MOTEUR ---
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Moteur SAAR")
-activer_saar = st.sidebar.checkbox("Activer la projection SAAR", value=True)
-afficher_prev_hist = st.sidebar.checkbox("Afficher les prévisions historiques", value=True)
-taux_saar = st.sidebar.number_input("Hausse annuelle minimale (%)", min_value=0.0, value=1.0, step=0.5)
+st.sidebar.header("⚙️ Moteur SARR")
+activer_moteur = st.sidebar.checkbox("Activer le calcul SARR & Prévisions", value=True)
 
-df_previsions_hist = df_brut.iloc[0:0].copy()
-df_previsions_toutes = df_brut.iloc[0:0].copy()
+if activer_moteur:
+    with st.spinner("Calcul des indices, SARR, Momentum et Prévisions..."):
+        df_brut_calcule, df_indices = moteur_saar_complet(df_brut, int(annee_cloture), int(mois_cloture))
+else:
+    df_brut_calcule = df_brut.copy()
+    df_indices = pd.DataFrame()
 
-if activer_saar:
-    df_previsions_toutes = reconstituer_previsions_historiques(df_brut, int(annee_cloture) + 1, float(taux_saar))
-    if afficher_prev_hist:
-        df_previsions_hist = df_previsions_toutes.loc[df_previsions_toutes["annee"].lt(annee_cloture)].copy()
-
-    if annee_cible >= annee_cloture:
-        df_brut = appliquer_projection_saar(
-            df_brut, int(annee_cloture), int(mois_cloture), int(annee_cloture), float(taux_saar)
-        )
-        for a_proj in range(int(annee_cloture) + 1, int(annee_cible) + 1):
-            df_brut = appliquer_projection_saar(
-                df_brut, int(annee_cloture), int(mois_cloture), a_proj, float(taux_saar)
-            )
-
-# FIX #5 : filtrage APRÈS génération des prévisions
-d = df_brut.copy()
+# Application des filtres APRÈS le calcul
+d = df_brut_calcule.copy()
 for col, _ in FILTRES:
-    if selections_filtres[col]:
-        d = d[d[col].isin(selections_filtres[col])]
-if recherche:
-    d = d[d["article"].str.contains(recherche, case=False, na=False)]
+    if selections_filtres[col]: d = d[d[col].isin(selections_filtres[col])]
+if recherche: d = d[d["article"].str.contains(recherche, case=False, na=False)]
 
-d_tendance = pd.concat([d, df_previsions_hist], ignore_index=True).replace("Prévision reconstituée", "Prévision")
+# --- ÉTAPE 6 : CALCUL DU GAP ---
+# On sépare Réalisé et Prévisions
+d_real = d[d["nature"] == "Réalisé"]
+d_prev = d[d["nature"] == "Prévision"]
 
-# --- KPI Cumuls ---
-ANNEE_DEBUT_CUMUL = 2024
-m_real = (
-    d["nature"].eq("Réalisé")
-    & d["annee"].ge(ANNEE_DEBUT_CUMUL)
-    & (d["annee"].lt(annee_cloture) | (d["annee"].eq(annee_cloture) & d["mois"].le(mois_cloture)))
-)
-m_prev = d["nature"].eq("Prévision") & d["annee"].eq(annee_cloture) & d["mois"].gt(mois_cloture)
-vol_real = float(d.loc[m_real, val_choix].sum())
-vol_prev = float(d.loc[m_prev, val_choix].sum())
+vol_real = float(d_real[d_real["annee"] == annee_cloture][val_choix].sum())
+vol_prev_ytd = float(d_prev[d_prev["annee"] == annee_cloture][val_choix].sum())
+total_projete = vol_real + vol_prev_ytd
+gap = objectif_global - total_projete
 
-k1, k2, k3 = st.columns(3)
-k1.metric("Cumul réalisé à date", f"{nombre(vol_real, dec)} {val_choix}")
-k2.metric(f"Cumul prévision ({MOIS[mois_cloture]} → déc)", f"{nombre(vol_prev, dec)} {val_choix}")
-k3.metric("Cumul total (Réalisé + Prév)", f"{nombre(vol_real + vol_prev, dec)} {val_choix}")
+# --- KPI ---
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Réalisé à date (YTD)", f"{nombre(vol_real, dec)} {val_choix}")
+k2.metric(f"Prévisions ({MOIS[mois_cloture]} → Déc)", f"{nombre(vol_prev_ytd, dec)} {val_choix}")
+k3.metric("Total Projeté (Fin d'année)", f"{nombre(total_projete, dec)} {val_choix}")
+k4.metric("GAP vs Objectif", f"{nombre(gap, dec)} {val_choix}", delta=f"{gap:,.0f}" if gap != 0 else None)
 
-# --- Onglets ---
+# --- ONGLETS ---
 st.markdown("---")
-tab_comp, tab_detail, tab_is = st.tabs(["📊 Prévision vs Réalisé", "🔍 Détail des cumuls", "📈 Indice saisonnier"])
+tab_comp, tab_gap, tab_detail, tab_is = st.tabs(["📊 Prévision vs Réalisé", "🎯 GAP vs Objectif", "🔍 Détail des cumuls", "📈 Indices Saisonniers"])
 
 # ==============================================================================
 # ONGLET 1 : PRÉVISION VS RÉALISÉ
 # ==============================================================================
 with tab_comp:
-    st.subheader(f"Historique des volumes : Réalisé vs Prévision (Cible : {annee_cible})")
-
-    df_comp = d_tendance.groupby(["annee", "nature"])[val_choix].sum().unstack("nature").fillna(0.0)
+    st.subheader(f"Évolution des volumes : Réalisé vs Prévision (Cible : {annee_cible})")
+    
+    df_comp = d.groupby(["annee", "nature"])[val_choix].sum().unstack("nature").fillna(0.0)
     toutes_annees = list(range(int(df_comp.index.min()), int(annee_cible) + 1))
     df_comp = df_comp.reindex(toutes_annees).fillna(0.0)
 
-    if "Réalisé" not in df_comp.columns:
-        df_comp["Réalisé"] = 0.0
-    if "Prévision" not in df_comp.columns:
-        df_comp["Prévision"] = 0.0
+    if "Réalisé" not in df_comp.columns: df_comp["Réalisé"] = 0.0
+    if "Prévision" not in df_comp.columns: df_comp["Prévision"] = 0.0
 
     for idx in df_comp.index:
-        if idx < annee_cloture and df_comp.loc[idx, "Prévision"] == 0:
-            df_comp.loc[idx, "Prévision"] = np.nan
-        if idx > annee_cloture and df_comp.loc[idx, "Réalisé"] == 0:
-            df_comp.loc[idx, "Réalisé"] = np.nan
+        if idx < annee_cloture and df_comp.loc[idx, "Prévision"] == 0: df_comp.loc[idx, "Prévision"] = np.nan
+        if idx > annee_cloture and df_comp.loc[idx, "Réalisé"] == 0: df_comp.loc[idx, "Réalisé"] = np.nan
 
     df_comp.index.name = "Année"
     df_comp = df_comp.reset_index()
     df_comp["Année"] = df_comp["Année"].astype(str)
 
-    st.caption(
-        "Ce graphique compare le volume global de chaque année. "
-        "Le 'Réalisé' montre les années clôturées. Pour l'année en cours, la courbe 'Prévision' montre l'atterrissage. "
-        "Les années futures (ex: 2027) affichent la projection SAAR."
-    )
-
     if mode_affichage == "Tableau":
         st.dataframe(df_comp.set_index("Année").round(dec), width="stretch")
     else:
-        df_melt = df_comp.melt(id_vars="Année", var_name="Type", value_name="Volume")
-        df_melt = df_melt.dropna(subset=["Volume"])
-
+        df_melt = df_comp.melt(id_vars="Année", var_name="Type", value_name="Volume").dropna(subset=["Volume"])
         chart = alt.Chart(df_melt).mark_line(
-            interpolate="monotone",
-            point=alt.OverlayMarkDef(filled=True, size=80),
+            interpolate="monotone", point=alt.OverlayMarkDef(filled=True, size=80)
         ).encode(
             x=alt.X("Année:N", sort=df_comp["Année"].tolist(), title="Année"),
             y=alt.Y("Volume:Q", title=f"Volume total ({val_choix})"),
-            color=alt.Color(
-                "Type:N",
-                scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[COULEUR_REALISE, COULEUR_PREVISION]),
-                legend=alt.Legend(title="Type de donnée"),
-            ),
-            strokeDash=alt.StrokeDash(
-                "Type:N",
-                scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[[1, 0], [5, 5]]),
-                legend=None,
-            ),
-            tooltip=["Année", "Type", alt.Tooltip("Volume:Q", format=",.0f")],
+            color=alt.Color("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[COULEUR_REALISE, COULEUR_PREVISION]), legend=alt.Legend(title="Type")),
+            strokeDash=alt.StrokeDash("Type:N", scale=alt.Scale(domain=["Réalisé", "Prévision"], range=[[1, 0], [5, 5]]), legend=None),
+            tooltip=["Année", "Type", alt.Tooltip("Volume:Q", format=",.0f")]
         )
         st.altair_chart(chart.properties(height=450, width="container"), use_container_width=True)
 
 # ==============================================================================
-# ONGLET 2 : DÉTAIL DES CUMULS
+# ONGLET 2 : GAP VS OBJECTIF
+# ==============================================================================
+with tab_gap:
+    st.subheader("Analyse du GAP par Article")
+    st.write("Le GAP est calculé comme : **Objectif Global - (Réalisé à date + Prévisions)**. Un GAP positif signifie qu'il manque du volume pour atteindre l'objectif.")
+    
+    if not d_real.empty and not d_prev.empty:
+        # Réalisé par article
+        real_art = d_real[d_real["annee"] == annee_cloture].groupby("article")[val_choix].sum().rename("Réalisé")
+        prev_art = d_prev[d_prev["annee"] == annee_cloture].groupby("article")[val_choix].sum().rename("Prévisions")
+        
+        df_gap_art = pd.concat([real_art, prev_art], axis=1).fillna(0.0)
+        df_gap_art["Total Projeté"] = df_gap_art["Réalisé"] + df_gap_art["Prévisions"]
+        
+        # On répartit l'objectif global au prorata du poids des articles (ou on laisse l'utilisateur définir)
+        # Ici, pour l'exemple, on applique l'objectif global au prorata du projeté
+        total_proj_global = df_gap_art["Total Projeté"].sum()
+        df_gap_art["Poids"] = df_gap_art["Total Projeté"] / total_proj_global if total_proj_global > 0 else 1.0 / len(df_gap_art)
+        df_gap_art["Objectif Estimé"] = df_gap_art["Poids"] * objectif_global
+        df_gap_art["GAP"] = df_gap_art["Objectif Estimé"] - df_gap_art["Total Projeté"]
+        
+        # Alerte si GAP < 0
+        df_gap_art["Alerte"] = np.where(df_gap_art["GAP"] < 0, "🔴 Sous l'objectif", "🟢 Sur l'objectif")
+        
+        df_gap_art = df_gap_art.sort_values("GAP", ascending=True).reset_index()
+        
+        st.dataframe(
+            df_gap_art.style.format({
+                "Réalisé": "{:,.0f}",
+                "Prévisions": "{:,.0f}",
+                "Total Projeté": "{:,.0f}",
+                "Objectif Estimé": "{:,.0f}",
+                "GAP": "{:,.0f}",
+                "Poids": "{:.1%}"
+            }),
+            width="stretch",
+            hide_index=True
+        )
+    else:
+        st.info("Aucune donnée de prévision pour calculer le GAP.")
+
+# ==============================================================================
+# ONGLET 3 : DÉTAIL DES CUMULS
 # ==============================================================================
 with tab_detail:
-    st.subheader("Détail par article et agence")
-    dims = ["article", "agence", "segment", "produit"]
-    base = d.loc[m_real | m_prev].copy()
-    if not base.empty:
-        base["col_cumul"] = np.where(base["nature"].eq("Réalisé"), base["annee"].map(lambda a: f"Réalisé {a}"), "Prévision")
-        pivot = base.pivot_table(index=dims, columns="col_cumul", values=val_choix, aggfunc="sum").fillna(0.0).reset_index()
-        if mode_affichage == "Tableau":
-            st.dataframe(pivot.round(dec), width="stretch", height=500)
-        else:
-            pivot_agence = base.pivot_table(index="agence", columns="col_cumul", values=val_choix, aggfunc="sum").fillna(0.0)
-            afficher_vue(pivot_agence, mode_affichage, dec, hauteur=450)
+    st.subheader("Détail des volumes par agence et article")
+    
+    if not d.empty:
+        pivot_detail = d.pivot_table(
+            index=["agence", "article"], 
+            columns=["annee", "nature"], 
+            values=val_choix, 
+            aggfunc="sum"
+        ).fillna(0.0)
+        
+        # Aplatir les colonnes
+        pivot_detail.columns = [f"{annee} - {nature}" for annee, nature in pivot_detail.columns]
+        
+        st.dataframe(pivot_detail.round(dec), width="stretch", height=500)
     else:
         st.info("Aucune donnée pour les filtres actifs.")
 
 # ==============================================================================
-# ONGLET 3 : INDICE SAISONNIER
+# ONGLET 4 : INDICES SAISONNIERS
 # ==============================================================================
 with tab_is:
-    st.subheader("Indice de saisonnalité par mois")
-    annees_reelles = sorted(int(a) for a in df_brut.loc[df_brut["nature"].eq("Réalisé"), "annee"].unique())
-    annees_debut_possibles = annees_reelles[:-1]
-
-    indices_saisonnalite = pd.DataFrame()
-    if annees_debut_possibles:
-        c1, c2 = st.columns(2)
-        annee_debut = c1.selectbox("Année début", options=annees_debut_possibles, index=0, key="sais_deb")
-        annees_fin = [a for a in annees_reelles if a > annee_debut]
-        if st.session_state.get("sais_fin") not in annees_fin:
-            st.session_state["sais_fin"] = annees_fin[-1]
-        annee_fin = c2.selectbox("Année fin", options=annees_fin, key="sais_fin")
-
-        d_is = d.loc[~d["article"].astype(str).str.lower().str.contains("total", na=False)]
-        indices_saisonnalite = calculer_indices_saisonnalite(
-            d_is, val_choix, int(annee_debut), int(annee_fin), int(annee_cloture), int(mois_cloture),
-        )
-
-        if not indices_saisonnalite.empty and indices_saisonnalite["Indice saisonnier"].notna().any():
-            df_graph_is = indices_saisonnalite.set_index("Mois")[["Indice saisonnier"]]
-            afficher_vue(df_graph_is, mode_affichage, dec=2, hauteur=350)
-            st.markdown("#### Tableau détaillé")
-            st.dataframe(indices_saisonnalite.round(2), width="stretch", hide_index=True)
-        else:
-            st.info("Données insuffisantes pour calculer l'IS.")
+    st.subheader("Indices Saisonniers (Moy_Mois / Moy_Ann)")
+    
+    if not df_indices.empty:
+        # Afficher un échantillon des indices calculés
+        st.write("Voici les indices calculés par Agence, Article et Mois. Un indice de 1.0 correspond à la moyenne annuelle.")
+        
+        # Filtre dynamique sur l'agence pour l'affichage
+        agence_is = st.selectbox("Filtrer par agence", options=["Toutes"] + sorted(df_indices["agence"].unique().tolist()))
+        df_is_filtre = df_indices if agence_is == "Toutes" else df_indices[df_indices["agence"] == agence_is]
+        
+        pivot_is = df_is_filtre.pivot_table(index="article", columns="mois", values="Indice", aggfunc="first").fillna(1.0)
+        pivot_is.columns = [MOIS[c-1] for c in pivot_is.columns]
+        
+        st.dataframe(pivot_is.round(2).style.background_gradient(cmap="RdYlGn", axis=None), width="stretch")
     else:
-        st.info("Il faut au moins deux années de réalisés pour l'IS.")
+        st.info("Les indices n'ont pas été calculés.")
 
-# --- Export ---
+# --- Export Excel ---
 st.markdown("---")
 tampon = io.BytesIO()
-written = 0
 with pd.ExcelWriter(tampon, engine="openpyxl") as xl:
     if not d.empty:
-        d.to_excel(xl, index=False, sheet_name="Données Filtrées")
-        written += 1
-    if not df_previsions_toutes.empty:
-        df_previsions_toutes.to_excel(xl, index=False, sheet_name="Prévisions Historiques")
-        written += 1
-    df_annee_cible = d_tendance[d_tendance["annee"] == annee_cible].copy()
-    if not df_annee_cible.empty:
-        df_annee_cible.to_excel(xl, index=False, sheet_name=f"Prévisions {annee_cible}")
-        written += 1
+        d.to_excel(xl, index=False, sheet_name="Données SARR")
+    if not df_indices.empty:
+        df_indices.to_excel(xl, index=False, sheet_name="Indices Saisonniers")
+    if 'df_gap_art' in locals() and not df_gap_art.empty:
+        df_gap_art.to_excel(xl, index=False, sheet_name="Analyse GAP")
 
-if written == 0:
-    st.warning("⚠️ Aucune donnée disponible pour l'export.")
-else:
-    st.download_button(
-        "📥 Télécharger l'export complet (.xlsx)",
-        data=tampon.getvalue(),
-        file_name=f"Export_SOP_{annee_cible}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
-    )
+st.download_button(
+    "📥 Télécharger l'export complet (.xlsx)",
+    data=tampon.getvalue(),
+    file_name=f"Export_SOP_{annee_cible}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    type="primary",
+)

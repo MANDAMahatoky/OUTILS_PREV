@@ -210,9 +210,7 @@ def assurer_dimensions_filtres(df: pd.DataFrame, catalogue: dict, types: dict) -
         if col not in df.columns:
             df[col] = "Non renseigné"
 
-        # 🔧 FIX : cast en object AVANT toute affectation de chaîne.
-        # Sans cela, une colonne numérique (float64, ex. contenance_ci = 0.0 par défaut)
-        # provoque un LossySetitemError / TypeError quand on lui affecte "Non renseigné".
+        # FIX 2026-04 : cast en object AVANT affectation de chaîne.
         if df[col].dtype != object:
             df[col] = df[col].astype(object)
 
@@ -220,7 +218,9 @@ def assurer_dimensions_filtres(df: pd.DataFrame, catalogue: dict, types: dict) -
             champ = "type_format_lib" if col == "type_format" else col
             articles = df["article"].astype(str).str.lower().str.strip()
             correspondances = {a: m.get(champ, "Non renseigné") for a, m in catalogue.items()}
-            masque_vide = df[col].astype(str).str.strip().isin(["", "Non renseigné", "nan", "None", "0.0", "0"])
+            masque_vide = df[col].astype(str).str.strip().isin(
+                ["", "Non renseigné", "nan", "None", "0.0", "0"]
+            )
             df.loc[masque_vide, col] = (
                 articles[masque_vide].map(correspondances).fillna("Non renseigné")
             )
@@ -273,8 +273,14 @@ def _detecter_format_pivote(df: pd.DataFrame) -> bool:
     mois1 = df.iloc[:, 1].map(normaliser_mois)
     return annee0.between(1990, 2100).sum() > len(df) * 0.3 and mois1.notna().sum() > len(df) * 0.3
 
+def _extraire_article(nature_str: str) -> str:
+    """Retire le préfixe numérique d'un nom d'article : '190-Cristalline 100 cl PET' -> 'Cristalline 100 cl PET'."""
+    match = re.match(r"^\d+-(.*)$", str(nature_str).strip())
+    if match:
+        return match.group(1).strip()
+    return str(nature_str).strip()
+
 def _resoudre_article(produit: str, segment: str) -> str:
-    """Résout un nom d'article (potentiellement suffixé du segment) vers le nom canonique du catalogue."""
     produit_clean = str(produit).strip()
     if not produit_clean:
         return produit_clean
@@ -294,26 +300,38 @@ def _resoudre_article(produit: str, segment: str) -> str:
 
 def normaliser_lignes_data_brut(df_raw: pd.DataFrame, articles_referentiel: list[str]) -> pd.DataFrame:
     if _detecter_format_pivote(df_raw):
-        rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])}
+        rename = {
+            df_raw.columns[i]: col
+            for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])
+        }
         df = df_raw.rename(columns=rename).copy()
         df["annee"] = pd.to_numeric(df["annee"], errors="coerce").astype("Int64")
         df["mois"] = df["mois"].map(normaliser_mois)
         df = df.dropna(subset=["annee", "mois"]).copy()
         df["mois"] = df["mois"].astype(int)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
+
         for c in ("segment", "produit", "agence", "nature"):
             df[c] = df[c].astype(str).str.strip()
-        df = df[
-            ~(
-                df["segment"].str.contains("total", case=False)
-                | df["produit"].str.contains("total", case=False)
-                | df["agence"].str.contains("total", case=False)
-            )
-        ].copy()
+
+        # FIX 2026-04 : filtrer aussi les lignes où 'nature' (col F) contient 'Total'.
+        masque_total = (
+            df["segment"].str.contains("total", case=False, na=False)
+            | df["produit"].str.contains("total", case=False, na=False)
+            | df["agence"].str.contains("total", case=False, na=False)
+            | df["nature"].str.contains("total", case=False, na=False)
+        )
+        df = df[~masque_total].copy()
+
         df["periode"] = df["annee"].astype(str) + "-" + df["mois"].astype(str).str.zfill(2)
         df["colis"] = 0.0
         df["origine"] = "Donnée source"
-        df["article"] = df.apply(lambda r: _resoudre_article(r["produit"], r["segment"]), axis=1)
+
+        # FIX 2026-04 : l'article réel est en colonne F (nature). On l'extrait
+        # en retirant le préfixe numérique, puis on le résout contre le catalogue.
+        df["article"] = df["nature"].apply(_extraire_article)
+        df["article"] = df["article"].apply(lambda a: _resoudre_article(a, ""))
+
         return df.reset_index(drop=True)
     return df_raw
 
@@ -716,7 +734,7 @@ if df_brut is None or df_brut.empty:
     st.warning("⚠️ Aucune donnée. Importez un fichier via la barre latérale.")
     st.stop()
 
-# --- Application des filtres ---
+# --- Application des filtres (UI seulement) ---
 st.sidebar.markdown("---")
 st.sidebar.header("🔍 Filtres")
 if st.sidebar.button("🔄 Réinitialiser les filtres"):
@@ -742,21 +760,16 @@ for col, label in FILTRES:
         st.session_state[cle] = [v for v in st.session_state[cle] if v in options]
     selections_filtres[col] = st.sidebar.multiselect(label, options, key=cle, placeholder="Tous")
 
-d = df_brut.copy()
-for col, _ in FILTRES:
-    if selections_filtres[col]:
-        d = d[d[col].isin(selections_filtres[col])]
 recherche = st.sidebar.text_input("🔎 Recherche article", "")
-if recherche:
-    d = d[d["article"].str.contains(recherche, case=False, na=False)]
 
-# --- SAAR & Cumuls ---
+# --- SAAR & Cumuls (UI) ---
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Moteur SAAR")
 activer_saar = st.sidebar.checkbox("Activer la projection SAAR", value=True)
 afficher_prev_hist = st.sidebar.checkbox("Afficher les prévisions historiques", value=True)
 taux_saar = st.sidebar.number_input("Hausse annuelle minimale (%)", min_value=0.0, value=1.0, step=0.5)
 
+# --- Moteur SAAR (calculs) ---
 df_previsions_hist = df_brut.iloc[0:0].copy()
 df_previsions_toutes = df_brut.iloc[0:0].copy()
 
@@ -766,9 +779,22 @@ if activer_saar:
         df_previsions_hist = df_previsions_toutes.loc[df_previsions_toutes["annee"].lt(annee_cloture)].copy()
 
     if annee_cible >= annee_cloture:
-        df_brut = appliquer_projection_saar(df_brut, int(annee_cloture), int(mois_cloture), int(annee_cloture), float(taux_saar))
+        df_brut = appliquer_projection_saar(
+            df_brut, int(annee_cloture), int(mois_cloture), int(annee_cloture), float(taux_saar)
+        )
         for a_proj in range(int(annee_cloture) + 1, int(annee_cible) + 1):
-            df_brut = appliquer_projection_saar(df_brut, int(annee_cloture), int(mois_cloture), a_proj, float(taux_saar))
+            df_brut = appliquer_projection_saar(
+                df_brut, int(annee_cloture), int(mois_cloture), a_proj, float(taux_saar)
+            )
+
+# FIX 2026-04 : filtrage APRÈS la génération des prévisions pour que
+# `d` et `d_tendance` contiennent bien les projections 2026/2027.
+d = df_brut.copy()
+for col, _ in FILTRES:
+    if selections_filtres[col]:
+        d = d[d[col].isin(selections_filtres[col])]
+if recherche:
+    d = d[d["article"].str.contains(recherche, case=False, na=False)]
 
 d_tendance = pd.concat([d, df_previsions_hist], ignore_index=True).replace("Prévision reconstituée", "Prévision")
 

@@ -9,96 +9,8 @@ st.set_page_config(page_title="Étape 1 : Données Brutes", layout="wide")
 st.title("Étape 1 : Ingestion & Enrichissement des Données")
 
 # ==============================================================================
-# RÉFÉRENTIEL (Simule le Fichier PDF)
-# ==============================================================================
-def generer_catalogue_exact():
-    data_raw = [
-        ("Booster Appel-Mix 50CL VER", "PREMIUM", "CU"),
-        ("Booster Tornado 50CL VER VER", "PREMIUM", "CU"),
-        ("Caprice Ananas 100 cl VER", "MILIEU", "FC"),
-        ("Caprice Ananas 150 cl PET", "PREMIUM", "FC"),
-        ("Caprice Ananas 30 cl VER", "MILIEU", "IC"),
-        ("Caprice Bonbon Anglais 100 cl VER", "MILIEU", "FC"),
-        ("Caprice Bonbon Anglais 150 cl PET", "PREMIUM", "FC"),
-        ("Caprice Bonbon Anglais 30 cl VER", "MILIEU", "IC"),
-        ("Caprice Bonbon Anglais 33 cl CAN", "MILIEU", "IC"),
-        ("Caprice Bonbon Anglais 35 cl PET", "MILIEU", "IC"),
-        ("Caprice Bonbon Anglais 50 cl PET", "MILIEU", "IC"),
-        ("Caprice Grenadine 100 cl VER", "MILIEU", "FC"),
-        ("Caprice Grenadine 150 cl PET", "PREMIUM", "FC"),
-        ("Caprice Grenadine 30 cl VER", "MILIEU", "IC"),
-        ("Caprice Grenadine 33 cl CAN", "MILIEU", "IC"),
-        ("Caprice Grenadine 35 cl PET", "MILIEU", "IC"),
-        ("Caprice Grenadine 50 cl PET", "MILIEU", "IC"),
-        ("Caprice Orange 100 cl VER", "MILIEU", "FC"),
-        ("Caprice Orange 150 cl PET", "PREMIUM", "FC"),
-        ("Caprice Orange 30 cl VER", "MILIEU", "IC"),
-        ("Caprice Orange 33 cl CAN", "MILIEU", "IC"),
-        ("Caprice Orange 35 cl PET", "MILIEU", "IC"),
-        ("Caprice Orange 50 cl PET", "MILIEU", "IC"),
-        ("Caprice Citron 100 cl VER", "MILIEU", "FC"),
-        ("Caprice Citron 150 cl PET", "PREMIUM", "FC"),
-        ("Caprice Citron 30 cl VER", "MILIEU", "IC"),
-        ("Caprice Citron 50 cl PET", "MILIEU", "IC"),
-        ("Tonic 100 cl VER", "MILIEU", "IC"),
-        ("Tonic 30 cl VER", "MILIEU", "IC"),
-        ("World Cola 100cl VER", "MILIEU", "FC"),
-        ("World Cola 100cl WOCO VER", "MILIEU", "FC"),
-        ("World Cola 150cl PET", "PREMIUM", "FC"),
-        ("World Cola 30cl VER", "MILIEU", "IC"),
-        ("World Cola 30cl WOCO VER", "MILIEU", "IC"),
-        ("World Cola 33 cl CAN", "MILIEU", "IC"),
-        ("World Cola 35cl PET", "MILIEU", "IC"),
-        ("World Cola 50cl PET", "MILIEU", "IC"),
-        ("Beaufort 33 CL CAN", "MILIEU", "SS"),
-        ("Beaufort 33CL VER", "PREMIUM", "SS"),
-        ("FRESH 33 cl CAN", "PREMIUM", "IC"),
-        ("THB Fresh 33 cl VER", "ENTREE", "SS"),
-        ("THB Fresh 65 cl VER", "ENTREE", "CU"),
-        ("Gold 8 50 cl CAN", "PREMIUM", "SS"),
-        ("Gold 8 50 cl VER", "PREMIUM", "SS"),
-        ("Gold Blanche 33cl VER", "PREMIUM", "SS"),
-        ("Gold Blanche 50 cl CAN", "PREMIUM", "SS"),
-        ("Gold Blanche 50 cl VER", "PREMIUM", "SS"),
-        ("Gold Blonde 33 cl VER", "PREMIUM", "SS"),
-        ("Gold Blonde 50 cl CAN", "PREMIUM", "SS"),
-        ("Gold Blonde 50 cl VER", "PREMIUM", "SS"),
-        ("Gold Blonde 65 cl VER", "PREMIUM", "CU"),
-        ("Queen s 65 cl VER", "PREMIUM", "CU"),
-        ("THB Pilsener 33 cl VER", "MILIEU", "SS"),
-        ("THB Pilsener 50 cl CAN", "MILIEU", "CU"),
-        ("THB Pilsener 65 cl VER", "MILIEU", "CU"),
-        ("Cristal 100 cl VER", "PREMIUM", "IC"),
-        ("Cristal 150 cl PET", "PREMIUM", "FC"),
-        ("Cristal 30 cl VER", "PREMIUM", "IC"),
-        ("Cristal 50 cl VER", "PREMIUM", "IC"),
-        ("Cristalline 100 cl PET", "PREMIUM", "IC"),
-        ("Cristalline 200 cl PET", "PREMIUM", "FC"),
-        ("Eau vive 150 cl PET", "MILIEU", "FC"),
-        ("Eau vive 50 cl PET", "MILIEU", "IC"),
-        ("Eau vive 50 cl VER", "MILIEU", "IC"),
-        ("FOSA 50 cl CAN", "PREMIUM", "IC"),
-        ("XXL 30cl BOB VER", "PREMIUM", "IC"),
-        ("XXL 30cl VER", "PREMIUM", "IC"),
-        ("XXL 33 cl CAN", "PREMIUM", "IC"),
-        ("XXL 35cl PET", "PREMIUM", "IC"),
-        # Ajout d'articles manquants vus dans votre capture
-        ("Skol 50cl VER", "MILIEU", "IC"),
-        ("Skol 65cl VER", "MILIEU", "CU"),
-        ("Castel beer 50cl VER", "MILIEU", "IC"),
-        ("Libertalia 50cl VER", "MILIEU", "IC"),
-    ]
-    return pd.DataFrame(data_raw, columns=["article", "positionnement", "occasion"])
-
-CATALOGUE = generer_catalogue_exact()
-
-# ==============================================================================
 # FONCTIONS UTILITAIRES
 # ==============================================================================
-def normaliser_nom(nom: str) -> str:
-    texte = unicodedata.normalize("NFD", str(nom)).encode("ascii", "ignore").decode("utf-8")
-    return re.sub(r"[^a-z0-9_]+", "_", texte.strip().lower()).strip("_")
-
 def normaliser_mois(valeur) -> int:
     if pd.isna(valeur): return 1
     if isinstance(valeur, (int, float)): return int(valeur)
@@ -123,24 +35,45 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : INGESTION
+# LECTURE DES DEUX FICHIERS
 # ==============================================================================
-def charger_et_enrichir(contenu_excel: bytes) -> pd.DataFrame:
+def lire_referentiel(contenu_excel: bytes) -> pd.DataFrame:
+    """Lit le fichier Classeur2.xlsx et nettoie les colonnes."""
+    flux = io.BytesIO(contenu_excel)
+    df_ref = pd.read_excel(flux, sheet_name="Ref actif")
+    
+    # On garde uniquement les colonnes utiles
+    colonnes_voulues = ["Article", "Positionnement", "Occasion", "Contenance (hl)"]
+    
+    # Vérifier que les colonnes existent (au cas où l'utilisateur change les noms)
+    for col in colonnes_voulues:
+        if col not in df_ref.columns:
+            if col == "Contenance (hl)":
+                df_ref["Contenance (hl)"] = 0.0
+            else:
+                df_ref[col] = "Non renseigné"
+                
+    df_ref = df_ref[colonnes_voulues].copy()
+    df_ref = df_ref.rename(columns={"Article": "article", "Contenance (hl)": "contenance_hl"})
+    
+    # Nettoyage de l'article pour faciliter la jointure
+    df_ref["article"] = df_ref["article"].astype(str).str.strip()
+    return df_ref
+
+def lire_ventes(contenu_excel: bytes) -> pd.DataFrame:
+    """Lit le fichier DATA_BRUT.xlsx et extrait les données."""
     flux = io.BytesIO(contenu_excel)
     df_raw = pd.read_excel(flux, sheet_name=0, header=None)
-    
-    # Sauvegarde du nombre de lignes initial
-    nb_lignes_initial = len(df_raw)
     
     if detecter_format_pivote(df_raw):
         rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])}
         df = df_raw.rename(columns=rename).copy()
         
-        df["annee"] = pd.to_numeric(df["annee"], errors="coerce").astype("Int64")
+        df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
         df["mois"] = df["mois"].apply(normaliser_mois)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
         
-        # Suppression des lignes "Total" (les vrais totaux)
+        # Suppression des lignes "Total" (les vrais totaux du tableau, pas les articles)
         masque_total = (
             df["segment"].astype(str).str.contains("total", case=False, na=False) |
             df["produit"].astype(str).str.contains("total", case=False, na=False) |
@@ -149,61 +82,67 @@ def charger_et_enrichir(contenu_excel: bytes) -> pd.DataFrame:
         )
         df = df[~masque_total].copy()
         
+        # Extraction de l'article
         df["article"] = df["nature"].apply(extraire_article)
         df["agence"] = df["agence"].astype(str).str.strip()
         
-        # On ne supprime PAS les lignes avec des NaN, on les remplace
+        # Conservation des lignes avec NaN (remplacement par défaut pour ne rien perdre)
         df["annee"] = df["annee"].fillna(2026).astype(int)
         df["mois"] = df["mois"].fillna(1).astype(int)
         
+        return df
     else:
-        # Format tabulaire classique
-        df_raw = pd.read_excel(flux, sheet_name=0)
-        df_raw.columns = [normaliser_nom(c) for c in df_raw.columns]
-        df = df_raw.rename(columns={"volume": "hl", "quantite": "hl"}).copy()
-        df["annee"] = pd.to_numeric(df.get("annee", 2026), errors="coerce").fillna(2026).astype(int)
-        df["mois"] = df.get("mois", 1).apply(normaliser_mois)
-        df["article"] = df.get("article", "Non renseigné").astype(str).str.strip()
-        df["agence"] = df.get("agence", "Non renseigné").astype(str).str.strip()
-        df["hl"] = pd.to_numeric(df.get("hl", 0.0), errors="coerce").fillna(0.0)
-
-    # Fusion avec le Référentiel
-    df = df.merge(CATALOGUE, on="article", how="left")
-    df["positionnement"] = df["positionnement"].fillna("Non renseigné")
-    df["occasion"] = df["occasion"].fillna("Non renseigné")
-    
-    return df, nb_lignes_initial
+        st.error("Format de fichier de ventes non reconnu.")
+        return pd.DataFrame()
 
 # ==============================================================================
 # INTERFACE STREAMLIT
 # ==============================================================================
-st.write("Chargez le fichier `DATA_BRUT.xlsx` pour générer le DataFrame enrichi.")
+col1, col2 = st.columns(2)
+with col1:
+    fichier_ventes = st.file_uploader("1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="ventes")
+with col2:
+    fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"], key="ref")
 
-fichier = st.file_uploader("Fichier Excel (.xlsx)", type=["xlsx"])
-
-if fichier is not None:
-    with st.spinner("Lecture et enrichissement des données..."):
-        df_enrichi, nb_lignes_initial = charger_et_enrichir(fichier.getvalue())
+if fichier_ventes is not None and fichier_ref is not None:
+    with st.spinner("Lecture et fusion des données..."):
+        # 1. Lecture
+        df_ventes = lire_ventes(fichier_ventes.getvalue())
+        df_ref = lire_referentiel(fichier_ref.getvalue())
         
-    st.success(f"✅ Fichier lu avec succès. Le fichier source contenait {nb_lignes_initial} lignes.")
+        # 2. Fusion
+        df_enrichi = df_ventes.merge(df_ref, on="article", how="left")
+        
+        # Remplissage des valeurs manquantes après jointure
+        df_enrichi["positionnement"] = df_enrichi["positionnement"].fillna("Non renseigné")
+        df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné")
+        df_enrichi["contenance_hl"] = df_enrichi["contenance_hl"].fillna(0.0)
+        
+    st.success("✅ Données fusionnées avec succès !")
     
-    st.subheader("Aperçu du DataFrame enrichi")
-    st.dataframe(df_enrichi.head(50), width="stretch")
-    
+    # --- Vérifications ---
     st.subheader("Vérifications de base")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Articles uniques", df_enrichi["article"].nunique())
-    col2.metric("Agences", df_enrichi["agence"].nunique())
-    col3.metric("Volume total (HL)", f"{df_enrichi['hl'].sum():,.0f}")
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Lignes de ventes", len(df_ventes))
+    kpi2.metric("Lignes après fusion", len(df_enrichi))
+    kpi3.metric("Articles uniques", df_enrichi["article"].nunique())
+    kpi4.metric("Volume total (HL)", f"{df_enrichi['hl'].sum():,.0f}")
     
-    # Vérification de l'enrichissement
+    if len(df_ventes) == len(df_enrichi):
+        st.success("🎉 Aucune ligne de vente n'a été perdue lors de la fusion.")
+    else:
+        st.error("⚠️ Attention : Des lignes ont été perdues ou dupliquées lors de la fusion.")
+    
+    # Diagnostic des articles non trouvés
     non_renseignes = df_enrichi[df_enrichi["positionnement"] == "Non renseigné"]
     if not non_renseignes.empty:
-        st.warning(f"⚠️ {len(non_renseignes)} lignes n'ont pas trouvé leur correspondance dans le référentiel (mais elles sont bien conservées dans le tableau).")
-        
-        # Afficher les articles manquants
+        st.warning(f"⚠️ {len(non_renseignes)} lignes n'ont pas trouvé leur correspondance dans le Référentiel (Classeur2).")
         articles_manquants = non_renseignes["article"].unique()
         st.write("🔍 **Articles non trouvés (Top 10) :**")
         st.write(articles_manquants[:10])
     else:
-        st.success("🎉 100% des lignes ont trouvé leur correspondance !")
+        st.success("🎉 100% des articles ont été trouvés dans le Référentiel !")
+        
+    # --- Aperçu ---
+    st.subheader("Aperçu du DataFrame enrichi")
+    st.dataframe(df_enrichi.head(100), width="stretch")

@@ -38,7 +38,6 @@ MOIS_NOMS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "
 
 COULEUR_REALISE = "#9E6315EF"
 COULEUR_PREVISION = "#9BD69E"
-COULEUR_OBJECTIF = "#d7193f"
 
 FILTRES = [
     ("article", "🛒 Article"),
@@ -371,6 +370,10 @@ def moteur_saar_complet(df_brut: pd.DataFrame, annee_cutoff: int, mois_cutoff: i
     pivot = pivot.merge(moy_ann.rename("Moy_Ann"), on=["agence", "article"], how="left")
     pivot["Indice"] = np.where(pivot["Moy_Ann"] > 0, pivot["Moy_Mois"] / pivot["Moy_Ann"], 1.0)
     
+    # Normalisation de l'indice pour que la somme des 12 mois = 12.0
+    pivot["Sum_Indice"] = pivot.groupby(["agence", "article"])["Indice"].transform("sum")
+    pivot["Indice"] = np.where(pivot["Sum_Indice"] > 0, pivot["Indice"] / pivot["Sum_Indice"] * 12.0, 1.0)
+    
     # Sauvegarde des indices sous forme de dict pour lookup rapide
     dict_indices = pivot.set_index(["agence", "article", "mois"])["Indice"].to_dict()
     
@@ -383,7 +386,6 @@ def moteur_saar_complet(df_brut: pd.DataFrame, annee_cutoff: int, mois_cutoff: i
     df_hist = df_hist.sort_values(["agence", "article", "annee", "mois"])
     
     # Momentum : AVERAGE(SARR_M - SARR_M-1, ...) sur les 3 derniers mois
-    # On utilise shift(1), shift(2), shift(3)
     df_hist["SARR_prev1"] = df_hist.groupby(["agence", "article"])["SARR"].shift(1)
     df_hist["SARR_prev2"] = df_hist.groupby(["agence", "article"])["SARR"].shift(2)
     df_hist["SARR_prev3"] = df_hist.groupby(["agence", "article"])["SARR"].shift(3)
@@ -410,6 +412,10 @@ def moteur_saar_complet(df_brut: pd.DataFrame, annee_cutoff: int, mois_cutoff: i
         base = row["Base"]
         momentum = row["Momentum"]
         
+        # FIX : Le momentum est un écart de rythme mensuel. 
+        # On le divise par 12 pour le lisser sur l'année et éviter les pics aberrants.
+        momentum_lisse = momentum / 12.0
+        
         for an in annees_a_projeter:
             for mo in range(1, 13):
                 if an == annee_cutoff and mo <= mois_cutoff:
@@ -418,7 +424,7 @@ def moteur_saar_complet(df_brut: pd.DataFrame, annee_cutoff: int, mois_cutoff: i
                 indice_mois = dict_indices.get((ag, art, mo), 1.0)
                 
                 # Formule du diagramme : Prévision = (Indice * Base) + Momentum
-                prev_hl = (indice_mois * base) + momentum
+                prev_hl = (indice_mois * base) + momentum_lisse
                 prev_hl = max(0.0, prev_hl) # Pas de volumes négatifs
                 
                 projections.append({
@@ -613,7 +619,7 @@ gap = objectif_global - total_projete
 # --- KPI ---
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Réalisé à date (YTD)", f"{nombre(vol_real, dec)} {val_choix}")
-k2.metric(f"Prévisions ({MOIS[mois_cloture]} → Déc)", f"{nombre(vol_prev_ytd, dec)} {val_choix}")
+k2.metric(f"Prévisions ({MOIS[mois_cloture-1]} → Déc)", f"{nombre(vol_prev_ytd, dec)} {val_choix}")
 k3.metric("Total Projeté (Fin d'année)", f"{nombre(total_projete, dec)} {val_choix}")
 k4.metric("GAP vs Objectif", f"{nombre(gap, dec)} {val_choix}", delta=f"{gap:,.0f}" if gap != 0 else None)
 
@@ -672,8 +678,7 @@ with tab_gap:
         df_gap_art = pd.concat([real_art, prev_art], axis=1).fillna(0.0)
         df_gap_art["Total Projeté"] = df_gap_art["Réalisé"] + df_gap_art["Prévisions"]
         
-        # On répartit l'objectif global au prorata du poids des articles (ou on laisse l'utilisateur définir)
-        # Ici, pour l'exemple, on applique l'objectif global au prorata du projeté
+        # On répartit l'objectif global au prorata du poids des articles
         total_proj_global = df_gap_art["Total Projeté"].sum()
         df_gap_art["Poids"] = df_gap_art["Total Projeté"] / total_proj_global if total_proj_global > 0 else 1.0 / len(df_gap_art)
         df_gap_art["Objectif Estimé"] = df_gap_art["Poids"] * objectif_global
@@ -721,13 +726,12 @@ with tab_detail:
         st.info("Aucune donnée pour les filtres actifs.")
 
 # ==============================================================================
-# ONGLET 4 : INDICES SAISONNIERS
+# ONGLET 4 : INDICES SAISONNIERS (FIX MATPLOTLIB)
 # ==============================================================================
 with tab_is:
     st.subheader("Indices Saisonniers (Moy_Mois / Moy_Ann)")
     
     if not df_indices.empty:
-        # Afficher un échantillon des indices calculés
         st.write("Voici les indices calculés par Agence, Article et Mois. Un indice de 1.0 correspond à la moyenne annuelle.")
         
         # Filtre dynamique sur l'agence pour l'affichage
@@ -737,7 +741,12 @@ with tab_is:
         pivot_is = df_is_filtre.pivot_table(index="article", columns="mois", values="Indice", aggfunc="first").fillna(1.0)
         pivot_is.columns = [MOIS[c-1] for c in pivot_is.columns]
         
-        st.dataframe(pivot_is.round(2).style.background_gradient(cmap="RdYlGn", axis=None), width="stretch")
+        # FIX : Remplacement de .style.background_gradient (qui requiert matplotlib) 
+        # par un formateur texte simple, ou affichage standard.
+        st.dataframe(
+            pivot_is.round(2).style.format("{:.2f}"), 
+            width="stretch"
+        )
     else:
         st.info("Les indices n'ont pas été calculés.")
 

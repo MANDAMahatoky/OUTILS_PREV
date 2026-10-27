@@ -236,7 +236,13 @@ if fichier_ventes is not None and fichier_ref is not None:
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Unités"], index=0)
 
+    # --- CALCULS ---
     table_indices, df_sarr, df_previsions = calculer_previsions_excel(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo)
+
+    # --- GESTION DES CAS VIDES (FIX) ---
+    if df_previsions.empty or df_sarr.empty:
+        st.warning("⚠️ Aucune donnée calculée. Veuillez vérifier vos filtres et vos dates de Cutoff.")
+        st.stop()
 
     st.success(f"✅ Calculs effectués en HL. Affichage configuré en {unite_affichage}.")
     
@@ -309,7 +315,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         if not df_glissant.empty:
             cols_to_show = ["Agence", "Article"]
-            # On affiche d'abord M-1 pour la comparaison directe avec Excel
             for i in [1, 2, 3, 4]: 
                 cols_to_show.extend([f"Vol M-{i}", f"Coef M-{i}", f"SARR M-{i}"])
             
@@ -326,17 +331,16 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_detail:
         st.subheader(f"Détail mensuel des Prévisions (en {label})")
-        if not df_previsions.empty:
-            st.dataframe(
-                df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base_Aff", "Momentum_Aff", "Prev_Aff"]].sort_values(["annee", "mois", "agence", "article"]),
-                column_config={
-                    "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
-                    "Base_Aff": st.column_config.NumberColumn("Base", format="%.0f"),
-                    "Momentum_Aff": st.column_config.NumberColumn("Momentum", format="%.0f"),
-                    "Prev_Aff": st.column_config.NumberColumn("Prévision", format="%.0f"),
-                },
-                use_container_width=True
-            )
+        st.dataframe(
+            df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base_Aff", "Momentum_Aff", "Prev_Aff"]].sort_values(["annee", "mois", "agence", "article"]),
+            column_config={
+                "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
+                "Base_Aff": st.column_config.NumberColumn("Base", format="%.0f"),
+                "Momentum_Aff": st.column_config.NumberColumn("Momentum", format="%.0f"),
+                "Prev_Aff": st.column_config.NumberColumn("Prévision", format="%.0f"),
+            },
+            use_container_width=True
+        )
 
     with tab_bilan:
         st.subheader(f"Bilan Annuel {annee_cible} (en {label})")

@@ -231,16 +231,14 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_cible = st.sidebar.number_input("Année Cible", min_value=2026, max_value=2035, value=2027)
     mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=11, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    # --- SÉLECTEUR DE FENÊTRE HISTORIQUE ---
     st.sidebar.markdown("---")
     st.sidebar.header("🛠️ Options de Calcul")
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Unités"], index=0)
 
-    # --- CALCULS ---
     table_indices, df_sarr, df_previsions = calculer_previsions_excel(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo)
 
-    st.success(f"✅ Calculs effectués en HL (Fenêtre : {fenetre_histo}). Affichage configuré en {unite_affichage}.")
+    st.success(f"✅ Calculs effectués en HL. Affichage configuré en {unite_affichage}.")
     
     tab_glissant, tab_detail, tab_bilan = st.tabs([
         "📅 Vue Glissante (Vérification M-1 à M-12)",
@@ -268,7 +266,7 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_glissant:
         st.subheader(f"Vérification des SARR (en {label})")
-        st.write("Comparez la colonne `SARR M-1` avec votre fichier Excel pour valider les fondations.")
+        st.write("Comparez la colonne `Vol M-1` avec le volume de votre Excel, et `Coef M-1` avec le coefficient.")
         
         df_filtre = df_sarr.copy()
         if sel_agences: df_filtre = df_filtre[df_filtre["agence"].isin(sel_agences)]
@@ -301,6 +299,7 @@ if fichier_ventes is not None and fichier_ref is not None:
                 else:
                     vol, coef, sarr = 0.0, 1.0, 0.0
                     
+                ligne[f"Vol M-{i}"] = vol
                 ligne[f"Coef M-{i}"] = coef
                 ligne[f"SARR M-{i}"] = sarr
             
@@ -310,14 +309,15 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         if not df_glissant.empty:
             cols_to_show = ["Agence", "Article"]
-            for i in range(1, 13):
-                cols_to_show.extend([f"Coef M-{i}", f"SARR M-{i}"])
+            # On affiche d'abord M-1 pour la comparaison directe avec Excel
+            for i in [1, 2, 3, 4]: 
+                cols_to_show.extend([f"Vol M-{i}", f"Coef M-{i}", f"SARR M-{i}"])
             
             cols_to_show = [c for c in cols_to_show if c in df_glissant.columns]
             
             format_dict = {}
             for col in cols_to_show:
-                if "SARR" in col:
+                if "SARR" in col or "Vol" in col:
                     format_dict[col] = "{:,.1f}"
                 elif "Coef" in col:
                     format_dict[col] = "{:.2f}"

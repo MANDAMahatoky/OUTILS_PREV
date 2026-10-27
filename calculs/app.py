@@ -222,7 +222,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Cible")
     
-    # LE BOUTON D'ACTIVATION DU CUTOFF
     use_cutoff = st.sidebar.checkbox("Activer le Cutoff (ignorer les mois passés)", value=True)
     
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
@@ -238,9 +237,8 @@ if fichier_ventes is not None and fichier_ref is not None:
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
     
-    taux_croissance = st.sidebar.number_input("Taux de croissance annuel (%)", min_value=-100.0, max_value=100.0, value=0.0, step=1.0, help="Applique une croissance (ou décroissance) composée sur les années futures.")
+    taux_croissance = st.sidebar.number_input("Taux de croissance annuel (%)", min_value=-100.0, max_value=100.0, value=2.0, step=1.0, help="Applique une croissance (ou décroissance) composée sur les années futures.")
     
-    # J'AI MIS "Cols" PAR DÉFAUT POUR COLLER A TON EXCEL
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=1)
 
     # --- CALCULS ---
@@ -254,9 +252,11 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Étape 4 validée. Étape 5 calculée avec succès.")
     
-    tab_indices, tab_sarr, tab_prev, tab_bilan = st.tabs([
+    # AJOUT DU NOUVEL ONGLET MOMENTUM ICI
+    tab_indices, tab_sarr, tab_momentum, tab_prev, tab_bilan = st.tabs([
         "📊 Table des Indices", 
         "📈 Table du SARR (Historique)", 
+        "📉 Momentum (Historique)",
         "🚀 Détail des Prévisions (Étape 5)",
         "📅 Bilan Annuel (TCD)"
     ])
@@ -293,6 +293,37 @@ if fichier_ventes is not None and fichier_ref is not None:
             use_container_width=True, height=400
         )
 
+    # LE NOUVEL ONGLET MOMENTUM
+    with tab_momentum:
+        st.subheader(f"Momentum Historique (Variation M vs M-1) en {unite_affichage}")
+        st.write("Ce tableau reproduit la logique de votre Excel : il calcule la variation de volume par agence pour chaque mois de l'année de clôture.")
+        
+        df_mom = df_sarr[df_sarr['annee'] == annee_cloture].copy()
+        # On trie pour que la variation (diff) soit correcte
+        df_mom = df_mom.sort_values(['agence', 'article', 'mois'])
+        
+        # Calcul de la variation par rapport au mois précédent
+        df_mom['Variation_Aff'] = df_mom.groupby(['agence', 'article'])['Vol_Aff'].diff().fillna(0.0)
+        
+        # On regroupe par agence et par mois
+        pivot_mom = df_mom.pivot_table(
+            index='agence', 
+            columns='mois', 
+            values='Variation_Aff', 
+            aggfunc='sum', 
+            margins=True, 
+            margins_name='Total général'
+        ).fillna(0)
+        
+        # Formatage des noms de colonnes
+        pivot_mom.columns = [MOIS_NOMS[c-1] if isinstance(c, int) else c for c in pivot_mom.columns]
+        
+        # Affichage avec couleurs (rouge pour négatif, vert pour positif)
+        st.dataframe(
+            pivot_mom.style.format("{:,.2f}").map(lambda x: 'color: red' if x < 0 else ('color: green' if x > 0 else ''), subset=pd.IndexSlice[:, :]),
+            use_container_width=True
+        )
+
     with tab_prev:
         st.subheader(f"Détail des Prévisions (Étape 5) (en {unite_affichage})")
         
@@ -309,7 +340,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
         pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
         
-        # Affichage avec tiret "-" pour les cases vides
         st.dataframe(
             pivot_mensuel.style.format("{:,.2f}", na_rep="-"), 
             use_container_width=True

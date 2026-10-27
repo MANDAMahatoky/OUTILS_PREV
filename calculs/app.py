@@ -249,8 +249,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     if unite_affichage == "Cols":
         df_sarr["Vol_Aff"] = df_sarr["hl"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
         df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
-        
-        # Pour les prévisions, la conversion a déjà été faite dans la fonction
         df_prev_aff = "Prevision_Cols"
     else:
         df_sarr["Vol_Aff"] = df_sarr["hl"]
@@ -282,16 +280,39 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_prev:
         st.subheader(f"Détail des Prévisions (Étape 5) (en {unite_affichage})")
         
-        # Affichage de la base et du momentum pour info (en HL)
-        st.info("💡 La Base et le Momentum sont calculés en HL. La Prévision est ensuite convertie dans l'unité choisie.")
+        st.info("💡 La Base et le Momentum sont calculés en HL. La Prévision est ensuite convertie dans l'unité choisie. Le Total Année correspond à la somme des prévisions mensuelles.")
         
+        # ---- NOUVEAU : TCD Mensuel avec Total Année (somme des mois) ----
+        st.markdown(f"### 📊 TCD Mensuel des Prévisions + Total Année (en {unite_affichage})")
+        pivot_mensuel = df_previsions.pivot_table(
+            index=['annee', 'agence', 'article'],
+            columns='mois',
+            values=df_prev_aff,
+            aggfunc='sum'
+        ).fillna(0)
+        pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
+        pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
+        st.dataframe(pivot_mensuel.style.format("{:,.2f}"), use_container_width=True)
+        
+        # ---- Détail mensuel avec colonne Total Année ----
+        st.markdown("### 📅 Détail Mensuel des Prévisions (avec Total Année)")
+        df_prev_detail = df_previsions.copy()
+        df_prev_detail['Total_Annee'] = (
+            df_prev_detail
+            .groupby(['annee', 'agence', 'article'])[df_prev_aff]
+            .transform('sum')
+        )
         st.dataframe(
-            df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base_HL", "Momentum_HL", df_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),
+            df_prev_detail[["annee", "mois", "Date", "agence", "article",
+                            "Indice", "Base_HL", "Momentum_HL",
+                            df_prev_aff, "Total_Annee"]]
+            .sort_values(["annee", "mois", "agence", "article"]),
             column_config={
                 "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
                 "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.0f"),
                 "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.0f"),
                 df_prev_aff: st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
+                "Total_Annee": st.column_config.NumberColumn(f"Total Année ({unite_affichage})", format="%.2f"),
             },
             use_container_width=True, height=400
         )

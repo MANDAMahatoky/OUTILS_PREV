@@ -85,19 +85,28 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (AVEC FILTRE ANNEES COMPLETES)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et projection...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # 1. Calcul des indices
+    # 1. On isole les années historiques (< année de clôture)
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
     
-    # Volumes par (agence, article, annee, mois)
-    vols = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
+    # FIX : On identifie les années qui ont bien 12 mois de données
+    annees_completes = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
+    annees_completes = annees_completes[annees_completes['mois'] == 12][['agence', 'article', 'annee']]
+    
+    # On ne garde que ces années pour le calcul des indices
+    df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
+    if df_hist_complet.empty:
+        df_hist_complet = df_hist # Fallback si aucune année complète n'est trouvée
+    
+    # Volume par (agence, article, annee, mois) sur les années complètes
+    vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     
     # Volume total annuel par (agence, article, annee)
     vols_annuels = vols.sum(axis=1)
@@ -111,15 +120,16 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     # Table finale des indices
     table_indices = indices_moyens.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     
-    # Lissage : si l'indice est 0, on le passe à 1.0
+    # Lissage et arrondi
     table_indices['Indice'] = table_indices['Indice'].replace(0, 1.0)
-    # Arrondi à 1 décimale
     table_indices['Indice'] = table_indices['Indice'].round(1)
 
-    # Préparation de la table d'audit
-    audit_volumes = vols.reset_index().melt(id_vars=['agence', 'article', 'annee'], var_name='mois', value_name='Volume')
-    
-    # 2. Projection des mois manquants
+    # Préparation de la table d'audit (pour voir les volumes)
+    audit_volumes = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reset_index()
+    audit_volumes['Statut'] = np.where(audit_volumes.set_index(['agence', 'article', 'annee']).index.isin(annees_completes.set_index(['agence', 'article', 'annee']).index), "✅ Utilisée", "❌ Ignorée (Incomplète)")
+    audit_volumes = audit_volumes.melt(id_vars=['agence', 'article', 'annee', 'Statut'], var_name='mois', value_name='Volume')
+
+    # 2. Projection des mois manquants de l'année en cours
     df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
     df_projete = df_ytd.copy()
     
@@ -192,9 +202,9 @@ if fichier_ventes is not None and fichier_ref is not None:
     table_indices, df_sarr, audit_volumes = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
 
     # --- AFFICHAGE ---
-    st.success("✅ Étape 4 complétée : Indices calculés et SARR généré.")
+    st.success("✅ Étape 4 complétée : Indices calculés uniquement sur les années complètes.")
     
-    tab_indices, tab_sarr, tab_audit = st.tabs(["📊 Table des Indices", "📈 Table du SARR", "🔍 Audit des Volumes (Pourquoi 0.7 ?)"])
+    tab_indices, tab_sarr, tab_audit = st.tabs(["📊 Table des Indices", "📈 Table du SARR", "🔍 Audit des Volumes"])
 
     with tab_indices:
         st.subheader("Coefficients Saisonniers (Indices)")
@@ -222,9 +232,9 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_audit:
         st.subheader("🔍 Audit des Volumes par Année")
-        st.write("Voici les volumes que le système a lus dans votre fichier `DATA_BRUT.xlsx`. Si vous voyez des 0 ou des chiffres différents de votre Excel, c'est l'explication de l'écart sur les coefficients.")
+        st.write("Le système exclut automatiquement les années incomplètes (qui n'ont pas 12 mois de données).")
         
         if not audit_volumes.empty:
-            pivot_audit = audit_volumes.pivot_table(index=['agence', 'article', 'annee'], columns='mois', values='Volume', aggfunc='sum').fillna(0)
+            pivot_audit = audit_volumes.pivot_table(index=['agence', 'article', 'annee', 'Statut'], columns='mois', values='Volume', aggfunc='sum').fillna(0)
             pivot_audit.columns = [MOIS_NOMS[c-1] for c in pivot_audit.columns]
             st.dataframe(pivot_audit.style.format("{:.2f}"), use_container_width=True)

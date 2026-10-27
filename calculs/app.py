@@ -86,18 +86,20 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 4 & 5 : CALCULS (INDICES, SARR, MOMENTUM, PREVISIONS)
+# ÉTAPES 4 & 5 : CALCULS (INDICES VERROUILLÉS, SARR, MOMENTUM, PREVISIONS)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et prévisions...")
-def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str):
+def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
+    # 1. Historique strict (on n'inclut JAMAIS l'année de clôture ici)
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
+    
     if df_hist.empty: df_hist = df_ytd.copy()
 
-    # Filtrage de l'historique
+    # Filtrage de la fenêtre historique
     annee_max = annee_cloture - 1
     if fenetre_histo == "3 dernières années":
         annee_min = annee_max - 2
@@ -108,47 +110,27 @@ def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mo
         
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # 1. Calcul des Indices
+    # 2. Calcul des INDICES FINAUX (une seule fois, sur l'historique)
     vols = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
-    vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
-    vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
-    
-    indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    if methode_coef == "Moyenne des Ratios":
+        ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
+        indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
+    else:
+        vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
+        vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
+        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
-    # 2. Projection fin d'année
-    df_projete = df_ytd.copy()
-    ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('hl', 'sum')).reset_index()
-    for _, row in ytd_totaux.iterrows():
-        ag, art = row['agence'], row['article']
-        coefs_ecoules = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] <= mois_cutoff)]['Indice'].sum()
-        if coefs_ecoules == 0: coefs_ecoules = mois_cutoff
-        vol_annuel_proj = (row['vol_ytd'] / coefs_ecoules) * 12
-        
-        for m in range(mois_cutoff + 1, 13):
-            coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
-            coef_mois = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
-            vol_projete = (vol_annuel_proj / 12) * coef_mois
-            
-            info_art = df_ytd[(df_ytd['agence'] == ag) & (df_ytd['article'] == art)].iloc[0]
-            df_projete = pd.concat([df_projete, pd.DataFrame([{
-                'annee': annee_cloture, 'mois': m, 'segment': info_art['segment'], 'produit': info_art['produit'], 
-                'agence': ag, 'hl': vol_projete, 'article': art, 'positionnement': info_art['positionnement'], 
-                'occasion': info_art['occasion'], 'contenance_cl': info_art['contenance_cl']
-            }])], ignore_index=True)
-            
-    df_ytd_complet = pd.concat([df_ytd, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
-    
-    # 3. Calcul du SARR
-    df_global_hist = pd.concat([df_hist, df_ytd_complet], ignore_index=True)
-    df_sarr = df_global_hist.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
-    df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
-    
-    # 4. Calcul du Momentum et Base
-    df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
+    # 3. Calcul du SARR Historique
+    df_sarr_hist = df_hist.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
+    df_sarr_hist['Indice'] = df_sarr_hist['Indice'].fillna(1.0)
+    df_sarr_hist['SARR_HL'] = df_sarr_hist['hl'] / df_sarr_hist['Indice'].replace(0, 1.0)
+
+    # 4. Calcul du Momentum et Base (uniquement sur l'historique réel)
+    df_sarr_sorted = df_sarr_hist.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
     
@@ -190,7 +172,14 @@ def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mo
                 })
                 
     df_previsions = pd.DataFrame(resultats_previsions)
-    return table_indices, df_sarr, df_previsions
+    
+    # On renvoie aussi la table des indices avec les vraies valeurs pour l'audit
+    # et on renvoie le sarr pour la vue glissante
+    df_sarr_full = pd.concat([df_sarr_hist, df_ytd.merge(table_indices, on=['agence', 'article', 'mois'], how='left')], ignore_index=True)
+    df_sarr_full['Indice'] = df_sarr_full['Indice'].fillna(1.0)
+    df_sarr_full['SARR_HL'] = df_sarr_full['hl'] / df_sarr_full['Indice'].replace(0, 1.0)
+    
+    return table_indices, df_sarr_full, df_previsions
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -234,16 +223,17 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("🛠️ Options de Calcul")
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
+    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Unités"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_sarr, df_previsions = calculer_previsions_excel(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo)
+    table_indices, df_sarr, df_previsions = calculer_previsions_excel(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef)
 
     if df_previsions.empty or df_sarr.empty:
         st.warning("⚠️ Aucune donnée calculée. Veuillez vérifier vos filtres et vos dates de Cutoff.")
         st.stop()
 
-    st.success(f"✅ Calculs effectués. Affichage configuré en {unite_affichage}.")
+    st.success(f"✅ Coefficients verrouillés (Étape 4). Prévisions calculées.")
     
     tab_verif, tab_detail, tab_bilan = st.tabs([
         "🔍 Vérification (Vol / Coef / SARR)",
@@ -270,8 +260,8 @@ if fichier_ventes is not None and fichier_ref is not None:
         label = "HL"
 
     with tab_verif:
-        st.subheader(f"Vérification : Volume / Coef = SARR (en {label})")
-        st.write("Comparez ces 3 colonnes avec votre Excel. Si le Coef est le même mais pas le SARR, c'est mathématiquement que le Volume est différent.")
+        st.subheader(f"Vérification des SARR (en {label})")
+        st.write("Les coefficients sont ceux de l'Étape 4. Comparez la ligne M-1, M-2... avec votre Excel.")
         
         df_filtre = df_sarr.copy()
         if sel_agences: df_filtre = df_filtre[df_filtre["agence"].isin(sel_agences)]
@@ -287,7 +277,7 @@ if fichier_ventes is not None and fichier_ref is not None:
             ag, art = row['agence'], row['article']
             ligne = {"Agence": ag, "Article": art}
             
-            for i in range(1, 5): # M-1 à M-4 pour la comparaison directe
+            for i in range(1, 5): 
                 m = mois_cutoff - i
                 y = annee_cloture
                 if m <= 0:

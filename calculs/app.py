@@ -99,6 +99,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     
     if df_hist.empty: df_hist = df_ytd.copy()
 
+    # 1. Calcul des indices INITIAUX
     vols_init = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels_init = vols_init.sum(axis=1)
     
@@ -108,6 +109,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     indices_initiaux = vols_mois_cumules_init.div(vols_annuels_cumules_init / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
     table_indices_initiaux = indices_initiaux.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     
+    # 2. Projection des mois manquants (de M+1 à Décembre)
     df_projete = df_ytd.copy()
     ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('hl', 'sum')).reset_index()
     
@@ -132,6 +134,8 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
             }])], ignore_index=True)
     
     df_ytd_complet = pd.concat([df_ytd, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
+    
+    # 3. Calcul des indices FINAUX (sur Historique + Année en cours complétée)
     df_global = pd.concat([df_hist, df_ytd_complet], ignore_index=True)
     
     vols_final = df_global.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
@@ -143,6 +147,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     indices_finaux = vols_mois_cumules_final.div(vols_annuels_cumules_final / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
     table_indices_finaux = indices_finaux.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
+    # 4. Calcul du SARR Final (avec indice exact pour ne pas fausser le résultat)
     df_sarr = df_global.merge(table_indices_finaux, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
@@ -178,7 +183,6 @@ def generer_vue_glissante(df_sarr, annee_cloture, mois_cloture, sel_agences, sel
                 m += 12
                 y -= 1
             
-            # Ajout du nom du mois dans l'en-tête pour éviter la confusion
             nom_mois = MOIS_NOMS[m-1].capitalize()
             ligne[f"Date M-{i} ({nom_mois})"] = f"{nom_mois[:3]}-{str(y)[-2:]}"
             
@@ -235,9 +239,11 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Méthode")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-    mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
+    
+    # J'ai renommé "Mois Pivot (M-1)" en "Mois de Cutoff (M)" pour plus de clarté
+    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
+    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff)
 
     st.success(f"✅ Étape 4 complétée. Le coefficient M-1 (Août) correspond à l'été, tandis que M-8 correspond à Janvier.")
     
@@ -264,10 +270,10 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_glissant:
         st.subheader("Vue Glissante : Historique des 12 derniers mois")
-        st.write("Les en-têtes indiquent désormais le mois exact (ex: `Date M-1 (Août)`). Cela permet de voir que `M-1` est le mois dernier, et `M-8` est il y a 8 mois.")
+        st.write("Les en-têtes indiquent le mois exact (ex: `Date M-1 (Septembre)`). Si le Mois de Cutoff (M) est Octobre, M-1 sera Septembre, M-8 sera Février, exactement comme dans votre Excel.")
         unite_glissante = st.radio("Unité d'affichage", options=["Unités (Excel)", "HL"], index=0, horizontal=True)
         
-        df_glissant = generer_vue_glissante(df_sarr, annee_cloture, mois_cloture, sel_agences, sel_articles, unite_glissante)
+        df_glissant = generer_vue_glissante(df_sarr, annee_cloture, mois_cutoff, sel_agences, sel_articles, unite_glissante)
         
         if not df_glissant.empty:
             format_dict = {}

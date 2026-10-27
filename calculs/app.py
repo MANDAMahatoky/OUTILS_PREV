@@ -70,8 +70,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
-    
-    # Calcul du volume en Unités
     df_enrichi["volume_unites"] = df_enrichi["hl"] * (10000 / df_enrichi["contenance_cl"].replace(0, 100.0))
     
     conditions = [
@@ -94,9 +92,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 @st.cache_data(show_spinner="Calcul des indices et projection...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
 
-    # 1. Calcul des indices sur les années complètes
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
     
@@ -113,11 +110,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     table_indices = indices_moyens.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     table_indices['Indice'] = table_indices['Indice'].replace(0, 1.0).round(1)
 
-    audit_volumes = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reset_index()
-    audit_volumes['Statut'] = np.where(audit_volumes.set_index(['agence', 'article', 'annee']).index.isin(annees_completes.set_index(['agence', 'article', 'annee']).index), "✅ Utilisée", "❌ Ignorée")
-    audit_volumes = audit_volumes.melt(id_vars=['agence', 'article', 'annee', 'Statut'], var_name='mois', value_name='Volume')
-
-    # 2. Projection des mois manquants
     df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
     df_projete = df_ytd.copy()
     ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('hl', 'sum'), contenance=('contenance_cl', 'first'), segment=('segment', 'first'), produit=('produit', 'first'), positionnement=('positionnement', 'first'), occasion=('occasion', 'first')).reset_index()
@@ -138,10 +130,10 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     df_sarr['SARR_Unites'] = df_sarr['volume_unites'] / df_sarr['Indice'].replace(0, 1.0)
     
-    return table_indices, df_sarr, audit_volumes
+    return table_indices, df_sarr
 
 # ==============================================================================
-# VUE GLISSANTE (M-1 à M-12)
+# VUE GLISSANTE (M-1 à M-12) AVEC DÉTAIL DU CALCUL
 # ==============================================================================
 def generer_vue_glissante(df_sarr, annee_cloture, mois_cloture, sel_agences, sel_articles, unite):
     df_filtre = df_sarr.copy()
@@ -179,6 +171,7 @@ def generer_vue_glissante(df_sarr, annee_cloture, mois_cloture, sel_agences, sel
             ligne[f"Vol M-{i}"] = vol
             ligne[f"Coef M-{i}"] = coef
             ligne[f"SARR M-{i}"] = sarr
+            ligne[f"Formule M-{i}"] = f"{vol:,.0f} / {coef:.1f} = {sarr:,.1f}"
             
             if i == 1:
                 ligne[f"Var M-{i}"] = 0.0
@@ -224,16 +217,11 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    table_indices, df_sarr, audit_volumes = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
+    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
 
     st.success("✅ Étape 4 complétée : Indices et SARR générés.")
     
-    tab_indices, tab_sarr, tab_glissant, tab_audit = st.tabs([
-        "📊 Table des Indices", 
-        "📈 Table du SARR", 
-        "📅 Vue Glissante (M-1 à M-12)",
-        "🔍 Audit des Volumes"
-    ])
+    tab_indices, tab_sarr, tab_glissant = st.tabs(["📊 Table des Indices", "📈 Table du SARR", "📅 Vue Glissante (Détail)"])
 
     with tab_indices:
         if not table_indices.empty:
@@ -244,16 +232,20 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_sarr:
         if not df_sarr.empty:
             st.dataframe(
-                df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR_HL"]].sort_values(["annee", "mois", "agence", "article"]),
-                column_config={"hl": st.column_config.NumberColumn(format="%.2f"), "Indice": st.column_config.NumberColumn(format="%.1f"), "SARR_HL": st.column_config.NumberColumn("SARR (HL)", format="%.2f")},
+                df_sarr[["annee", "mois", "agence", "article", "hl", "volume_unites", "Indice", "SARR_HL", "SARR_Unites"]].sort_values(["annee", "mois", "agence", "article"]),
+                column_config={
+                    "hl": st.column_config.NumberColumn("Vol (HL)", format="%.2f"),
+                    "volume_unites": st.column_config.NumberColumn("Vol (Unités)", format="%.0f"),
+                    "Indice": st.column_config.NumberColumn("Coef", format="%.1f"),
+                    "SARR_HL": st.column_config.NumberColumn("SARR (HL)", format="%.2f"),
+                    "SARR_Unites": st.column_config.NumberColumn("SARR (Unités)", format="%.0f")
+                },
                 use_container_width=True
             )
 
     with tab_glissant:
         st.subheader("Vue Glissante : Historique des 12 derniers mois")
-        
-        # NOUVEAU : Choix de l'unité
-        unite_glissante = st.radio("Unité d'affichage", options=["HL", "Unités (Excel)"], index=1, horizontal=True)
+        unite_glissante = st.radio("Unité d'affichage", options=["Unités (Excel)", "HL"], index=0, horizontal=True)
         
         df_glissant = generer_vue_glissante(df_sarr, annee_cloture, mois_cloture, sel_agences, sel_articles, unite_glissante)
         
@@ -266,9 +258,3 @@ if fichier_ventes is not None and fichier_ref is not None:
                     format_dict[col] = "{:.1f}"
             
             st.dataframe(df_glissant.style.format(format_dict), use_container_width=True, height=400)
-
-    with tab_audit:
-        if not audit_volumes.empty:
-            pivot_audit = audit_volumes.pivot_table(index=['agence', 'article', 'annee', 'Statut'], columns='mois', values='Volume', aggfunc='sum').fillna(0)
-            pivot_audit.columns = [MOIS_NOMS[c-1] for c in pivot_audit.columns]
-            st.dataframe(pivot_audit.style.format("{:.2f}"), use_container_width=True)

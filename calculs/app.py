@@ -97,7 +97,7 @@ def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mo
     df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
     if df_hist.empty: df_hist = df_ytd.copy()
 
-    # Filtrage de l'historique selon la fenêtre choisie
+    # Filtrage de l'historique
     annee_max = annee_cloture - 1
     if fenetre_histo == "3 dernières années":
         annee_min = annee_max - 2
@@ -108,7 +108,7 @@ def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mo
         
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # 1. Calcul des Indices (Méthode Ratio des Sommes)
+    # 1. Calcul des Indices
     vols = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
@@ -118,7 +118,7 @@ def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mo
     indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
-    # 2. Projection de l'année en cours (pour compléter l'historique)
+    # 2. Projection fin d'année
     df_projete = df_ytd.copy()
     ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('hl', 'sum')).reset_index()
     for _, row in ytd_totaux.iterrows():
@@ -141,13 +141,13 @@ def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mo
             
     df_ytd_complet = pd.concat([df_ytd, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
     
-    # 3. Calcul du SARR (en HL)
+    # 3. Calcul du SARR
     df_global_hist = pd.concat([df_hist, df_ytd_complet], ignore_index=True)
     df_sarr = df_global_hist.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
-    # 4. Calcul du Momentum et Base (en HL)
+    # 4. Calcul du Momentum et Base
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -224,7 +224,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Cible")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-    # On met Octobre par défaut (index=9) car les données vont jusqu'à Octobre
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
     st.sidebar.markdown("---")
@@ -244,10 +243,10 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.warning("⚠️ Aucune donnée calculée. Veuillez vérifier vos filtres et vos dates de Cutoff.")
         st.stop()
 
-    st.success(f"✅ Calculs effectués en HL. Affichage configuré en {unite_affichage}.")
+    st.success(f"✅ Calculs effectués. Affichage configuré en {unite_affichage}.")
     
-    tab_glissant, tab_detail, tab_bilan = st.tabs([
-        "📅 Vue Glissante (M-1 à M-12)",
+    tab_verif, tab_detail, tab_bilan = st.tabs([
+        "🔍 Vérification (Vol / Coef / SARR)",
         "🚀 Détail des Prévisions", 
         "📊 Bilan Annuel (TCD)"
     ])
@@ -270,9 +269,9 @@ if fichier_ventes is not None and fichier_ref is not None:
         df_previsions["Momentum_Aff"] = df_previsions["Momentum_HL"]
         label = "HL"
 
-    with tab_glissant:
-        st.subheader(f"Vérification des SARR (en {label})")
-        st.write("Le tableau affiche désormais toutes les colonnes de M-1 à M-12. Comparez ces chiffres avec votre Excel.")
+    with tab_verif:
+        st.subheader(f"Vérification : Volume / Coef = SARR (en {label})")
+        st.write("Comparez ces 3 colonnes avec votre Excel. Si le Coef est le même mais pas le SARR, c'est mathématiquement que le Volume est différent.")
         
         df_filtre = df_sarr.copy()
         if sel_agences: df_filtre = df_filtre[df_filtre["agence"].isin(sel_agences)]
@@ -288,7 +287,7 @@ if fichier_ventes is not None and fichier_ref is not None:
             ag, art = row['agence'], row['article']
             ligne = {"Agence": ag, "Article": art}
             
-            for i in range(1, 13):
+            for i in range(1, 5): # M-1 à M-4 pour la comparaison directe
                 m = mois_cutoff - i
                 y = annee_cloture
                 if m <= 0:
@@ -311,15 +310,14 @@ if fichier_ventes is not None and fichier_ref is not None:
             
             resultats.append(ligne)
             
-        df_glissant = pd.DataFrame(resultats)
+        df_verif = pd.DataFrame(resultats)
         
-        if not df_glissant.empty:
+        if not df_verif.empty:
             cols_to_show = ["Agence", "Article"]
-            # FIX : On affiche TOUTES les colonnes de 1 à 12
-            for i in range(1, 13): 
+            for i in range(1, 5): 
                 cols_to_show.extend([f"Vol M-{i}", f"Coef M-{i}", f"SARR M-{i}"])
             
-            cols_to_show = [c for c in cols_to_show if c in df_glissant.columns]
+            cols_to_show = [c for c in cols_to_show if c in df_verif.columns]
             
             format_dict = {}
             for col in cols_to_show:
@@ -328,7 +326,7 @@ if fichier_ventes is not None and fichier_ref is not None:
                 elif "Coef" in col:
                     format_dict[col] = "{:.2f}"
             
-            st.dataframe(df_glissant[cols_to_show].style.format(format_dict), use_container_width=True, height=400)
+            st.dataframe(df_verif[cols_to_show].style.format(format_dict), use_container_width=True, height=400)
 
     with tab_detail:
         st.subheader(f"Détail mensuel des Prévisions (en {label})")
@@ -345,8 +343,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_bilan:
         st.subheader(f"Bilan Annuel {annee_cible} (en {label})")
-        st.write(f"Somme des 12 mois de l'année cible. C'est le tableau à comparer avec la colonne 'Total general' de votre Excel.")
-        
         df_annee = df_previsions[df_previsions["annee"] == annee_cible]
         if not df_annee.empty:
             pivot_annuel = pd.pivot_table(df_annee, values="Prev_Aff", index="article", columns="agence", aggfunc="sum", margins=True, margins_name="Total general").fillna(0)

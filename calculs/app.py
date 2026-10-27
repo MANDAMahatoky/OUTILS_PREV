@@ -107,7 +107,7 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
     indices_initiaux = vols_mois_cumules_init.div(vols_annuels_cumules_init / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
     table_indices_initiaux = indices_initiaux.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     
-    # 2. Projection fin d'année N pour compléter l'année en cours
+    # 2. Projection fin d'année N
     df_projete_fin_n = df_ytd.copy()
     ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('hl', 'sum')).reset_index()
     for _, row in ytd_totaux.iterrows():
@@ -117,7 +117,10 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
         vol_annuel_proj = (row['vol_ytd'] / coefs_ecoules) * 12
         
         for m in range(mois_cutoff + 1, 13):
-            coef_mois = table_indices_initiaux[(table_indices_initiaux['agence'] == ag) & (table_indices_initiaux['article'] == art) & (table_indices_initiaux['mois'] == m)]['Indice'].values[0]
+            # FIX : Sécurité si la valeur n'existe pas
+            coef_data = table_indices_initiaux[(table_indices_initiaux['agence'] == ag) & (table_indices_initiaux['article'] == art) & (table_indices_initiaux['mois'] == m)]
+            coef_mois = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+            
             vol_projete = (vol_annuel_proj / 12) * coef_mois
             info_art = df_ytd[(df_ytd['agence'] == ag) & (df_ytd['article'] == art)].iloc[0]
             df_projete_fin_n = pd.concat([df_projete_fin_n, pd.DataFrame([{
@@ -128,7 +131,7 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
             
     df_ytd_complet = pd.concat([df_ytd, df_projete_fin_n], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
     
-    # 3. Calcul des indices FINAUX (sur historique + année en cours complétée)
+    # 3. Calcul des indices FINAUX
     df_global_hist = pd.concat([df_hist, df_ytd_complet], ignore_index=True)
     vols_final = df_global_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels_final = vols_final.sum(axis=1)
@@ -143,11 +146,9 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     df_sarr['SARR_Unites'] = df_sarr['volume_unites'] / df_sarr['Indice'].replace(0, 1.0)
     
-    # 5. Calcul du Momentum, Base et Prévisions (Étape 5)
+    # 5. Calcul du Momentum, Base et Prévisions
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
-    
-    # On prend les 4 derniers mois (M, M-1, M-2, M-3)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
     
     resultats_previsions = []
@@ -159,13 +160,11 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
         sarr_m2 = group[group['rang'] == 2]['SARR_Unites'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
         sarr_m3 = group[group['rang'] == 3]['SARR_Unites'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
         
-        # Formule Momentum
         var1 = sarr_m - sarr_m1
         var2 = sarr_m1 - sarr_m2
         var3 = sarr_m2 - sarr_m3
         momentum = np.mean([var1, var2, var3])
         
-        # Formule Base
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
         base = max(sarr_m, moy_3_mois)
         
@@ -184,10 +183,10 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
                 if y == annee_cloture and m <= mois_cutoff: continue
                 if y == annee_cible and m > mois_cible: break
                 
+                # FIX : Sécurité pour les indices
                 coef_data = table_indices_finaux[(table_indices_finaux['agence'] == ag) & (table_indices_finaux['article'] == art) & (table_indices_finaux['mois'] == m)]
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
-                # Formule Prévision
                 prev_unites = (coef * base) + momentum
                 prev_unites = max(0.0, prev_unites)
                 prev_hl = prev_unites * (contenance / 10000)
@@ -236,7 +235,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Cible")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-    # Par défaut, on met Octobre (10) pour que M-1 soit Septembre (comme dans ton Excel)
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
     st.sidebar.markdown("---")
@@ -250,7 +248,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Étapes 1 à 5 complétées. Prévisions calculées jusqu'à {MOIS_NOMS[mois_cible-1]} {annee_cible}.")
     
-    # --- ONGLETS ---
     tab_verif, tab_bilan, tab_detail, tab_sarr = st.tabs([
         "🔍 Vérification vs Excel (Base & Momentum)",
         "📅 Bilan Annuel (Total general)",
@@ -278,7 +275,6 @@ if fichier_ventes is not None and fichier_ref is not None:
                 },
                 use_container_width=True
             )
-            st.info("💡 Pour obtenir les chiffres de votre Excel, vérifiez que le 'Mois de Cutoff (M)' est bien positionné (ex: Octobre pour que M-1 soit Septembre).")
 
     with tab_bilan:
         st.subheader(f"Bilan Annuel {annee_cible} (en {unite_affichage})")

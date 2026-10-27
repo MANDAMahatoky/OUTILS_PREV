@@ -224,6 +224,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Cible")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
+    # On met Octobre par défaut (index=9) car les données vont jusqu'à Octobre
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
     st.sidebar.markdown("---")
@@ -245,11 +246,10 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Calculs effectués en HL. Affichage configuré en {unite_affichage}.")
     
-    tab_glissant, tab_detail, tab_bilan, tab_audit = st.tabs([
+    tab_glissant, tab_detail, tab_bilan = st.tabs([
         "📅 Vue Glissante (M-1 à M-12)",
         "🚀 Détail des Prévisions", 
-        "📊 Bilan Annuel (TCD)",
-        "🔍 Audit Données Brutes"
+        "📊 Bilan Annuel (TCD)"
     ])
 
     # --- CONVERSION POUR L'AFFICHAGE ---
@@ -272,7 +272,7 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_glissant:
         st.subheader(f"Vérification des SARR (en {label})")
-        st.write("Comparez la colonne `Vol M-1` avec le volume de votre Excel, et `Coef M-1` avec le coefficient.")
+        st.write("Le tableau affiche désormais toutes les colonnes de M-1 à M-12. Comparez ces chiffres avec votre Excel.")
         
         df_filtre = df_sarr.copy()
         if sel_agences: df_filtre = df_filtre[df_filtre["agence"].isin(sel_agences)]
@@ -315,7 +315,8 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         if not df_glissant.empty:
             cols_to_show = ["Agence", "Article"]
-            for i in [1, 2, 3, 4]: 
+            # FIX : On affiche TOUTES les colonnes de 1 à 12
+            for i in range(1, 13): 
                 cols_to_show.extend([f"Vol M-{i}", f"Coef M-{i}", f"SARR M-{i}"])
             
             cols_to_show = [c for c in cols_to_show if c in df_glissant.columns]
@@ -352,19 +353,3 @@ if fichier_ventes is not None and fichier_ref is not None:
             st.dataframe(pivot_annuel.style.format("{:,.0f}"), use_container_width=True)
         else:
             st.warning("Aucune prévision pour cette année.")
-
-    with tab_audit:
-        st.subheader("🔍 Audit des Données Brutes")
-        st.write("Ce tableau affiche exactement ce que l'outil a lu dans votre fichier `DATA_BRUT.xlsx` pour l'article et l'agence sélectionnés. Si le SARR est à 0, c'est que le volume est à 0 ici.")
-        
-        if sel_articles and sel_agences:
-            df_audit = df_perimetre[(df_perimetre["article"].isin(sel_articles)) & (df_perimetre["agence"].isin(sel_agences)) & (df_perimetre["annee"] == annee_cloture)]
-            
-            if not df_audit.empty:
-                pivot_audit = df_audit.pivot_table(index=["agence", "article"], columns="mois", values="hl", aggfunc="sum").fillna(0)
-                pivot_audit.columns = [MOIS_NOMS[c-1] for c in pivot_audit.columns]
-                st.dataframe(pivot_audit.style.format("{:,.2f}"), use_container_width=True)
-            else:
-                st.warning("Aucune donnée trouvée dans le fichier brut pour cette agence, cet article et cette année.")
-        else:
-            st.info("Sélectionnez une seule Agence et un seul Article pour voir le détail des données brutes.")

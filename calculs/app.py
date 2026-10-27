@@ -28,15 +28,13 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 # ==============================================================================
 # ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
-@st.cache_data(show_spinner="Chargement et enrichissement des données...")
+@st.cache_data(show_spinner="Chargement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"})
-    
     for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
         if col not in df_ref.columns: df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
-        
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
@@ -51,14 +49,12 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
         df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
         df["mois"] = df["mois"].apply(normaliser_mois)
         df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
-        
         masque_total = (
             df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) |
             df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) |
             df["nature"].isna()
         )
         df = df[~masque_total].copy()
-        
         df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
         df["agence"] = df["agence"].astype(str).str.strip()
         df["annee"] = df["annee"].fillna(2026).astype(int)
@@ -87,14 +83,13 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     ]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
-    
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 2, 3, 4 & 5 : FILTRAGE, INDICES, SARR ET PRÉVISIONS (EN HL)
+# ÉTAPES 4 & 5 : CALCULS (INDICES, SARR, MOMENTUM, PREVISIONS)
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices et prévisions (en HL)...")
-def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int):
+@st.cache_data(show_spinner="Calcul des indices et prévisions...")
+def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -102,7 +97,18 @@ def calculer_previsions_excel(df_perimetre: pd.DataFrame, annee_cloture: int, mo
     df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
     if df_hist.empty: df_hist = df_ytd.copy()
 
-    # 1. Calcul des Indices (Méthode Ratio des Sommes sur tout l'historique)
+    # Filtrage de l'historique selon la fenêtre choisie
+    annee_max = annee_cloture - 1
+    if fenetre_histo == "3 dernières années":
+        annee_min = annee_max - 2
+    elif fenetre_histo == "2 dernières années":
+        annee_min = annee_max - 1
+    else:
+        annee_min = df_hist['annee'].min()
+        
+    df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
+
+    # 1. Calcul des Indices (Méthode Ratio des Sommes)
     vols = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
@@ -198,8 +204,7 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --- ÉTAPE 2 : PÉRIMÈTRE ---
-    st.sidebar.header("🔍 Étape 2 : Périmètre")
+    st.sidebar.header("🔍 Filtres")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
     
@@ -216,7 +221,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # --- ÉTAPE 3 & CIBLE ---
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Cible")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
@@ -227,12 +231,16 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_cible = st.sidebar.number_input("Année Cible", min_value=2026, max_value=2035, value=2027)
     mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=11, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    unite_affichage = st.sidebar.radio("Unité d'affichage (calculs en HL)", options=["HL", "Unités"], index=0)
+    # --- SÉLECTEUR DE FENÊTRE HISTORIQUE ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("🛠️ Options de Calcul")
+    fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Unités"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_sarr, df_previsions = calculer_previsions_excel(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible)
+    table_indices, df_sarr, df_previsions = calculer_previsions_excel(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo)
 
-    st.success(f"✅ Calculs effectués en HL. Affichage configuré en {unite_affichage}.")
+    st.success(f"✅ Calculs effectués en HL (Fenêtre : {fenetre_histo}). Affichage configuré en {unite_affichage}.")
     
     tab_glissant, tab_detail, tab_bilan = st.tabs([
         "📅 Vue Glissante (Vérification M-1 à M-12)",

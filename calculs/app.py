@@ -5,8 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Étape 4 : Debug SARR", layout="wide")
-st.title("Étape 4 : Calcul des Indices et du SARR")
+st.set_page_config(page_title="Étape 4 : Indices & SARR", layout="wide")
+st.title("Étape 4 : Calcul des Indices et du SARR (Année en cours complétée)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -87,19 +87,22 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "volume_unites", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (AVEC COMPLÉTION DE L'ANNÉE EN COURS)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et projection...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int, methode_coef: str):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
 
+    # 1. Séparation Historique vs Année en cours
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
-    if df_hist.empty: df_hist = df_realise.copy()
+    df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
     
+    if df_hist.empty: df_hist = df_ytd.copy()
+    
+    # 2. Calcul des indices INITIAUX (sur le passé complet uniquement)
     annees_completes = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = annees_completes[annees_completes['mois'] == 12][['agence', 'article', 'annee']]
-    
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
     if df_hist_complet.empty: df_hist_complet = df_hist
     
@@ -108,36 +111,69 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     
     if methode_coef == "Moyenne des ratios (Streamlit)":
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
-        indices_moyens = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
+        indices_initiaux = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
     else:
         vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
         vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
-        indices_moyens = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+        indices_initiaux = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
-    table_indices = indices_moyens.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
-    table_indices['Indice'] = table_indices['Indice'].replace(0, 1.0).round(1)
-
-    df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
+    table_indices_initiaux = indices_initiaux.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
+    
+    # 3. Projection des mois manquants de l'année en cours
     df_projete = df_ytd.copy()
-    ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(vol_ytd=('hl', 'sum'), contenance=('contenance_cl', 'first'), segment=('segment', 'first'), produit=('produit', 'first'), positionnement=('positionnement', 'first'), occasion=('occasion', 'first')).reset_index()
+    ytd_totaux = df_ytd.groupby(['agence', 'article']).agg(
+        vol_ytd=('hl', 'sum'), contenance=('contenance_cl', 'first'), 
+        segment=('segment', 'first'), produit=('produit', 'first'), 
+        positionnement=('positionnement', 'first'), occasion=('occasion', 'first')
+    ).reset_index()
     
     for _, row in ytd_totaux.iterrows():
         ag, art = row['agence'], row['article']
-        coefs_ecoules = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] <= mois_cloture)]['Indice'].sum()
+        coefs_ecoules = table_indices_initiaux[(table_indices_initiaux['agence'] == ag) & (table_indices_initiaux['article'] == art) & (table_indices_initiaux['mois'] <= mois_cloture)]['Indice'].sum()
         if coefs_ecoules == 0: coefs_ecoules = mois_cloture
         vol_annuel_proj = (row['vol_ytd'] / coefs_ecoules) * 12
+        
         for m in range(mois_cloture + 1, 13):
-            coef_mois = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]['Indice'].values[0]
+            # FIX : Sécurité si l'article n'existe pas dans l'historique
+            coef_data = table_indices_initiaux[(table_indices_initiaux['agence'] == ag) & (table_indices_initiaux['article'] == art) & (table_indices_initiaux['mois'] == m)]
+            coef_mois = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+            
             vol_projete = (vol_annuel_proj / 12) * coef_mois
-            df_projete = pd.concat([df_projete, pd.DataFrame([{'annee': annee_cloture, 'mois': m, 'segment': row['segment'], 'produit': row['produit'], 'agence': ag, 'hl': vol_projete, 'volume_unites': vol_projete * (10000 / row['contenance']), 'article': art, 'positionnement': row['positionnement'], 'occasion': row['occasion'], 'contenance_cl': row['contenance']}])], ignore_index=True)
+            df_projete = pd.concat([df_projete, pd.DataFrame([{
+                'annee': annee_cloture, 'mois': m, 'segment': row['segment'], 'produit': row['produit'], 
+                'agence': ag, 'hl': vol_projete, 'volume_unites': vol_projete * (10000 / row['contenance']), 
+                'article': art, 'positionnement': row['positionnement'], 'occasion': row['occasion'], 
+                'contenance_cl': row['contenance']
+            }])], ignore_index=True)
     
-    df_final = pd.concat([df_realise, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
-    df_sarr = df_final.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
+    # 4. Création de l'année en cours COMPLÉTÉE
+    df_ytd_complet = pd.concat([df_ytd, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
+    
+    # 5. Calcul des indices FINAUX (sur Historique + Année en cours complétée)
+    df_global = pd.concat([df_hist_complet, df_ytd_complet], ignore_index=True)
+    
+    vols_final = df_global.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
+    vols_annuels_final = vols_final.sum(axis=1)
+    
+    if methode_coef == "Moyenne des ratios (Streamlit)":
+        ratios_final = vols_final.div(vols_annuels_final / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
+        indices_finaux = ratios_final.groupby(['agence', 'article']).mean().fillna(1.0)
+    else:
+        vols_mois_cumules_final = vols_final.groupby(['agence', 'article']).sum()
+        vols_annuels_cumules_final = vols_annuels_final.groupby(['agence', 'article']).sum()
+        indices_finaux = vols_mois_cumules_final.div(vols_annuels_cumules_final / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+
+    table_indices_finaux = indices_finaux.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
+    table_indices_finaux['Indice'] = table_indices_finaux['Indice'].replace(0, 1.0).round(1)
+
+    # 6. Calcul du SARR Final
+    df_final = pd.concat([df_hist, df_ytd_complet], ignore_index=True)
+    df_sarr = df_final.merge(table_indices_finaux, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     df_sarr['SARR_Unites'] = df_sarr['volume_unites'] / df_sarr['Indice'].replace(0, 1.0)
     
-    return table_indices, df_sarr
+    return table_indices_finaux, df_sarr
 
 # ==============================================================================
 # VUE GLISSANTE
@@ -227,14 +263,9 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture, methode_coef)
 
-    st.success(f"✅ Étape 4 complétée.")
+    st.success(f"✅ Étape 4 complétée. L'année {annee_cloture} a été complétée avec des projections pour le calcul final.")
     
-    tab_indices, tab_sarr, tab_glissant, tab_debug = st.tabs([
-        "📊 Table des Indices", 
-        "📈 Table du SARR", 
-        "📅 Vue Glissante", 
-        "🚨 Debug Critique (Lecture des données)"
-    ])
+    tab_indices, tab_sarr, tab_glissant = st.tabs(["📊 Table des Indices", "📈 Table du SARR", "📅 Vue Glissante"])
 
     with tab_indices:
         if not table_indices.empty:
@@ -270,31 +301,3 @@ if fichier_ventes is not None and fichier_ref is not None:
                     format_dict[col] = "{:.1f}"
             
             st.dataframe(df_glissant.style.format(format_dict), use_container_width=True, height=400)
-
-    with tab_debug:
-        st.subheader("🚨 Debug : Ce que Streamlit a lu dans le fichier")
-        st.write("Ce tableau affiche les données brutes pour l'agence et l'article sélectionnés pour les mois passés (2025 et 2026). Comparez ces chiffres avec votre Excel pour trouver l'écart.")
-        
-        if sel_agences and sel_articles:
-            # On filtre sur l'année et le mois pivot - 1 (M-1)
-            annee_debug = annee_cloture if mois_cloture > 1 else annee_cloture - 1
-            mois_debug = mois_cloture - 1 if mois_cloture > 1 else 12
-            
-            df_debug = df_perimetre[(df_perimetre["agence"].isin(sel_agences)) & 
-                                    (df_perimetre["article"].isin(sel_articles)) & 
-                                    (df_perimetre["annee"] == annee_debug) & 
-                                    (df_perimetre["mois"] == mois_debug)]
-            
-            if not df_debug.empty:
-                st.write(f"**Données brutes lues pour {MOIS_NOMS[mois_debug-1]} {annee_debug} :**")
-                st.dataframe(df_debug[["agence", "article", "contenance_cl", "hl", "volume_unites"]], use_container_width=True)
-                
-                total_hl = df_debug["hl"].sum()
-                total_unites = df_debug["volume_unites"].sum()
-                st.info(f"👉 **Total HL lu** : {total_hl:.2f} HL\n\n👉 **Total Unités calculé** : {total_unites:,.0f} Unités")
-                
-                st.write("Si le total HL ou le total Unités est différent de votre Excel, c'est que le fichier `DATA_BRUT.xlsx` contient une donnée supplémentaire ou une contenance différente.")
-            else:
-                st.warning("Aucune donnée trouvée pour ce mois.")
-        else:
-            st.info("Veuillez sélectionner une seule Agence et un seul Article dans la barre latérale pour lancer le debug.")

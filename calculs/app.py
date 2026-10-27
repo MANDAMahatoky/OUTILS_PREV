@@ -96,7 +96,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ÉTAPES 4 & 5 : CALCUL DES INDICES, SARR ET PRÉVISIONS
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, SARR et prévisions...")
-def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str, use_cutoff: bool):
+def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str, use_cutoff: bool, taux_croissance: float):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -160,6 +160,9 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
         contenance = info_art['contenance_cl']
         
         for y in range(annee_cloture, annee_cible + 1):
+            # Multiplicateur de croissance annuel
+            multiplicateur_croissance = (1 + (taux_croissance / 100.0)) ** (y - annee_cloture)
+            
             for m in range(1, 13):
                 # Condition avec le bouton d'activation/désactivation
                 if use_cutoff and y == annee_cloture and m <= mois_cutoff: 
@@ -170,7 +173,8 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
-                prev_hl = (coef * base) + momentum
+                # Application de la croissance sur la prévision
+                prev_hl = ((coef * base) + momentum) * multiplicateur_croissance
                 prev_hl = max(0.0, prev_hl)
                 prev_cols = prev_hl * (10000 / contenance)
                 
@@ -218,7 +222,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Cible")
     
-    # LE NOUVEAU BOUTON EST ICI
+    # LE BOUTON D'ACTIVATION DU CUTOFF
     use_cutoff = st.sidebar.checkbox("Activer le Cutoff (ignorer les mois passés)", value=True)
     
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
@@ -234,11 +238,14 @@ if fichier_ventes is not None and fichier_ref is not None:
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
     
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
+    taux_croissance = st.sidebar.number_input("Taux de croissance annuel (%)", min_value=-100.0, max_value=100.0, value=0.0, step=1.0, help="Applique une croissance (ou décroissance) composée sur les années futures.")
+    
+    # J'AI MIS "Cols" PAR DÉFAUT POUR COLLER A TON EXCEL
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=1)
 
     # --- CALCULS ---
     table_indices, df_sarr, df_previsions = calculer_previsions_globales(
-        df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef, use_cutoff
+        df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef, use_cutoff, taux_croissance
     )
 
     if df_sarr.empty or df_previsions.empty:
@@ -289,7 +296,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_prev:
         st.subheader(f"Détail des Prévisions (Étape 5) (en {unite_affichage})")
         
-        st.info("💡 Le Total Année correspond à la somme des prévisions mensuelles.")
+        st.info("💡 Le Total Année correspond à la somme des prévisions mensuelles. L'unité de prévision est multipliée par le taux de croissance pour les années suivantes.")
         
         # ---- TCD Mensuel avec Total Année ----
         st.markdown(f"### 📊 TCD Mensuel des Prévisions + Total Année (en {unite_affichage})")

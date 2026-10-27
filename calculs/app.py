@@ -239,17 +239,17 @@ if fichier_ventes is not None and fichier_ref is not None:
     # --- CALCULS ---
     table_indices, df_sarr, df_previsions = calculer_previsions_excel(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo)
 
-    # --- GESTION DES CAS VIDES (FIX) ---
     if df_previsions.empty or df_sarr.empty:
         st.warning("⚠️ Aucune donnée calculée. Veuillez vérifier vos filtres et vos dates de Cutoff.")
         st.stop()
 
     st.success(f"✅ Calculs effectués en HL. Affichage configuré en {unite_affichage}.")
     
-    tab_glissant, tab_detail, tab_bilan = st.tabs([
-        "📅 Vue Glissante (Vérification M-1 à M-12)",
+    tab_glissant, tab_detail, tab_bilan, tab_audit = st.tabs([
+        "📅 Vue Glissante (M-1 à M-12)",
         "🚀 Détail des Prévisions", 
-        "📊 Bilan Annuel (TCD)"
+        "📊 Bilan Annuel (TCD)",
+        "🔍 Audit Données Brutes"
     ])
 
     # --- CONVERSION POUR L'AFFICHAGE ---
@@ -352,3 +352,19 @@ if fichier_ventes is not None and fichier_ref is not None:
             st.dataframe(pivot_annuel.style.format("{:,.0f}"), use_container_width=True)
         else:
             st.warning("Aucune prévision pour cette année.")
+
+    with tab_audit:
+        st.subheader("🔍 Audit des Données Brutes")
+        st.write("Ce tableau affiche exactement ce que l'outil a lu dans votre fichier `DATA_BRUT.xlsx` pour l'article et l'agence sélectionnés. Si le SARR est à 0, c'est que le volume est à 0 ici.")
+        
+        if sel_articles and sel_agences:
+            df_audit = df_perimetre[(df_perimetre["article"].isin(sel_articles)) & (df_perimetre["agence"].isin(sel_agences)) & (df_perimetre["annee"] == annee_cloture)]
+            
+            if not df_audit.empty:
+                pivot_audit = df_audit.pivot_table(index=["agence", "article"], columns="mois", values="hl", aggfunc="sum").fillna(0)
+                pivot_audit.columns = [MOIS_NOMS[c-1] for c in pivot_audit.columns]
+                st.dataframe(pivot_audit.style.format("{:,.2f}"), use_container_width=True)
+            else:
+                st.warning("Aucune donnée trouvée dans le fichier brut pour cette agence, cet article et cette année.")
+        else:
+            st.info("Sélectionnez une seule Agence et un seul Article pour voir le détail des données brutes.")

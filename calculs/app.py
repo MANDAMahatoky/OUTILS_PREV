@@ -4,9 +4,10 @@ import numpy as np
 import re
 import io
 import unicodedata
+import altair as alt
 
-st.set_page_config(page_title="Étape 4 : Indices & SARR", layout="wide")
-st.title("Étape 4 : Calcul des Indices et du SARR")
+st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
+st.title("Moteur de Prévision S&OP (Étapes 1 à 5)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -34,11 +35,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     
     df_ref = df_ref.rename(columns={
-        "Article": "article_original", 
-        "Positionnement": "positionnement", 
-        "Occasion": "occasion", 
-        "Contenance (hl)": "contenance_hl", 
-        "Contenance (Cl)": "contenance_cl"
+        "Article": "article_original", "Positionnement": "positionnement", 
+        "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"
     })
     
     for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
@@ -95,14 +93,16 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
+# ÉTAPES 4 & 5 : CALCUL DES INDICES, SARR ET PRÉVISIONS
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices et du SARR...")
-def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fenetre_histo: str, methode_coef: str):
-    df_hist = df_perimetre[df_perimetre["annee"] < annee_cloture].copy()
-    
-    if df_hist.empty: 
-        return pd.DataFrame(), pd.DataFrame()
+@st.cache_data(show_spinner="Calcul des indices, SARR et prévisions...")
+def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str):
+    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    # --- ÉTAPE 4 : CALCUL DES INDICES & SARR ---
+    df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
+    if df_hist.empty: df_hist = df_realise.copy()
 
     annee_max = annee_cloture - 1
     if fenetre_histo == "3 dernières années": annee_min = annee_max - 2
@@ -111,14 +111,13 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fen
         
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # FILTRER LES ANNEES COMPLETES (12 MOIS)
+    # Filtrage des années complètes (12 mois)
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
     
-    if df_hist_complet.empty: return pd.DataFrame(), pd.DataFrame()
+    if df_hist_complet.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # --- 1. CALCUL DES INDICES ---
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
@@ -132,14 +131,55 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fen
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
-    # --- 2. CALCUL DU SARR (en HL) ---
-    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
+
+    # --- ÉTAPE 5 : MOMENTUM, BASE ET PRÉVISIONS ---
+    df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
+    df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
+    df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
     
-    return table_indices, df_sarr
+    resultats_previsions = []
+    
+    for (ag, art), group in df_derniers.groupby(['agence', 'article']):
+        sarr_m = group[group['rang'] == 0]['SARR_HL'].values[0] if len(group[group['rang'] == 0]) > 0 else 0
+        sarr_m1 = group[group['rang'] == 1]['SARR_HL'].values[0] if len(group[group['rang'] == 1]) > 0 else 0
+        sarr_m2 = group[group['rang'] == 2]['SARR_HL'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
+        sarr_m3 = group[group['rang'] == 3]['SARR_HL'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
+        
+        var1 = sarr_m - sarr_m1
+        var2 = sarr_m1 - sarr_m2
+        var3 = sarr_m2 - sarr_m3
+        momentum = np.mean([var1, var2, var3])
+        
+        moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
+        base = max(sarr_m, moy_3_mois)
+        
+        info_art = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)].iloc[0]
+        contenance = info_art['contenance_cl']
+        
+        for y in range(annee_cloture, annee_cible + 1):
+            for m in range(1, 13):
+                if y == annee_cloture and m <= mois_cutoff: continue
+                if y == annee_cible and m > mois_cible: break
+                
+                coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
+                coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+                
+                prev_hl = (coef * base) + momentum
+                prev_hl = max(0.0, prev_hl)
+                prev_cols = prev_hl * (10000 / contenance)
+                
+                resultats_previsions.append({
+                    "agence": ag, "article": art, "annee": y, "mois": m,
+                    "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
+                    "Indice": coef, "Base_HL": base, "Momentum_HL": momentum,
+                    "Prevision_HL": prev_hl, "Prevision_Cols": prev_cols
+                })
+                
+    df_previsions = pd.DataFrame(resultats_previsions)
+    return table_indices, df_sarr, df_previsions
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -173,9 +213,15 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     # --- CUTOFF & OPTIONS ---
     st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ Cutoff & Options")
+    st.sidebar.header("⚙️ Cutoff & Cible")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
+    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
+    st.sidebar.markdown("---")
+    st.sidebar.header("🎯 Cible des Prévisions")
+    annee_cible = st.sidebar.number_input("Année Cible", min_value=2026, max_value=2035, value=2027)
+    mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=11, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
+
     st.sidebar.markdown("---")
     st.sidebar.header("🛠️ Options de Calcul")
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
@@ -184,68 +230,79 @@ if fichier_ventes is not None and fichier_ref is not None:
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, fenetre_histo, methode_coef)
+    table_indices, df_sarr, df_previsions = calculer_previsions_globales(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef)
 
-    if df_sarr.empty or table_indices.empty:
+    if df_sarr.empty or df_previsions.empty:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
         st.stop()
 
-    st.success(f"✅ Étape 4 complétée : Coefficients calculés et SARR généré.")
+    st.success(f"✅ Étape 4 validée. Étape 5 calculée avec succès.")
     
-    tab_indices, tab_sarr = st.tabs(["📊 Table des Indices", "📈 Table du SARR"])
+    tab_indices, tab_sarr, tab_prev, tab_bilan = st.tabs([
+        "📊 Table des Indices", 
+        "📈 Table du SARR (Historique)", 
+        "🚀 Détail des Prévisions (Étape 5)",
+        "📅 Bilan Annuel (TCD)"
+    ])
+
+    # --- CONVERSION POUR L'AFFICHAGE ---
+    if unite_affichage == "Cols":
+        df_sarr["Vol_Aff"] = df_sarr["hl"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
+        df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
+        
+        # Pour les prévisions, la conversion a déjà été faite dans la fonction
+        df_prev_aff = "Prevision_Cols"
+    else:
+        df_sarr["Vol_Aff"] = df_sarr["hl"]
+        df_sarr["SARR_Aff"] = df_sarr["SARR_HL"]
+        df_prev_aff = "Prevision_HL"
 
     with tab_indices:
-        st.subheader("Coefficients Saisonniers (Indices)")
-        
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
 
     with tab_sarr:
         st.subheader(f"Table du SARR (en {unite_affichage})")
-        
-        # --- CONVERSION POUR L'AFFICHAGE UNIQUEMENT ---
-        if unite_affichage == "Cols":
-            facteur = 10000 / df_sarr["contenance_cl"].replace(0, 100)
-            df_sarr["Vol_Aff"] = df_sarr["hl"] * facteur
-            df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * facteur
-            label_vol = "Volume (Cols)"
-            label_sarr = "SARR (Cols)"
-        else:
-            df_sarr["Vol_Aff"] = df_sarr["hl"]
-            df_sarr["SARR_Aff"] = df_sarr["SARR_HL"]
-            label_vol = "Volume (HL)"
-            label_sarr = "SARR (HL)"
-
-        # --- NOUVEAU : TABLEAU DE SYNTHESE ANNUELLE ---
-        st.markdown(f"### 📊 Synthèse Annuelle (en {unite_affichage})")
-        st.write("Ce tableau récapitule le volume total par année pour vérification avec votre Excel.")
-        
-        pivot_annuel = df_sarr.pivot_table(
-            index=['agence', 'article'],
-            columns='annee',
-            values='Vol_Aff',
-            aggfunc='sum',
-            margins=True,
-            margins_name='Total Global'
-        ).fillna(0)
-        
+        st.markdown(f"### 📊 Synthèse Annuelle")
+        pivot_annuel = df_sarr.pivot_table(index=['agence', 'article'], columns='annee', values='Vol_Aff', aggfunc='sum', margins=True, margins_name='Total Global').fillna(0)
         st.dataframe(pivot_annuel.style.format("{:,.2f}"), use_container_width=True)
-
-        st.markdown("---")
         
-        # --- DETAIL MENSUEL ---
-        st.markdown(f"### 📅 Détail Mensuel (en {unite_affichage})")
-        df_sarr_display = df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"])
+        st.markdown(f"### 📅 Détail Mensuel")
+        st.dataframe(
+            df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"]),
+            column_config={
+                "Vol_Aff": st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
+                "Indice": st.column_config.NumberColumn("Coef", format="%.1f"),
+                "SARR_Aff": st.column_config.NumberColumn(f"SARR ({unite_affichage})", format="%.2f")
+            },
+            use_container_width=True, height=400
+        )
+
+    with tab_prev:
+        st.subheader(f"Détail des Prévisions (Étape 5) (en {unite_affichage})")
+        
+        # Affichage de la base et du momentum pour info (en HL)
+        st.info("💡 La Base et le Momentum sont calculés en HL. La Prévision est ensuite convertie dans l'unité choisie.")
         
         st.dataframe(
-            df_sarr_display,
+            df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base_HL", "Momentum_HL", df_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
-                "Vol_Aff": st.column_config.NumberColumn(label_vol, format="%.2f"),
-                "Indice": st.column_config.NumberColumn("Coef", format="%.1f"),
-                "SARR_Aff": st.column_config.NumberColumn(label_sarr, format="%.2f")
+                "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
+                "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.0f"),
+                "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.0f"),
+                df_prev_aff: st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
             },
-            use_container_width=True,
-            height=400
+            use_container_width=True, height=400
         )
+
+    with tab_bilan:
+        st.subheader(f"Bilan Annuel {annee_cible} (en {unite_affichage})")
+        st.write("Ce tableau est la somme des 12 mois de l'année cible. Il correspond exactement à la colonne 'Total general' de votre Excel.")
+        
+        df_annee = df_previsions[df_previsions["annee"] == annee_cible]
+        if not df_annee.empty:
+            pivot_annuel_prev = pd.pivot_table(df_annee, values=df_prev_aff, index="article", columns="agence", aggfunc="sum", margins=True, margins_name="Total general").fillna(0)
+            st.dataframe(pivot_annuel_prev.style.format("{:,.2f}"), use_container_width=True)
+        else:
+            st.warning("Aucune prévision pour cette année.")

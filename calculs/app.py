@@ -89,15 +89,12 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
-def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str):
-    # On isole le réalisé (jusqu'au cutoff)
-    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
-
-    # On définit l'historique pur (strictement avant l'année de clôture)
-    df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
+def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fenetre_histo: str, methode_coef: str):
+    # 1. On isole uniquement l'historique strict (avant l'année de clôture)
+    df_hist = df_perimetre[df_perimetre["annee"] < annee_cloture].copy()
+    
     if df_hist.empty: 
-        df_hist = df_realise.copy()
+        return pd.DataFrame(), pd.DataFrame()
 
     # Filtrage de la fenêtre historique (Tout, 3 ans, 2 ans)
     annee_max = annee_cloture - 1
@@ -125,7 +122,8 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
     # --- 2. CALCUL DU SARR ---
-    # On applique les indices sur tout le réalisé (y compris l'année de clôture si on veut voir le SARR réel)
+    # On applique les indices sur tout le réalisé (y compris l'année de clôture)
+    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
@@ -144,7 +142,7 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --- PÉRIMÈTRE (Filtres) ---
+    # --- FILTRES ---
     st.sidebar.header("🔍 Filtres")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
@@ -166,7 +164,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Options")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
     st.sidebar.markdown("---")
     st.sidebar.header("🛠️ Options de Calcul")
@@ -174,7 +171,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef)
+    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, fenetre_histo, methode_coef)
 
     if df_sarr.empty or table_indices.empty:
         st.warning("⚠️ Aucune donnée calculée. Vérifiez vos filtres.")

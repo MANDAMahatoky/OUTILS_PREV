@@ -96,7 +96,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ÉTAPES 4 & 5 : CALCUL DES INDICES, SARR ET PRÉVISIONS
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, SARR et prévisions...")
-def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str):
+def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str, use_cutoff: bool):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -161,7 +161,10 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
         
         for y in range(annee_cloture, annee_cible + 1):
             for m in range(1, 13):
-                if y == annee_cloture and m <= mois_cutoff: continue
+                # Condition avec le bouton d'activation/désactivation
+                if use_cutoff and y == annee_cloture and m <= mois_cutoff: 
+                    continue
+                
                 if y == annee_cible and m > mois_cible: break
                 
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
@@ -214,6 +217,10 @@ if fichier_ventes is not None and fichier_ref is not None:
     # --- CUTOFF & OPTIONS ---
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Cible")
+    
+    # LE NOUVEAU BOUTON EST ICI
+    use_cutoff = st.sidebar.checkbox("Activer le Cutoff (ignorer les mois passés)", value=True)
+    
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
@@ -230,7 +237,9 @@ if fichier_ventes is not None and fichier_ref is not None:
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_sarr, df_previsions = calculer_previsions_globales(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef)
+    table_indices, df_sarr, df_previsions = calculer_previsions_globales(
+        df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef, use_cutoff
+    )
 
     if df_sarr.empty or df_previsions.empty:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
@@ -280,19 +289,24 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_prev:
         st.subheader(f"Détail des Prévisions (Étape 5) (en {unite_affichage})")
         
-        st.info("💡 La Base et le Momentum sont calculés en HL. La Prévision est ensuite convertie dans l'unité choisie. Le Total Année correspond à la somme des prévisions mensuelles.")
+        st.info("💡 Le Total Année correspond à la somme des prévisions mensuelles.")
         
-        # ---- NOUVEAU : TCD Mensuel avec Total Année (somme des mois) ----
+        # ---- TCD Mensuel avec Total Année ----
         st.markdown(f"### 📊 TCD Mensuel des Prévisions + Total Année (en {unite_affichage})")
         pivot_mensuel = df_previsions.pivot_table(
             index=['annee', 'agence', 'article'],
             columns='mois',
             values=df_prev_aff,
             aggfunc='sum'
-        ).fillna(0)
+        )
         pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
         pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
-        st.dataframe(pivot_mensuel.style.format("{:,.2f}"), use_container_width=True)
+        
+        # Affichage avec tiret "-" pour les cases vides
+        st.dataframe(
+            pivot_mensuel.style.format("{:,.2f}", na_rep="-"), 
+            use_container_width=True
+        )
         
         # ---- Détail mensuel avec colonne Total Année ----
         st.markdown("### 📅 Détail Mensuel des Prévisions (avec Total Année)")

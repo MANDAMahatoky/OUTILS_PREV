@@ -85,35 +85,31 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (MÉTHODE EXCEL)
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (ARRONDI À 1 DÉCIMALE)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et projection...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cloture: int):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # 1. Calcul des indices sur les années complètes
+    # 1. Calcul des indices
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
     
-    # Volume par (agence, article, annee, mois)
     vols = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
-    
-    # Volume total annuel par (agence, article, annee)
     vols_annuels = vols.sum(axis=1)
-    
-    # Calcul des indices : Ratio du mois par rapport à la moyenne mensuelle de l'année
-    # Moyenne mensuelle = Vol_annuel / 12
     ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
     
-    # Moyenne des ratios sur les années (skipna=True pour ignorer les NaN dus aux années incomplètes)
     indices_moyens = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
-    
-    # On remet tout à plat pour avoir un tableau (agence, article, mois, Indice)
     table_indices = indices_moyens.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
-    table_indices['Indice'] = table_indices['Indice'].replace(0, 1.0) # Lissage des 0
+    
+    # FIX : Lissage et arrondi à 1 décimale
+    table_indices['Indice'] = table_indices['Indice'].replace(0, 1.0)
+    table_indices['Indice'] = table_indices['Indice'].round(1)
 
-    # 2. Projection des mois manquants de l'année en cours
+    audit_volumes = vols.reset_index().melt(id_vars=['agence', 'article', 'annee'], var_name='mois', value_name='Volume')
+    
+    # 2. Projection des mois manquants
     df_ytd = df_realise[df_realise["annee"] == annee_cloture].copy()
     df_projete = df_ytd.copy()
     
@@ -124,8 +120,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     
     for _, row in ytd_totaux.iterrows():
         ag, art = row['agence'], row['article']
-        
-        # Somme des indices des mois écoulés
         coefs_ecoules = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] <= mois_cloture)]['Indice'].sum()
         if coefs_ecoules == 0: coefs_ecoules = mois_cloture
         
@@ -134,7 +128,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         for m in range(mois_cloture + 1, 13):
             coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
             coef_mois = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
-            
             vol_projete = (vol_annuel_proj / 12) * coef_mois
             
             df_projete = pd.concat([df_projete, pd.DataFrame([{
@@ -142,13 +135,12 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
                 'agence': ag, 'hl': vol_projete, 'article': art, 'positionnement': row['positionnement'], 'occasion': row['occasion']
             }])], ignore_index=True)
     
-    # 3. Fusion et SARR
     df_final = pd.concat([df_realise, df_projete], ignore_index=True).drop_duplicates(subset=['annee', 'mois', 'agence', 'article'])
     df_sarr = df_final.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
-    return table_indices, df_sarr
+    return table_indices, df_sarr, audit_volumes
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -162,7 +154,6 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --- PÉRIMÈTRE ---
     st.sidebar.header("🔍 Filtres")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
@@ -180,26 +171,24 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # --- CUTOFF ---
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cloture = st.sidebar.selectbox("Mois Pivot (M-1)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
-    # --- CALCULS ---
-    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
+    table_indices, df_sarr, audit_volumes = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cloture)
 
-    # --- AFFICHAGE ---
-    st.success("✅ Étape 4 complétée : Indices et SARR générés (Méthode Excel).")
+    st.success("✅ Étape 4 complétée : Indices arrondis à 1 décimale (comme Excel).")
     
-    tab_indices, tab_sarr = st.tabs(["📊 Table des Indices (Coefficients)", "📈 Table du SARR"])
+    tab_indices, tab_sarr, tab_audit = st.tabs(["📊 Table des Indices", "📈 Table du SARR", "🔍 Audit des Volumes"])
 
     with tab_indices:
         st.subheader("Coefficients Saisonniers (Indices)")
         if not table_indices.empty:
             pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
+            # FIX : Affichage à 1 décimale
+            st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
         else:
             st.info("Aucun indice calculé.")
 
@@ -210,10 +199,17 @@ if fichier_ventes is not None and fichier_ref is not None:
                 df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR"]].sort_values(["annee", "mois", "agence", "article"]),
                 column_config={
                     "hl": st.column_config.NumberColumn("Volume (HL)", format="%.2f"),
-                    "Indice": st.column_config.NumberColumn("Indice", format="%.2f"),
+                    "Indice": st.column_config.NumberColumn("Indice", format="%.1f"), # FIX : 1 décimale
                     "SARR": st.column_config.NumberColumn("SARR (HL)", format="%.2f")
                 },
                 use_container_width=True
             )
         else:
             st.info("Aucune donnée SARR.")
+
+    with tab_audit:
+        st.subheader("🔍 Audit : Volumes par Année")
+        if not audit_volumes.empty:
+            pivot_audit = audit_volumes.pivot_table(index=['agence', 'article', 'annee'], columns='mois', values='Volume', aggfunc='sum').fillna(0)
+            pivot_audit.columns = [MOIS_NOMS[c-1] for c in pivot_audit.columns]
+            st.dataframe(pivot_audit.style.format("{:.2f}"), use_container_width=True)

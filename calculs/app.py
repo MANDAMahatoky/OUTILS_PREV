@@ -95,7 +95,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (CALCULS EN HL)
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fenetre_histo: str, methode_coef: str):
@@ -181,7 +181,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
     
-    # OPTION D'AFFICHAGE (CORRIGÉE)
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
     # --- CALCULS ---
@@ -208,10 +207,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         # --- CONVERSION POUR L'AFFICHAGE UNIQUEMENT ---
         if unite_affichage == "Cols":
-            # Conversion HL -> Unités -> Cols (si unites_par_colis est dispo, sinon on suppose 1)
-            # Ici, on n'a que la contenance_cl, donc on calcule des Unités, qu'on appelle "Cols"
             facteur = 10000 / df_sarr["contenance_cl"].replace(0, 100)
-            
             df_sarr["Vol_Aff"] = df_sarr["hl"] * facteur
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * facteur
             label_vol = "Volume (Cols)"
@@ -221,7 +217,26 @@ if fichier_ventes is not None and fichier_ref is not None:
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"]
             label_vol = "Volume (HL)"
             label_sarr = "SARR (HL)"
-            
+
+        # --- NOUVEAU : TABLEAU DE SYNTHESE ANNUELLE ---
+        st.markdown(f"### 📊 Synthèse Annuelle (en {unite_affichage})")
+        st.write("Ce tableau récapitule le volume total par année pour vérification avec votre Excel.")
+        
+        pivot_annuel = df_sarr.pivot_table(
+            index=['agence', 'article'],
+            columns='annee',
+            values='Vol_Aff',
+            aggfunc='sum',
+            margins=True,
+            margins_name='Total Global'
+        ).fillna(0)
+        
+        st.dataframe(pivot_annuel.style.format("{:,.2f}"), use_container_width=True)
+
+        st.markdown("---")
+        
+        # --- DETAIL MENSUEL ---
+        st.markdown(f"### 📅 Détail Mensuel (en {unite_affichage})")
         df_sarr_display = df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"])
         
         st.dataframe(
@@ -232,5 +247,5 @@ if fichier_ventes is not None and fichier_ref is not None:
                 "SARR_Aff": st.column_config.NumberColumn(label_sarr, format="%.2f")
             },
             use_container_width=True,
-            height=500
+            height=400
         )

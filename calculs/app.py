@@ -226,6 +226,12 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_indices:
         st.subheader("Coefficients Saisonniers (Indices)")
+        
+        # Message d'aide pour l'alignement
+        mois_m2 = mois_cutoff - 2 if mois_cutoff > 2 else mois_cutoff + 10
+        mois_m1 = mois_cutoff - 1 if mois_cutoff > 1 else 12
+        st.info(f"💡 **Pour comparer avec ton Excel :** Le Cutoff étant en Octobre, ton 'Coef -1' Excel correspond à **{MOIS_NOMS[mois_m1-1]}**, et ton 'Coef -2' correspond à **{MOIS_NOMS[mois_m2-1]}**.")
+
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
@@ -270,9 +276,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.write("Voici le détail du calcul des coefficients. Streamlit fait la moyenne de ces ratios annuels.")
         
         if len(sel_articles) > 0 or len(sel_agences) > 0:
-            mois_m2 = mois_cutoff - 2 if mois_cutoff > 2 else mois_cutoff + 10
-            mois_m1 = mois_cutoff - 1 if mois_cutoff > 1 else 12
-            
             st.write(f"**Calcul des coefficients pour M-1 ({MOIS_NOMS[mois_m1-1]}) et M-2 ({MOIS_NOMS[mois_m2-1]}) :**")
             
             debug_filtre = debug_ratios[debug_ratios['mois'].isin([mois_m1, mois_m2])].copy()

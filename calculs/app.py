@@ -86,7 +86,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (INCHANGÉ)
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fenetre_histo: str, methode_coef: str):
@@ -115,6 +115,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fen
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
         indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
     else:
+        # Méthode "Ratio des Sommes" (Correspond exactement à la formule Excel MOYENNE.SI.ENS / Moyenne Globale)
         vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
         vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
@@ -138,7 +139,6 @@ def calculer_momentum(df_sarr: pd.DataFrame):
     resultats_momentum = []
     
     for (ag, art), group in df_sarr_sorted.groupby(['agence', 'article']):
-        # Récupération de M-1 (rang 1) et M-2 (rang 2)
         ligne_m1 = group[group['rang'] == 1]
         ligne_m2 = group[group['rang'] == 2]
         
@@ -154,7 +154,6 @@ def calculer_momentum(df_sarr: pd.DataFrame):
             hl_m1 = coef_m1 = sarr_m1 = 0
             hl_m2 = coef_m2 = sarr_m2 = 0
             
-        # Formule exacte : Momentum = SARR(M-1) - SARR(M-2)
         momentum = sarr_m1 - sarr_m2
         
         resultats_momentum.append({
@@ -206,8 +205,9 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
+    # PAR DÉFAUT : 2 DERNIÈRES ANNÉES ET RATIO DES SOMMES (POUR COLLER A EXCEL)
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
-    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
+    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
     
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
@@ -231,6 +231,7 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_indices:
         st.subheader("Coefficients Saisonniers (Indices)")
+        st.info("💡 **Formule Excel :** `MOYENNE.SI.ENS` = Ratio des Sommes sur 2 ans (2024-2025).")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)

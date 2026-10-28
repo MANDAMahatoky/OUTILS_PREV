@@ -86,7 +86,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (SANS ARRONDI)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
@@ -121,6 +121,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
         indices = ratios.groupby(group_cols).mean().fillna(1.0)
     else:
+        # Calcul EXACT : Somme du mois / (Somme annuelle / 12)
         vols_mois_cumules = vols.groupby(group_cols).sum()
         vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
@@ -132,6 +133,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
+    # Calcul EXACT du SARR
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
     return table_indices, df_sarr, debug_data
@@ -140,7 +142,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
 # FONCTION D'ANALYSE PÉRIODE MOMENTUM
 # ==============================================================================
 @st.cache_data(show_spinner="Génération du tableau...")
-def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite_affichage: str, override_coefs: dict = None):
+def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite_affichage: str):
     df_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois'], ascending=[True, True, False, False]).copy()
     resultats = []
     
@@ -162,19 +164,15 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
                 
         for i in range(periode_momentum):
             if i < len(group_n): 
-                if override_coefs and i in override_coefs:
-                    coef_val = override_coefs[i]
-                else:
-                    coef_val = group_n.loc[i, 'Indice']
-                row[f"M{i+1}"] = coef_val
+                row[f"M{i+1}"] = group_n.loc[i, 'Indice']
             else: 
                 row[f"M{i+1}"] = np.nan
 
         for i in range(periode_momentum):
             if i < len(group_n): 
-                coef_val = row[f"M{i+1}"]
+                coef_val = group_n.loc[i, 'Indice']
                 if pd.notna(coef_val) and coef_val > 0:
-                    # On utilise TOUJOURS la valeur précise pour le calcul, pas l'affichage
+                    # Le SARR utilise la précision maximale
                     sarr_val = (group_n.loc[i, 'hl'] / coef_val) * multiplicateur
                 else:
                     sarr_val = np.nan
@@ -240,23 +238,13 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL"], index=0)
 
-    # --- FORCAGE DES COEFFICIENTS ---
-    st.sidebar.markdown("---")
-    st.sidebar.header("✍️ Forcer les Coefficients")
-    override_coefs = {}
-    if st.sidebar.checkbox("Utiliser mes propres coefficients", value=False):
-        st.sidebar.write("Saisis les coefs de ton Excel pour voir le SARR exact.")
-        for i in range(periode_momentum):
-            val = st.sidebar.number_input(f"Coef M{i+1}", min_value=0.0, max_value=10.0, value=1.0, step=0.1, key=f"coef_{i}")
-            override_coefs[i] = val
-
     table_indices, df_sarr, debug_data = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef, niveau_agregation)
     
     if df_sarr.empty:
         st.warning("⚠️ Impossible de calculer le SARR.")
         st.stop()
 
-    df_analyse = generer_tableau_momentum(df_sarr, periode_momentum, unite_affichage, override_coefs)
+    df_analyse = generer_tableau_momentum(df_sarr, periode_momentum, unite_affichage)
 
     st.success(f"✅ Tableau généré avec succès.")
     
@@ -265,8 +253,8 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_analyse:
         st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
         
-        # ICI, on met "{:.1f}" pour afficher 1.0 au lieu de 0.98
-        format_dict = {f"M{i+1}": "{:.1f}" for i in range(periode_momentum)}
+        # Affichage EXACT (4 décimales pour les coefs, 1 pour le SARR)
+        format_dict = {f"M{i+1}": "{:.4f}" for i in range(periode_momentum)}
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
         
@@ -278,8 +266,8 @@ if fichier_ventes is not None and fichier_ref is not None:
 
         # --- RAYON X ---
         st.markdown("---")
-        with st.expander("🔍 VOIR LE DÉTAIL DU CALCUL (Pourquoi l'écart avec Excel ?)", expanded=True):
-            st.write("Voici les volumes de ventes exacts que Streamlit utilise pour calculer la moyenne.")
+        with st.expander("🔍 VOIR LE DÉTAIL DU CALCUL (Preuve Mathématique)", expanded=True):
+            st.write("Voici la somme exacte des volumes de ventes (sur les 2 années complètes) que Streamlit utilise.")
             
             if len(sel_articles) > 0:
                 if niveau_agregation == "Par Agence & Article" and len(sel_agences) > 0:
@@ -293,11 +281,11 @@ if fichier_ventes is not None and fichier_ref is not None:
                     
                     col1, col2 = st.columns(2)
                     col1.metric("Total des ventes sur la période", f"{total_global:,.2f} HL")
-                    col2.metric("Moyenne mensuelle attendue", f"{total_global / 12:,.2f} HL")
+                    col2.metric("Moyenne mensuelle mathématique", f"{total_global / 12:,.2f} HL")
                     
                     st.dataframe(dbg[['article'] + (['agence'] if niveau_agregation == "Par Agence & Article" else []) + ["mois", "Volume_Total"]].style.format({"Volume_Total": "{:,.2f}"}), use_container_width=True)
                     
-                    st.warning("💡 **Analyse :** Le calcul de Streamlit est exact (Volume / Moyenne). Si ton Excel affiche `1.0` pour Août, c'est que le volume d'Août dans ton Excel est égal à la moyenne. Si Streamlit trouve `0.98`, c'est que le volume d'Août dans `DATA_BRUT.xlsx` est différent. Utilise la case **'Forcer les Coefficients'** à gauche pour forcer les chiffres de ton Excel.")
+                    st.info("💡 **La preuve par les chiffres :** L'indice de Février est calculé ainsi : `Volume Février / Moyenne mensuelle`. Si dans ton Excel l'indice est exactement 1.0, c'est que le Volume de Février dans ton Excel était exactement égal à la moyenne mensuelle. Avec les données actuelles de `DATA_BRUT.xlsx`, le calcul donne le chiffre exact affiché ci-dessus.")
                 else:
                     st.write("Pas assez de données pour afficher le détail.")
             else:
@@ -311,4 +299,5 @@ if fichier_ventes is not None and fichier_ref is not None:
             pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
+        # Affichage EXACT avec 6 décimales
+        st.dataframe(pivot_indices.style.format("{:.6f}"), use_container_width=True)

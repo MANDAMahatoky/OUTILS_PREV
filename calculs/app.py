@@ -90,6 +90,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
+    # On s'arrête STRICTEMENT au mois de cutoff pour l'historique
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
@@ -137,7 +138,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     return table_indices, df_sarr, debug_data
 
 # ==============================================================================
-# FONCTION D'ANALYSE PÉRIODE MOMENTUM (MISE EN PAGE EXCEL STRICTE)
+# FONCTION D'ANALYSE PÉRIODE MOMENTUM
 # ==============================================================================
 @st.cache_data(show_spinner="Génération du tableau...")
 def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite_affichage: str):
@@ -152,7 +153,6 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
         contenance = group_n.loc[0, 'contenance_cl'] if 'contenance_cl' in group_n.columns else 100.0
         multiplicateur = (10000 / contenance) if unite_affichage == "Cols" else 1.0
         
-        # 1. Dates
         for i in range(periode_momentum):
             if i < len(group_n):
                 mois_val = int(group_n.loc[i, 'mois'])
@@ -161,17 +161,14 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
             else:
                 row[f"M-{i+1}"] = "-"
                 
-        # 2. Coefficients (CORRECTION ICI : np.nan au lieu de "-")
         for i in range(periode_momentum):
             if i < len(group_n): row[f"M{i+1}"] = group_n.loc[i, 'Indice']
             else: row[f"M{i+1}"] = np.nan
 
-        # 3. SARR (CORRECTION ICI : np.nan au lieu de "-")
         for i in range(periode_momentum):
             if i < len(group_n): row[f"SARR M-{i+1}"] = group_n.loc[i, 'SARR_HL'] * multiplicateur
             else: row[f"SARR M-{i+1}"] = np.nan
                 
-        # 4. Moyenne SARR (On ne prend que les valeurs valides)
         valides = [row[f"SARR M-{i+1}"] for i in range(periode_momentum) if pd.notna(row[f"SARR M-{i+1}"])]
         row["Moyenne SARR"] = np.mean(valides) if valides else np.nan
         
@@ -220,8 +217,8 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.header("⚙️ Cutoff & Options")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     
-    # Mis par défaut à 9 (Septembre) pour que M-1 soit Août, comme dans ton Excel
-    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
+    # On met l'index à 7 pour avoir "8 - Août" par défaut
+    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=7, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
     periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=3, step=1)
     niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Article (Global)", "Par Agence & Article"], index=0)
@@ -250,7 +247,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
         
-        # Le paramètre na_rep="-" affiche un tiret pour les NaN
         st.dataframe(
             df_analyse.style.format(format_dict, na_rep="-"),
             use_container_width=True,

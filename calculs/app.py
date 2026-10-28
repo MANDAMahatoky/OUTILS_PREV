@@ -76,6 +76,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["hl"] = df_enrichi["hl"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
+    
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     
     conditions = [
@@ -138,18 +139,17 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # --- CALCUL DU MOMENTUM MENSUEL HISTORIQUE (Pour le TCD et les Prévisions) ---
+    # --- CALCUL DU MOMENTUM MENSUEL HISTORIQUE ---
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     
-    # On calcule la variation (M) - (M-1) pour chaque ligne
+    # Variation (M) - (M-1)
     df_sarr_sorted['Variation_HL'] = df_sarr_sorted.groupby(['agence', 'article'])['SARR_HL'].diff()
-    df_sarr_sorted['Variation_HL'] = df_sarr_sorted['Variation_HL'].fillna(0.0) # Remplacer le premier NaN par 0
+    df_sarr_sorted['Variation_HL'] = df_sarr_sorted['Variation_HL'].fillna(0.0)
 
-    # On fait la moyenne des variations par mois de calendrier (1 à 12)
+    # Moyenne par mois calendaire
     momentum_mensuel_moyen = df_sarr_sorted.groupby(['agence', 'article', 'mois'])['Variation_HL'].mean().reset_index()
     momentum_mensuel_moyen.rename(columns={'Variation_HL': 'Momentum_Moyen_HL'}, inplace=True)
     
-    # Table pour l'onglet d'affichage du Momentum
     table_momentum_display = momentum_mensuel_moyen.pivot_table(index=['agence', 'article'], columns='mois', values='Momentum_Moyen_HL').fillna(0)
     table_momentum_display.columns = [MOIS_NOMS[c-1] for c in table_momentum_display.columns]
     table_momentum_display['Total'] = table_momentum_display.sum(axis=1)
@@ -170,15 +170,16 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
         base = max(sarr_m, moy_3_mois)
         
         info_art = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)].iloc[0]
-        contenance = info_art['contenance_cl']
+        contenance = float(info_art['contenance_cl'])
         
-        # --- CALCUL DU CAGR PAR ARTICLE ---
+        # --- CALCUL DU CAGR (FORMULE STANDARD) ---
         hist_art = vols_annuels_totaux[(vols_annuels_totaux['agence'] == ag) & (vols_annuels_totaux['article'] == art)]
         if len(hist_art) >= 2:
             annee_debut = hist_art['annee'].min()
             annee_fin = hist_art['annee'].max()
             vol_debut = hist_art[hist_art['annee'] == annee_debut]['hl'].values[0]
             vol_fin = hist_art[hist_art['annee'] == annee_fin]['hl'].values[0]
+            
             nb_annees = annee_fin - annee_debut
             
             if nb_annees > 0 and vol_debut > 0 and vol_fin > 0:
@@ -202,13 +203,11 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
-                # On récupère le momentum spécifique à ce mois
                 mom_data = momentum_mensuel_moyen[(momentum_mensuel_moyen['agence'] == ag) & (momentum_mensuel_moyen['article'] == art) & (momentum_mensuel_moyen['mois'] == m)]
                 mom_brut = mom_data['Momentum_Moyen_HL'].values[0] if not mom_data.empty else 0.0
                 
                 mom_applique = mom_brut * (impact_momentum / 100.0)
                 
-                # Calcul final
                 prev_hl = ((coef * base) + mom_applique) * multiplicateur_croissance
                 prev_hl = max(0.0, prev_hl)
                 prev_cols = prev_hl * (10000 / contenance)
@@ -216,9 +215,10 @@ def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int,
                 resultats_previsions.append({
                     "agence": ag, "article": art, "annee": y, "mois": m,
                     "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
-                    "Indice": coef, "Base_HL": base, "Momentum_HL": mom_applique,
+                    "Indice": coef, "Base_HL": base, 
+                    "Momentum_Brut": mom_brut, "Momentum_HL": mom_applique,
                     "Prevision_HL": prev_hl, "Prevision_Cols": prev_cols,
-                    "CAGR_Pct": taux_applique_pct 
+                    "CAGR_Pct": taux_applique_pct, "Contenance": contenance
                 })
                 
     df_previsions = pd.DataFrame(resultats_previsions)
@@ -273,9 +273,9 @@ if fichier_ventes is not None and fichier_ref is not None:
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
     
-    impact_momentum = st.sidebar.slider("Impact du Momentum (%)", min_value=0, max_value=100, value=100, step=10, help="Applique un pourcentage du momentum mensuel historique. À 0%, la tendance est ignorée.")
+    impact_momentum = st.sidebar.slider("Impact du Momentum (%)", min_value=0, max_value=100, value=100, step=10, help="Applique un pourcentage du momentum mensuel historique.")
     
-    st.sidebar.info("💡 **Croissance :** Le taux de croissance (CAGR) est calculé automatiquement pour chaque article.")
+    st.sidebar.info("💡 **CAGR :** Formule appliquée : `(Valeur finale / Valeur initiale)^(1 / Nombre d'années) - 1`")
     
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=1)
 
@@ -332,21 +332,13 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_momentum:
         st.subheader(f"Momentum Moyen par Mois (en {unite_affichage})")
-        st.write("Ce tableau montre la variation moyenne historique (M) - (M-1) calculée pour chaque mois de l'année. C'est ce chiffre qui est utilisé pour la projection.")
-        
-        # Conversion de la table momentum en Cols si nécessaire
-        if unite_affichage == "Cols":
-            # Attention: pour convertir le momentum en cols, il faut la contenance de chaque article. 
-            # Pour faire simple dans l'affichage, on va garder en HL ou recalculer via une jointure
-            # Mais pour l'affichage rapide, on affiche le tableau tel quel (en HL) ou on l'adapte.
-            pass 
-
+        st.write("Ce tableau montre la variation moyenne historique (M) - (M-1) calculée pour chaque mois de l'année.")
         st.dataframe(table_momentum_display.style.format("{:,.2f}"), use_container_width=True)
 
     with tab_prev:
         st.subheader(f"Détail des Prévisions (Étape 5) (en {unite_affichage})")
         
-        st.info("💡 Le Total Année correspond à la somme des prévisions mensuelles. Le Momentum utilisé est spécifique à chaque mois.")
+        st.info("💡 Le Total Année correspond à la somme des prévisions mensuelles. Toutes les données du calcul sont visibles ci-dessous.")
         
         # ---- TCD Mensuel avec Total Année ----
         st.markdown(f"### 📊 TCD Mensuel des Prévisions + Total Année (en {unite_affichage})")
@@ -358,19 +350,21 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         st.dataframe(pivot_mensuel.style.format("{:,.2f}", na_rep="-"), use_container_width=True)
         
-        # ---- Détail mensuel avec colonne Total Année et CAGR ----
-        st.markdown("### 📅 Détail Mensuel des Prévisions (avec Total Année et CAGR)")
+        # ---- Détail mensuel avec TOUTES les colonnes de calcul ----
+        st.markdown("### 📅 Détail Mensuel des Prévisions (avec données de calcul)")
         df_prev_detail = df_previsions.copy()
         df_prev_detail['Total_Annee'] = (
             df_prev_detail.groupby(['annee', 'agence', 'article'])[df_prev_aff].transform('sum')
         )
         st.dataframe(
-            df_prev_detail[["annee", "mois", "Date", "agence", "article", "Indice", "Base_HL", "Momentum_HL", "CAGR_Pct", df_prev_aff, "Total_Annee"]].sort_values(["annee", "mois", "agence", "article"]),
+            df_prev_detail[["annee", "mois", "Date", "agence", "article", "Indice", "Base_HL", "Momentum_Brut", "Momentum_HL", "CAGR_Pct", "Contenance", df_prev_aff, "Total_Annee"]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
                 "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
                 "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.0f"),
+                "Momentum_Brut": st.column_config.NumberColumn("Momentum Brut (HL)", format="%.0f"),
                 "Momentum_HL": st.column_config.NumberColumn("Momentum Appliqué (HL)", format="%.0f"),
-                "CAGR_Pct": st.column_config.NumberColumn("CAGR Appliqué (%)", format="%.2f"),
+                "CAGR_Pct": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
+                "Contenance": st.column_config.NumberColumn("Contenance (cl)", format="%.1f"),
                 df_prev_aff: st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
                 "Total_Annee": st.column_config.NumberColumn(f"Total Année ({unite_affichage})", format="%.2f"),
             },

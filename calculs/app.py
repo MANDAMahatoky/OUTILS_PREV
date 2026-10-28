@@ -5,8 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Étapes 1 à 4 : Indices & SARR", layout="wide")
-st.title("Moteur de Prévision (Étapes 1 à 4)")
+st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
+st.title("Étape 5.1 : Validation du Momentum")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -86,36 +86,34 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 3 ET 4 : RÉALISÉ CUMULÉ, INDICES ET SARR
+# ÉTAPES 3, 4 ET 5.1 : RÉALISÉ, SARR ET MOMENTUM
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices et du SARR...")
-def calculer_etapes_3_et_4(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str):
-    # --- ÉTAPE 3 : RÉALISÉ CUMULÉ (YTD) ---
-    df_ytd = df_perimetre[(df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] < mois_cutoff)].copy()
+@st.cache_data(show_spinner="Calcul des indices et du Momentum...")
+def calculer_momentum(df_perimetre: pd.DataFrame, annee_cloture: int, fenetre_histo: str, methode_coef: str):
+    # --- ÉTAPE 3 : RÉALISÉ CUMULÉ ---
+    df_ytd = df_perimetre[(df_perimetre["annee"] == annee_cloture)].copy()
     realise_cumule = df_ytd.groupby(['agence', 'article'])['hl'].sum().reset_index()
     realise_cumule.rename(columns={'hl': 'Realisé_Cumulé_HL'}, inplace=True)
 
     # --- ÉTAPE 4 : INDICES ET SARR ---
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
 
-    # Filtrage de la fenêtre historique
     annee_max = annee_cloture - 1
     if fenetre_histo == "3 dernières années": annee_min = annee_max - 2
     elif fenetre_histo == "2 dernières années": annee_min = annee_max - 1
     else: annee_min = df_hist['annee'].min()
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # Filtre années complètes (12 mois)
+    # Filtre années complètes
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
     if df_hist_complet.empty: df_hist_complet = df_hist.copy()
 
-    # Calcul des indices
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
@@ -129,12 +127,25 @@ def calculer_etapes_3_et_4(df_perimetre: pd.DataFrame, annee_cloture: int, mois_
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
-    # Calcul du SARR
-    df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
+    # Calcul du SARR sur tout l'historique
+    df_sarr = df_hist_complet.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
+
+    # --- ÉTAPE 5.1 : MOMENTUM ---
+    df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     
-    return realise_cumule, table_indices, df_sarr
+    # Calcul de la variation (M - M-1) sur le SARR
+    df_sarr_sorted['Variation_HL'] = df_sarr_sorted.groupby(['agence', 'article'])['SARR_HL'].diff().fillna(0.0)
+    
+    # On fait la moyenne des variations par mois calendaire (pour obtenir le momentum moyen de Janvier, Février, etc.)
+    momentum_calcule = df_sarr_sorted.groupby(['agence', 'article', 'mois'])['Variation_HL'].mean().reset_index()
+    
+    # On prépare le tableau croisé (Agence x Mois) pour l'affichage
+    pivot_momentum = momentum_calcule.pivot_table(index=['agence', 'article'], columns='mois', values='Variation_HL').fillna(0.0)
+    pivot_momentum.columns = [MOIS_NOMS[c-1] for c in pivot_momentum.columns]
+    
+    return realise_cumule, table_indices, df_sarr_sorted, pivot_momentum
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -148,7 +159,7 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --- ÉTAPE 2 : PÉRIMÈTRE (Filtres) ---
+    # --- ÉTAPE 2 : PÉRIMÈTRE ---
     st.sidebar.header("🔍 Filtres (Périmètre)")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
@@ -166,64 +177,45 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # --- CUTOFF ---
+    # --- OPTIONS DE CALCUL ---
     st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ Cutoff")
+    st.sidebar.header("⚙️ Options de Calcul")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=10, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
-    # --- OPTIONS DE CALCUL (DÉFAUT VALIDÉS) ---
-    st.sidebar.markdown("---")
-    st.sidebar.header("🛠️ Options de Calcul")
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
+    
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=1)
 
     # --- CALCULS ---
-    realise_cumule, table_indices, df_sarr = calculer_etapes_3_et_4(
-        df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef
+    realise_cumule, table_indices, df_sarr_sorted, pivot_momentum = calculer_momentum(
+        df_perimetre, annee_cloture, fenetre_histo, methode_coef
     )
 
-    if df_sarr.empty or table_indices.empty:
-        st.warning("⚠️ Aucune donnée calculée. Vérifiez vos filtres et l'historique.")
+    if pivot_momentum.empty:
+        st.warning("⚠️ Aucune donnée calculée. Vérifiez vos filtres.")
         st.stop()
 
-    st.success(f"✅ Étapes 1 à 4 validées.")
+    st.success(f"✅ Étape 5.1 (Momentum) calculée avec succès.")
     
-    # ONGLETS
-    tab_etape3, tab_indices, tab_sarr = st.tabs([
-        "3. Réalisé Cumulé (YTD)", 
-        "4. Indices (Coefficients)", 
-        "4. Table du SARR"
-    ])
+    # ONGLETS DE VALIDATION
+    tab_momentum, tab_indices = st.tabs(["5.1 Table du Momentum (Moyenne par mois)", "4. Rappel des Indices"])
 
-    with tab_etape3:
-        st.subheader(f"Étape 3 : Réalisé Cumulé jusqu'à {MOIS_NOMS[mois_cutoff-2]} {annee_cloture}")
-        st.write("Somme des ventes réelles depuis Janvier jusqu'au mois précédant le cutoff (M-1).")
-        st.dataframe(realise_cumule.sort_values(["agence", "article"]), use_container_width=True)
+    with tab_momentum:
+        st.subheader("Table du Momentum (Variation moyenne M vs M-1)")
+        st.write("Ce tableau montre la variation moyenne historique du SARR pour chaque mois. C'est la valeur qui sera ajoutée à ta formule de prévision.")
+        
+        # Affichage (converti en Cols si demandé)
+        if unite_affichage == "Cols":
+            # Pour convertir le momentum en Cols, on approxime en multipliant par 100 (pour du 100cl)
+            # Si tu as des contenances différentes, on fera une jointure plus tard
+            st.info("💡 L'affichage du Momentum en Cols est une approximation basée sur 100cl. L'affichage en HL est plus précis mathématiquement.")
+            st.dataframe(pivot_momentum.style.format("{:,.2f}"), use_container_width=True)
+        else:
+            st.dataframe(pivot_momentum.style.format("{:,.2f}"), use_container_width=True)
 
     with tab_indices:
-        st.subheader("Étape 4 : Coefficients Saisonniers (Indices)")
-        st.write("Un indice de 1.0 correspond à la moyenne annuelle. Un indice de 1.2 signifie que le mois est 20% plus fort que la moyenne.")
-        
+        st.subheader("Rappel des Coefficients Saisonniers (Étape 4)")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        
-        # Affichage à 1 décimale comme dans Excel
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
-
-    with tab_sarr:
-        st.subheader("Étape 4 : Table du SARR (Volume / Indice)")
-        st.write("Le SARR est le volume lissé (désaisonnalisé).")
-        
-        df_sarr_display = df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR_HL"]].sort_values(["annee", "mois", "agence", "article"])
-        
-        st.dataframe(
-            df_sarr_display,
-            column_config={
-                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.2f"),
-                "Indice": st.column_config.NumberColumn("Coef (précis)", format="%.4f"), 
-                "SARR_HL": st.column_config.NumberColumn("SARR (HL)", format="%.2f")
-            },
-            use_container_width=True,
-            height=500
-        )

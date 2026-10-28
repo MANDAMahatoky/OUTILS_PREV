@@ -92,7 +92,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
@@ -125,21 +125,24 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
+    # --- PRÉPARATION DES DONNÉES POUR LE DEBUG ---
+    debug_data = vols_mois_cumules.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Volume_Total')
+    debug_data['Total_Annuel'] = debug_data.apply(lambda row: vols_annuels_cumules.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else vols_annuels_cumules.loc[row['article']], axis=1)
+
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
-    return table_indices, df_sarr
+    return table_indices, df_sarr, debug_data
 
 # ==============================================================================
-# FONCTION D'ANALYSE PÉRIODE MOMENTUM (MISE EN PAGE EXCEL)
+# FONCTION D'ANALYSE PÉRIODE MOMENTUM (MISE EN PAGE EXCEL STRICTE)
 # ==============================================================================
-@st.cache_data(show_spinner="Génération du tableau décalé...")
+@st.cache_data(show_spinner="Génération du tableau...")
 def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite_affichage: str):
     df_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois'], ascending=[True, True, False, False]).copy()
-    
     resultats = []
     
     for (ag, art), group in df_sorted.groupby(['agence', 'article']):
@@ -150,46 +153,37 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
         contenance = group_n.loc[0, 'contenance_cl'] if 'contenance_cl' in group_n.columns else 100.0
         multiplicateur = (10000 / contenance) if unite_affichage == "Cols" else 1.0
         
-        # 1. Colonnes des Dates (M-1, M-2...)
+        # 1. Dates
         for i in range(periode_momentum):
             if i < len(group_n):
                 mois_val = int(group_n.loc[i, 'mois'])
                 annee_val = int(group_n.loc[i, 'annee'])
-                date_str = f"{MOIS_NOMS[mois_val-1].lower()}-{str(annee_val)[-2:]}"
-                row[f"M-{i+1}"] = date_str
+                row[f"M-{i+1}"] = f"{MOIS_NOMS[mois_val-1].lower()}-{str(annee_val)[-2:]}"
             else:
-                row[f"M-{i+1}"] = ""
+                row[f"M-{i+1}"] = "-"
                 
-        # 2. Colonnes des Coefficients (M1, M2...)
+        # 2. Coefficients
         for i in range(periode_momentum):
-            if i < len(group_n):
-                row[f"M{i+1}"] = group_n.loc[i, 'Indice']
-            else:
-                row[f"M{i+1}"] = 0
+            if i < len(group_n): row[f"M{i+1}"] = group_n.loc[i, 'Indice']
+            else: row[f"M{i+1}"] = "-"
 
-        # 3. Colonnes des SARR (SARR M-1, SARR M-2...)
+        # 3. SARR
         for i in range(periode_momentum):
-            if i < len(group_n):
-                row[f"SARR M-{i+1}"] = group_n.loc[i, 'SARR_HL'] * multiplicateur
-            else:
-                row[f"SARR M-{i+1}"] = 0
+            if i < len(group_n): row[f"SARR M-{i+1}"] = group_n.loc[i, 'SARR_HL'] * multiplicateur
+            else: row[f"SARR M-{i+1}"] = "-"
                 
         # 4. Moyenne SARR
-        row["Moyenne SARR"] = np.mean([row[f"SARR M-{i+1}"] for i in range(periode_momentum)])
+        valides = [row[f"SARR M-{i+1}"] for i in range(periode_momentum) if row[f"SARR M-{i+1}"] != "-"]
+        row["Moyenne SARR"] = np.mean(valides) if valides else 0
+        
         resultats.append(row)
         
     df_final = pd.DataFrame(resultats)
     
-    # Réorganisation EXACTE des colonnes
     cols_ordered = ["Agence", "Article"]
-    
-    # D'abord toutes les dates
     cols_ordered.extend([f"M-{i+1}" for i in range(periode_momentum)])
-    # Ensuite tous les coefficients
     cols_ordered.extend([f"M{i+1}" for i in range(periode_momentum)])
-    # Ensuite tous les SARR
     cols_ordered.extend([f"SARR M-{i+1}" for i in range(periode_momentum)])
-    # Enfin la moyenne
     cols_ordered.append("Moyenne SARR")
     
     return df_final[cols_ordered]
@@ -226,18 +220,19 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Options")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
-    periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=5, step=1)
-
-    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Agence & Article", "Par Article (Global)"], index=0, help="Pour correspondre à ton Excel, choisis 'Par Article (Global)'.")
+    # Mis par défaut à 9 (Septembre) pour que M-1 soit Août, comme dans ton Excel
+    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
+    
+    periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=3, step=1)
+    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Article (Global)", "Par Agence & Article"], index=0)
 
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
 
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=1)
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL"], index=0)
 
-    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef, niveau_agregation)
+    table_indices, df_sarr, debug_data = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef, niveau_agregation)
     
     if df_sarr.empty:
         st.warning("⚠️ Impossible de calculer le SARR.")
@@ -246,24 +241,48 @@ if fichier_ventes is not None and fichier_ref is not None:
     df_analyse = generer_tableau_momentum(df_sarr, periode_momentum, unite_affichage)
 
     st.success(f"✅ Tableau généré avec succès.")
-    st.info("💡 **Pour retrouver les chiffres exacts de ton Excel** : Si ton coefficient Excel (M1) est à `1.0` et que Streamlit affiche `0.94`, change le paramètre **'Niveau de calcul des indices'** sur **'Par Article (Global)'** dans la barre latérale.")
     
     tab_analyse, tab_indices = st.tabs(["📊 Tableau d'Analyse Période", "📈 Table des Indices"])
 
     with tab_analyse:
         st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
-        st.write(f"Toutes les valeurs sont en **{unite_affichage}**.")
         
-        # On formate l'affichage pour avoir des jolies colonnes
         format_dict = {f"M{i+1}": "{:.2f}" for i in range(periode_momentum)}
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
         
         st.dataframe(
-            df_analyse.style.format(format_dict),
+            df_analyse.style.format(format_dict, na_rep="-"),
             use_container_width=True,
             height=400
         )
+
+        # --- RAYON X ---
+        st.markdown("---")
+        with st.expander("🔍 VOIR LE DÉTAIL DU CALCUL (Cliquez ici pour comparer avec Excel)", expanded=True):
+            st.write("Voici les volumes de ventes exacts que Streamlit utilise pour calculer la moyenne sur la période sélectionnée.")
+            
+            if len(sel_articles) > 0:
+                if niveau_agregation == "Par Agence & Article" and len(sel_agences) > 0:
+                    dbg = debug_data[(debug_data['agence'] == sel_agences[0]) & (debug_data['article'] == sel_articles[0])].copy()
+                else:
+                    dbg = debug_data[debug_data['article'] == sel_articles[0]].copy()
+
+                if not dbg.empty:
+                    dbg['mois'] = dbg['mois'].map(lambda x: MOIS_NOMS[x-1])
+                    total_global = dbg['Total_Annuel'].values[0]
+                    
+                    col1, col2 = st.columns(2)
+                    col1.metric("Total des ventes sur la période", f"{total_global:,.2f} HL")
+                    col2.metric("Moyenne mensuelle attendue", f"{total_global / 12:,.2f} HL")
+                    
+                    st.dataframe(dbg[['article'] + (['agence'] if niveau_agregation == "Par Agence & Article" else []) + ["mois", "Volume_Total"]].style.format({"Volume_Total": "{:,.2f}"}), use_container_width=True)
+                    
+                    st.warning("💡 **Explication de l'écart :** Si ton Excel affiche `1.0` pour Août, cela signifie que le volume d'Août est exactement égal à la moyenne mensuelle. Si Streamlit trouve `0.94`, c'est que le volume d'Août est légèrement plus bas (regarde la ligne Août ci-dessus). Change l'option **'Période pour les Coefs'** en haut à gauche pour voir si les chiffres matchent.")
+                else:
+                    st.write("Pas assez de données pour afficher le détail.")
+            else:
+                st.write("Sélectionne un article en haut à gauche pour voir le détail des volumes.")
 
     with tab_indices:
         st.subheader("Table des Indices (Coefficients)")

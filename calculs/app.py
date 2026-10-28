@@ -32,18 +32,9 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
-    
-    df_ref = df_ref.rename(columns={
-        "Article": "article_original", 
-        "Positionnement": "positionnement", 
-        "Occasion": "occasion", 
-        "Contenance (hl)": "contenance_hl", 
-        "Contenance (Cl)": "contenance_cl"
-    })
-    
+    df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"})
     for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
         if col not in df_ref.columns: df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
-        
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
@@ -95,31 +86,32 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (CALCULS EN HL)
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
-def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fenetre_histo: str, methode_coef: str):
-    df_hist = df_perimetre[df_perimetre["annee"] < annee_cloture].copy()
-    
-    if df_hist.empty: 
-        return pd.DataFrame(), pd.DataFrame()
+def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str):
+    # On isole le réalisé (jusqu'au cutoff)
+    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
 
+    # On définit l'historique pur (strictement avant l'année de clôture)
+    df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
+    if df_hist.empty: 
+        df_hist = df_realise.copy()
+
+    # Filtrage de la fenêtre historique (Tout, 3 ans, 2 ans)
     annee_max = annee_cloture - 1
-    if fenetre_histo == "3 dernières années": annee_min = annee_max - 2
-    elif fenetre_histo == "2 dernières années": annee_min = annee_max - 1
-    else: annee_min = df_hist['annee'].min()
+    if fenetre_histo == "3 dernières années":
+        annee_min = annee_max - 2
+    elif fenetre_histo == "2 dernières années":
+        annee_min = annee_max - 1
+    else:
+        annee_min = df_hist['annee'].min()
         
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # FILTRER LES ANNEES COMPLETES (12 MOIS)
-    mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
-    annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
-    df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
-    
-    if df_hist_complet.empty: return pd.DataFrame(), pd.DataFrame()
-
-    # --- 1. CALCUL DES INDICES ---
-    vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
+    # --- 1. CALCUL DES INDICES (Coefficients) ---
+    vols = df_hist.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
     if methode_coef == "Moyenne des Ratios":
@@ -132,10 +124,9 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, fen
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
-    # --- 2. CALCUL DU SARR (en HL) ---
-    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
+    # --- 2. CALCUL DU SARR ---
+    # On applique les indices sur tout le réalisé (y compris l'année de clôture si on veut voir le SARR réel)
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
@@ -153,7 +144,7 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --- FILTRES ---
+    # --- PÉRIMÈTRE (Filtres) ---
     st.sidebar.header("🔍 Filtres")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
@@ -175,61 +166,47 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Cutoff & Options")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
+    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
     st.sidebar.markdown("---")
     st.sidebar.header("🛠️ Options de Calcul")
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
-    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    
-    # OPTION D'AFFICHAGE (CORRIGÉE)
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
+    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, fenetre_histo, methode_coef)
+    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef)
 
     if df_sarr.empty or table_indices.empty:
-        st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
+        st.warning("⚠️ Aucune donnée calculée. Vérifiez vos filtres.")
         st.stop()
 
     st.success(f"✅ Étape 4 complétée : Coefficients calculés et SARR généré.")
     
-    tab_indices, tab_sarr = st.tabs(["📊 Table des Indices", "📈 Table du SARR"])
+    tab_indices, tab_sarr = st.tabs(["📊 Table des Indices (Coefficients)", "📈 Table du SARR"])
 
     with tab_indices:
         st.subheader("Coefficients Saisonniers (Indices)")
+        st.write("Un indice de 1.0 correspond à la moyenne annuelle. Un indice de 1.2 signifie que le mois est 20% plus fort que la moyenne.")
         
+        # Affichage sous forme de tableau croisé (Article x Mois)
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         
-        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
+        st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
 
     with tab_sarr:
-        st.subheader(f"Table du SARR (en {unite_affichage})")
+        st.subheader("Table du SARR (Volume / Indice)")
+        st.write("Le SARR est le volume lissé (désaisonnalisé).")
         
-        # --- CONVERSION POUR L'AFFICHAGE UNIQUEMENT ---
-        if unite_affichage == "Cols":
-            # Conversion HL -> Unités -> Cols (si unites_par_colis est dispo, sinon on suppose 1)
-            # Ici, on n'a que la contenance_cl, donc on calcule des Unités, qu'on appelle "Cols"
-            facteur = 10000 / df_sarr["contenance_cl"].replace(0, 100)
-            
-            df_sarr["Vol_Aff"] = df_sarr["hl"] * facteur
-            df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * facteur
-            label_vol = "Volume (Cols)"
-            label_sarr = "SARR (Cols)"
-        else:
-            df_sarr["Vol_Aff"] = df_sarr["hl"]
-            df_sarr["SARR_Aff"] = df_sarr["SARR_HL"]
-            label_vol = "Volume (HL)"
-            label_sarr = "SARR (HL)"
-            
-        df_sarr_display = df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"])
+        # Affichage du SARR
+        df_sarr_display = df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR_HL"]].sort_values(["annee", "mois", "agence", "article"])
         
         st.dataframe(
             df_sarr_display,
             column_config={
-                "Vol_Aff": st.column_config.NumberColumn(label_vol, format="%.2f"),
-                "Indice": st.column_config.NumberColumn("Coef", format="%.1f"),
-                "SARR_Aff": st.column_config.NumberColumn(label_sarr, format="%.2f")
+                "hl": st.column_config.NumberColumn("Volume (HL)", format="%.2f"),
+                "Indice": st.column_config.NumberColumn("Coef", format="%.4f"),
+                "SARR_HL": st.column_config.NumberColumn("SARR (HL)", format="%.2f")
             },
             use_container_width=True,
             height=500

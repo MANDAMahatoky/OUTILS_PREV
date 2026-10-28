@@ -5,8 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Validation Momentum (5.1)", layout="wide")
-st.title("Étape 5.1 : Validation du Momentum (Dynamique)")
+st.set_page_config(page_title="Validation Étape 4 et 5.1", layout="wide")
+st.title("Validation : Étape 4 (Indices) et Étape 5.1 (Momentum)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -86,14 +86,13 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 3, 4 ET 5.1 : CALCUL DU MOMENTUM
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices et du Momentum...")
-def calculer_momentum(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str):
+@st.cache_data(show_spinner="Calcul des indices et du SARR (Étape 4)...")
+def calculer_etape_4(df_perimetre: pd.DataFrame, annee_cloture: int, fenetre_histo: str, methode_coef: str):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # --- ÉTAPE 4 : INDICES ET SARR ---
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
 
@@ -103,7 +102,7 @@ def calculer_momentum(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutof
     else: annee_min = df_hist['annee'].min()
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # Filtre années complètes (12 mois)
+    # Filtre années complètes
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
@@ -121,15 +120,19 @@ def calculer_momentum(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutof
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
-
-    # Table de debug pour voir les ratios annuels (utile pour comparer avec Excel)
     debug_ratios = ratios.reset_index().melt(id_vars=['agence', 'article', 'annee'], var_name='mois', value_name='Ratio_Annuel')
 
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
+    
+    return table_indices, df_sarr, debug_ratios
 
-    # --- ÉTAPE 5.1 : MOMENTUM = SARR(M-1) - SARR(M-2) ---
+# ==============================================================================
+# ÉTAPE 5.1 : CALCUL DU MOMENTUM (M-1) - (M-2)
+# ==============================================================================
+@st.cache_data(show_spinner="Calcul du Momentum...")
+def calculer_momentum(df_sarr: pd.DataFrame):
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     
@@ -164,8 +167,7 @@ def calculer_momentum(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutof
             "Momentum_HL": momentum
         })
         
-    df_momentum = pd.DataFrame(resultats_momentum)
-    return table_indices, df_momentum, debug_ratios
+    return pd.DataFrame(resultats_momentum)
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -209,67 +211,73 @@ if fichier_ventes is not None and fichier_ref is not None:
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_momentum, debug_ratios = calculer_momentum(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef)
-
-    if df_momentum.empty:
-        st.warning("⚠️ Impossible de calculer le momentum (manque de données).")
+    table_indices, df_sarr, debug_ratios = calculer_etape_4(df_perimetre, annee_cloture, fenetre_histo, methode_coef)
+    
+    if df_sarr.empty:
+        st.warning("⚠️ Impossible de calculer le SARR (manque de données).")
         st.stop()
 
-    st.success("✅ Étape 5.1 (Momentum) calculée avec succès.")
-    
-    st.subheader("Table de calcul du Momentum")
-    st.write(f"Le mois M correspond à ton Cutoff : **{MOIS_NOMS[mois_cutoff-1]} {annee_cloture}**.")
-    
-    # Affichage
-    if unite_affichage == "Cols":
-        df_momentum["Momentum_Aff"] = df_momentum["Momentum_HL"] * 100
-        st.dataframe(
-            df_momentum[["agence", "article", "Vente M-1 (HL)", "Coef M-1", "SARR M-1 (HL)", "Vente M-2 (HL)", "Coef M-2", "SARR M-2 (HL)", "Momentum_Aff"]],
-            column_config={
-                "Vente M-1 (HL)": st.column_config.NumberColumn("Vente M-1", format="%.2f"),
-                "Coef M-1": st.column_config.NumberColumn("Coef M-1", format="%.4f"),
-                "SARR M-1 (HL)": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
-                "Vente M-2 (HL)": st.column_config.NumberColumn("Vente M-2", format="%.2f"),
-                "Coef M-2": st.column_config.NumberColumn("Coef M-2", format="%.4f"),
-                "SARR M-2 (HL)": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
-                "Momentum_Aff": st.column_config.NumberColumn("Momentum (Cols)", format="%.2f"),
-            },
-            use_container_width=True
-        )
-    else:
-        st.dataframe(
-            df_momentum[["agence", "article", "Vente M-1 (HL)", "Coef M-1", "SARR M-1 (HL)", "Vente M-2 (HL)", "Coef M-2", "SARR M-2 (HL)", "Momentum_HL"]],
-            column_config={
-                "Vente M-1 (HL)": st.column_config.NumberColumn("Vente M-1", format="%.2f"),
-                "Coef M-1": st.column_config.NumberColumn("Coef M-1", format="%.4f"),
-                "SARR M-1 (HL)": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
-                "Vente M-2 (HL)": st.column_config.NumberColumn("Vente M-2", format="%.2f"),
-                "Coef M-2": st.column_config.NumberColumn("Coef M-2", format="%.4f"),
-                "SARR M-2 (HL)": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
-                "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
-            },
-            use_container_width=True
-        )
+    df_momentum = calculer_momentum(df_sarr)
 
-    # --- PANNEAU DE DEBUG POUR COMPRENDRE L'ÉCART ---
-    st.markdown("---")
-    with st.expander("🔍 Voir le détail du calcul des coefficients (Pourquoi l'écart avec Excel ?)"):
-        st.write("Voici les ratios calculés pour chaque année historique. Streamlit fait la moyenne de ces ratios.")
+    st.success("✅ Étape 4 et Étape 5.1 (Momentum) calculées avec succès.")
+    
+    # --- CRÉATION DES ONGLETS POUR AFFICHER LES DEUX ---
+    tab_indices, tab_momentum = st.tabs(["📊 Étape 4 : Coefficients (Indices)", "📈 Étape 5.1 : Table du Momentum"])
+
+    with tab_indices:
+        st.subheader("Coefficients Saisonniers (Indices)")
+        pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+        pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
+        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
+
+    with tab_momentum:
+        st.subheader("Table de calcul du Momentum")
+        st.write(f"Le mois M correspond à ton Cutoff : **{MOIS_NOMS[mois_cutoff-1]} {annee_cloture}**.")
         
-        # On affiche le debug uniquement pour les articles filtrés
+        if unite_affichage == "Cols":
+            df_momentum["Momentum_Aff"] = df_momentum["Momentum_HL"] * 100
+            st.dataframe(
+                df_momentum[["agence", "article", "Vente M-1 (HL)", "Coef M-1", "SARR M-1 (HL)", "Vente M-2 (HL)", "Coef M-2", "SARR M-2 (HL)", "Momentum_Aff"]],
+                column_config={
+                    "Vente M-1 (HL)": st.column_config.NumberColumn("Vente M-1", format="%.2f"),
+                    "Coef M-1": st.column_config.NumberColumn("Coef M-1", format="%.4f"),
+                    "SARR M-1 (HL)": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
+                    "Vente M-2 (HL)": st.column_config.NumberColumn("Vente M-2", format="%.2f"),
+                    "Coef M-2": st.column_config.NumberColumn("Coef M-2", format="%.4f"),
+                    "SARR M-2 (HL)": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
+                    "Momentum_Aff": st.column_config.NumberColumn("Momentum (Cols)", format="%.2f"),
+                },
+                use_container_width=True
+            )
+        else:
+            st.dataframe(
+                df_momentum[["agence", "article", "Vente M-1 (HL)", "Coef M-1", "SARR M-1 (HL)", "Vente M-2 (HL)", "Coef M-2", "SARR M-2 (HL)", "Momentum_HL"]],
+                column_config={
+                    "Vente M-1 (HL)": st.column_config.NumberColumn("Vente M-1", format="%.2f"),
+                    "Coef M-1": st.column_config.NumberColumn("Coef M-1", format="%.4f"),
+                    "SARR M-1 (HL)": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
+                    "Vente M-2 (HL)": st.column_config.NumberColumn("Vente M-2", format="%.2f"),
+                    "Coef M-2": st.column_config.NumberColumn("Coef M-2", format="%.4f"),
+                    "SARR M-2 (HL)": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
+                    "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
+                },
+                use_container_width=True
+            )
+
+    # --- PANNEAU DE DEBUG ---
+    st.markdown("---")
+    with st.expander("🔍 Voir le détail du calcul (Pourquoi l'écart avec Excel ?)"):
+        st.write("Voici le détail du calcul des coefficients. Streamlit fait la moyenne de ces ratios annuels.")
+        
         if len(sel_articles) > 0 or len(sel_agences) > 0:
-            # Mois M-2 (ex: Août)
             mois_m2 = mois_cutoff - 2 if mois_cutoff > 2 else mois_cutoff + 10
             mois_m1 = mois_cutoff - 1 if mois_cutoff > 1 else 12
             
-            st.write(f"**Calcul du Coefficient pour M-1 ({MOIS_NOMS[mois_m1-1]}) et M-2 ({MOIS_NOMS[mois_m2-1]}) :**")
+            st.write(f"**Calcul des coefficients pour M-1 ({MOIS_NOMS[mois_m1-1]}) et M-2 ({MOIS_NOMS[mois_m2-1]}) :**")
             
             debug_filtre = debug_ratios[debug_ratios['mois'].isin([mois_m1, mois_m2])].copy()
             debug_filtre['mois'] = debug_filtre['mois'].map(lambda x: MOIS_NOMS[x-1])
             
-            # On affiche le détail
             st.dataframe(debug_filtre.sort_values(["agence", "article", "mois", "annee"]).style.format({"Ratio_Annuel": "{:.4f}"}))
-            
-            st.info("💡 **Explication :** Si ton Excel affiche 1.0 pour Août, mais que Streamlit trouve 0.93, c'est que la moyenne des ratios ci-dessus donne 0.93. Par exemple, si l'année 2024 avait un ratio de 0.8 et 2025 un ratio de 1.06, la moyenne est 0.93. Excel utilise peut-être une autre année ou une autre méthode pour trouver 1.0.")
         else:
             st.write("Filtre un article et une agence spécifique pour voir le détail des calculs.")

@@ -92,7 +92,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 2 à 6 : CALCULS (Fidèles au diagramme et à la formule Excel)
+# ÉTAPES 2 à 6 : CALCULS (Fidèles à ta formule Excel)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, SARR, Prévisions et GAP...")
 def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, use_cutoff: bool, objectif_annuel: float):
@@ -103,7 +103,7 @@ def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
 
-    # Filtrage des années complètes (12 mois)
+    # Filtrage des années complètes (12 mois) - On ne calcule que sur les années complètes
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
@@ -113,13 +113,15 @@ def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois
     # Table des volumes annuels pour le CAGR
     vols_annuels_totaux = df_hist_complet.groupby(['agence', 'article', 'annee'])['hl'].sum().reset_index()
 
-    # Calcul des indices (Moyenne des Ratios - Correspond au SOMME.SI.ENS d'Excel)
+    # CALCUL DES INDICES : Formule exacte (Vente Janv A1 + ... + Vente Janv An) / (Total / 12)
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
-    ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
-    # ON ARRONDIT À 1 DÉCIMALE POUR MATCHER EXCEL EXACTEMENT
-    indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0).round(1)
+    vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
+    vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
+    
+    # La division par 12.0 donne la moyenne mensuelle globale
+    indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
@@ -140,13 +142,13 @@ def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois
         sarr_m2 = group[group['rang'] == 2]['SARR_HL'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
         sarr_m3 = group[group['rang'] == 3]['SARR_HL'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
         
-        # Momentum (Moyenne des 3 derniers écarts - Formule Excel)
+        # Momentum (Moyenne des 3 derniers écarts)
         var1 = sarr_m - sarr_m1
         var2 = sarr_m1 - sarr_m2
         var3 = sarr_m2 - sarr_m3
         momentum = np.mean([var1, var2, var3])
         
-        # Base (Max entre M et moyenne des 3 derniers - Formule Excel)
+        # Base (Max entre M et moyenne des 3 derniers)
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
         base = max(sarr_m, moy_3_mois)
         
@@ -257,7 +259,7 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.sidebar.markdown("---")
     st.sidebar.info("💡 **Formules calquées sur Excel :**\n"
-                    "- Indices = Moyenne des Ratios sur 12 mois (Arrondi 1 déc.)\n"
+                    "- Indices : Somme(Mois) / (Total / 12)\n"
                     "- Momentum = AVERAGE(M-M1, ...)\n"
                     "- Prévision = (Indice * Base + Momentum) * (1 + CAGR)")
     
@@ -276,7 +278,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
         st.stop()
 
-    st.success(f"✅ Modèle calculé avec succès (fidèle aux formules Excel).")
+    st.success(f"✅ Modèle calculé avec succès (Indices calculés avec précision, sans arrondi mathématique).")
     
     # ONGLETS
     tab_indices, tab_sarr, tab_prev, tab_gap = st.tabs([
@@ -300,7 +302,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.subheader("Table des Indices Saisonniers")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        # FORMATAGE À 1 DÉCIMALE POUR MATCHER EXCEL
+        # Affichage arrondi pour correspondre à Excel, mais calcul haute précision conservé
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
 
     with tab_sarr:
@@ -314,7 +316,7 @@ if fichier_ventes is not None and fichier_ref is not None:
             df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
                 "Vol_Aff": st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
-                "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
+                "Indice": st.column_config.NumberColumn("Coef (précis)", format="%.4f"),
                 "SARR_Aff": st.column_config.NumberColumn(f"SARR ({unite_affichage})", format="%.2f")
             },
             use_container_width=True, height=400
@@ -333,12 +335,12 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         st.dataframe(pivot_mensuel.style.format("{:,.2f}", na_rep="-"), use_container_width=True)
         
-        # ---- Détail des calculs avec TOUTES les colonnes ----
+        # ---- Détail des calculs ----
         st.markdown("### 📅 Détail des Calculs (Formules Excel)")
         st.dataframe(
             df_previsions[["annee", "mois", "agence", "article", "Indice", "Base_HL", "Momentum_HL", "CAGR_Pct", "Multiplicateur", df_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
-                "Indice": st.column_config.NumberColumn("Indice", format="%.2f"),
+                "Indice": st.column_config.NumberColumn("Indice (précis)", format="%.4f"),
                 "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.0f"),
                 "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.0f"),
                 "CAGR_Pct": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),

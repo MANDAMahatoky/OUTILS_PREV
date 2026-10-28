@@ -5,8 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Étape 4 : Indices & SARR", layout="wide")
-st.title("Étape 4 : Calcul des Indices et du SARR")
+st.set_page_config(page_title="Étapes 1 à 4 : Indices & SARR", layout="wide")
+st.title("Moteur de Prévision (Étapes 1 à 4)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -86,38 +86,36 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
+# ÉTAPES 3 ET 4 : RÉALISÉ CUMULÉ, INDICES ET SARR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
-def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str):
-    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
+def calculer_etapes_3_et_4(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str):
+    # --- ÉTAPE 3 : RÉALISÉ CUMULÉ (YTD) ---
+    df_ytd = df_perimetre[(df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] < mois_cutoff)].copy()
+    realise_cumule = df_ytd.groupby(['agence', 'article'])['hl'].sum().reset_index()
+    realise_cumule.rename(columns={'hl': 'Realisé_Cumulé_HL'}, inplace=True)
 
-    # On isole l'historique (strictement avant l'année de clôture)
+    # --- ÉTAPE 4 : INDICES ET SARR ---
+    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
-    if df_hist.empty: 
-        df_hist = df_realise.copy()
+    if df_hist.empty: df_hist = df_realise.copy()
 
     # Filtrage de la fenêtre historique
     annee_max = annee_cloture - 1
-    if fenetre_histo == "3 dernières années":
-        annee_min = annee_max - 2
-    elif fenetre_histo == "2 dernières années":
-        annee_min = annee_max - 1
-    else:
-        annee_min = df_hist['annee'].min()
-        
+    if fenetre_histo == "3 dernières années": annee_min = annee_max - 2
+    elif fenetre_histo == "2 dernières années": annee_min = annee_max - 1
+    else: annee_min = df_hist['annee'].min()
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # --- FILTRE DES ANNÉES COMPLÈTES (12 MOIS) ---
+    # Filtre années complètes (12 mois)
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
-    
-    if df_hist_complet.empty:
-        df_hist_complet = df_hist.copy()
+    if df_hist_complet.empty: df_hist_complet = df_hist.copy()
 
-    # --- 1. CALCUL DES INDICES (Coefficients) ---
+    # Calcul des indices
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
@@ -131,12 +129,12 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
-    # --- 2. CALCUL DU SARR ---
+    # Calcul du SARR
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
-    return table_indices, df_sarr
+    return realise_cumule, table_indices, df_sarr
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -150,8 +148,8 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --- PÉRIMÈTRE (Filtres) ---
-    st.sidebar.header("🔍 Filtres")
+    # --- ÉTAPE 2 : PÉRIMÈTRE (Filtres) ---
+    st.sidebar.header("🔍 Filtres (Périmètre)")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
     
@@ -168,54 +166,55 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # --- CUTOFF & OPTIONS ---
+    # --- CUTOFF ---
     st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ Cutoff & Options")
+    st.sidebar.header("⚙️ Cutoff")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
+    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=10, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
+    # --- OPTIONS DE CALCUL (DÉFAUT VALIDÉS) ---
     st.sidebar.markdown("---")
     st.sidebar.header("🛠️ Options de Calcul")
-    
-    # OPTIONS PAR DÉFAUT DEMANDÉES
-    fenetre_histo = st.sidebar.radio(
-        "Période pour les Coefs", 
-        options=["2 dernières années", "3 dernières années", "Tout l'historique"], 
-        index=0
-    )
-    methode_coef = st.sidebar.radio(
-        "Méthode de calcul", 
-        options=["Moyenne des Ratios", "Ratio des Sommes"], 
-        index=0
-    )
+    fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
+    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
 
     # --- CALCULS ---
-    table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef)
+    realise_cumule, table_indices, df_sarr = calculer_etapes_3_et_4(
+        df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef
+    )
 
     if df_sarr.empty or table_indices.empty:
-        st.warning("⚠️ Aucune donnée calculée. Vérifiez vos filtres.")
+        st.warning("⚠️ Aucune donnée calculée. Vérifiez vos filtres et l'historique.")
         st.stop()
 
-    st.success(f"✅ Étape 4 complétée : Coefficients calculés sur les années complètes ({fenetre_histo} - {methode_coef}).")
+    st.success(f"✅ Étapes 1 à 4 validées.")
     
-    tab_indices, tab_sarr = st.tabs(["📊 Table des Indices (Coefficients)", "📈 Table du SARR"])
+    # ONGLETS
+    tab_etape3, tab_indices, tab_sarr = st.tabs([
+        "3. Réalisé Cumulé (YTD)", 
+        "4. Indices (Coefficients)", 
+        "4. Table du SARR"
+    ])
+
+    with tab_etape3:
+        st.subheader(f"Étape 3 : Réalisé Cumulé jusqu'à {MOIS_NOMS[mois_cutoff-2]} {annee_cloture}")
+        st.write("Somme des ventes réelles depuis Janvier jusqu'au mois précédant le cutoff (M-1).")
+        st.dataframe(realise_cumule.sort_values(["agence", "article"]), use_container_width=True)
 
     with tab_indices:
-        st.subheader("Coefficients Saisonniers (Indices)")
+        st.subheader("Étape 4 : Coefficients Saisonniers (Indices)")
         st.write("Un indice de 1.0 correspond à la moyenne annuelle. Un indice de 1.2 signifie que le mois est 20% plus fort que la moyenne.")
         
-        # Affichage sous forme de tableau croisé (Article x Mois)
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         
-        # Formatage à 1 décimale comme Excel
+        # Affichage à 1 décimale comme dans Excel
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
 
     with tab_sarr:
-        st.subheader("Table du SARR (Volume / Indice)")
+        st.subheader("Étape 4 : Table du SARR (Volume / Indice)")
         st.write("Le SARR est le volume lissé (désaisonnalisé).")
         
-        # Affichage du SARR
         df_sarr_display = df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR_HL"]].sort_values(["annee", "mois", "agence", "article"])
         
         st.dataframe(

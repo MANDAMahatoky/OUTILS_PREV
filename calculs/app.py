@@ -121,7 +121,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
         indices = ratios.groupby(group_cols).mean().fillna(1.0)
     else:
-        # Calcul EXACT : Somme du mois / (Somme annuelle / 12)
         vols_mois_cumules = vols.groupby(group_cols).sum()
         vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
@@ -133,7 +132,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
-    # Calcul EXACT du SARR
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
     return table_indices, df_sarr, debug_data
@@ -172,7 +170,6 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
             if i < len(group_n): 
                 coef_val = group_n.loc[i, 'Indice']
                 if pd.notna(coef_val) and coef_val > 0:
-                    # Le SARR utilise la précision maximale
                     sarr_val = (group_n.loc[i, 'hl'] / coef_val) * multiplicateur
                 else:
                     sarr_val = np.nan
@@ -253,7 +250,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_analyse:
         st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
         
-        # Affichage EXACT (4 décimales pour les coefs, 1 pour le SARR)
+        # AFFICHAGE AVEC PRÉCISION MAXIMALE
         format_dict = {f"M{i+1}": "{:.4f}" for i in range(periode_momentum)}
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
@@ -267,7 +264,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         # --- RAYON X ---
         st.markdown("---")
         with st.expander("🔍 VOIR LE DÉTAIL DU CALCUL (Preuve Mathématique)", expanded=True):
-            st.write("Voici la somme exacte des volumes de ventes (sur les 2 années complètes) que Streamlit utilise.")
+            st.write("Voici les volumes de ventes exacts que Streamlit utilise pour calculer la moyenne, filtrés selon tes critères.")
             
             if len(sel_articles) > 0:
                 if niveau_agregation == "Par Agence & Article" and len(sel_agences) > 0:
@@ -285,7 +282,7 @@ if fichier_ventes is not None and fichier_ref is not None:
                     
                     st.dataframe(dbg[['article'] + (['agence'] if niveau_agregation == "Par Agence & Article" else []) + ["mois", "Volume_Total"]].style.format({"Volume_Total": "{:,.2f}"}), use_container_width=True)
                     
-                    st.info("💡 **La preuve par les chiffres :** L'indice de Février est calculé ainsi : `Volume Février / Moyenne mensuelle`. Si dans ton Excel l'indice est exactement 1.0, c'est que le Volume de Février dans ton Excel était exactement égal à la moyenne mensuelle. Avec les données actuelles de `DATA_BRUT.xlsx`, le calcul donne le chiffre exact affiché ci-dessus.")
+                    st.info("💡 **La preuve par les chiffres :** L'indice d'un mois est calculé ainsi : `Volume de ce mois / Moyenne mensuelle`. Si ton Excel affiche `1.0` pour Août, c'est que le Volume d'Août dans ton Excel était exactement égal à la moyenne. Avec les données actuelles de `DATA_BRUT.xlsx`, le calcul donne le chiffre exact affiché ci-dessus.")
                 else:
                     st.write("Pas assez de données pour afficher le détail.")
             else:

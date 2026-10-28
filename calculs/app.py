@@ -4,7 +4,6 @@ import numpy as np
 import re
 import io
 import unicodedata
-import altair as alt
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
 st.title("Moteur de Prévision S&OP")
@@ -96,7 +95,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ÉTAPES 2 à 6 : CALCULS (Fidèles au diagramme et à la formule Excel)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, SARR, Prévisions et GAP...")
-def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str, use_cutoff: bool, use_cagr: bool, objectif_annuel: float):
+def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, use_cutoff: bool, objectif_annuel: float):
     df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -104,34 +103,23 @@ def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
 
-    annee_max = annee_cloture - 1
-    if fenetre_histo == "3 dernières années": annee_min = annee_max - 2
-    elif fenetre_histo == "2 dernières années": annee_min = annee_max - 1
-    else: annee_min = df_hist['annee'].min()
-        
-    df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
-
-    # Filtrage des années complètes (12 mois) - ON NE CHANGE RIEN ICI
+    # Filtrage des années complètes (12 mois)
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
     
     if df_hist_complet.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # Table des volumes annuels UNIQUEMENT sur les années complètes (Pour le CAGR)
+    # Table des volumes annuels pour le CAGR
     vols_annuels_totaux = df_hist_complet.groupby(['agence', 'article', 'annee'])['hl'].sum().reset_index()
 
-    # Calcul des indices (Inchangé)
+    # Calcul des indices (Méthode Ratio des Sommes - Cohérent avec Excel)
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
-    if methode_coef == "Moyenne des Ratios":
-        ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
-        indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
-    else:
-        vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
-        vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
-        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
+    vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
+    indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
@@ -152,35 +140,31 @@ def calculer_modele_complet(df_perimetre: pd.DataFrame, annee_cloture: int, mois
         sarr_m2 = group[group['rang'] == 2]['SARR_HL'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
         sarr_m3 = group[group['rang'] == 3]['SARR_HL'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
         
-        # Momentum (Moyenne des 3 derniers écarts - Formule Excel)
+        # Momentum (Moyenne des 3 derniers écarts)
         var1 = sarr_m - sarr_m1
         var2 = sarr_m1 - sarr_m2
         var3 = sarr_m2 - sarr_m3
         momentum = np.mean([var1, var2, var3])
         
-        # Base (Max entre M et moyenne des 3 derniers - Formule Excel)
+        # Base (Max entre M et moyenne des 3 derniers)
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
         base = max(sarr_m, moy_3_mois)
         
         info_art = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)].iloc[0]
         contenance = float(info_art['contenance_cl'])
         
-        # --- CALCUL DU CAGR (STRICTEMENT SUR ANNÉES COMPLÈTES) ---
-        if use_cagr:
-            # On pioche dans vols_annuels_totaux, qui a été construit à partir de df_hist_complet (12 mois)
-            hist_art = vols_annuels_totaux[(vols_annuels_totaux['agence'] == ag) & (vols_annuels_totaux['article'] == art)]
-            if len(hist_art) >= 2:
-                annee_debut = hist_art['annee'].min()
-                annee_fin = hist_art['annee'].max()
-                vol_debut = hist_art[hist_art['annee'] == annee_debut]['hl'].values[0]
-                vol_fin = hist_art[hist_art['annee'] == annee_fin]['hl'].values[0]
-                nb_annees = annee_fin - annee_debut
-                cagr_art = ((vol_fin / vol_debut) ** (1 / nb_annees)) - 1 if nb_annees > 0 and vol_debut > 0 and vol_fin > 0 else 0.0
-            else:
-                cagr_art = 0.0
-            taux_applique_pct = cagr_art * 100 
+        # CAGR (sur années complètes)
+        hist_art = vols_annuels_totaux[(vols_annuels_totaux['agence'] == ag) & (vols_annuels_totaux['article'] == art)]
+        if len(hist_art) >= 2:
+            annee_debut = hist_art['annee'].min()
+            annee_fin = hist_art['annee'].max()
+            vol_debut = hist_art[hist_art['annee'] == annee_debut]['hl'].values[0]
+            vol_fin = hist_art[hist_art['annee'] == annee_fin]['hl'].values[0]
+            nb_annees = annee_fin - annee_debut
+            cagr_art = ((vol_fin / vol_debut) ** (1 / nb_annees)) - 1 if nb_annees > 0 and vol_debut > 0 and vol_fin > 0 else 0.0
         else:
-            taux_applique_pct = 0.0
+            cagr_art = 0.0
+        taux_applique_pct = cagr_art * 100 
         
         for y in range(annee_cloture, annee_cible + 1):
             multiplicateur_croissance = (1 + (taux_applique_pct / 100.0)) ** (y - annee_cloture)
@@ -239,7 +223,7 @@ with col2:
 if fichier_ventes is not None and fichier_ref is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    # --- FILTRES (Étape 2) ---
+    # --- FILTRES ---
     st.sidebar.header("🔍 Filtres (Périmètre)")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
@@ -272,12 +256,10 @@ if fichier_ventes is not None and fichier_ref is not None:
     mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=11, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
 
     st.sidebar.markdown("---")
-    st.sidebar.header("🛠️ Options de Calcul")
-    fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
-    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    
-    use_cagr = st.sidebar.checkbox("Activer la croissance (CAGR sur années complètes)", value=True)
-    st.sidebar.info("💡 **Formule Excel :** (Indice * Base + Momentum) * (1 + CAGR)")
+    st.sidebar.info("💡 **Formules calquées sur Excel :**\n"
+                    "- Indices sur années complètes (Ratio des Sommes)\n"
+                    "- Momentum = AVERAGE(M-M1, ...)\n"
+                    "- Prévision = (Indice * Base + Momentum) * (1 + CAGR)")
     
     st.sidebar.markdown("---")
     st.sidebar.header("📊 Objectif (Pour le GAP)")
@@ -287,7 +269,7 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     # --- CALCULS ---
     table_indices, df_sarr, df_previsions, df_gap = calculer_modele_complet(
-        df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef, use_cutoff, use_cagr, objectif_annuel
+        df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, use_cutoff, objectif_annuel
     )
 
     if df_sarr.empty or df_previsions.empty:
@@ -316,9 +298,10 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_indices:
         st.subheader("Table des Indices Saisonniers")
+        # FORMATAGE À 1 DÉCIMALE POUR MATCHER EXCEL
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
+        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
 
     with tab_sarr:
         st.subheader(f"Table du SARR (en {unite_affichage})")

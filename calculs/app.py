@@ -90,9 +90,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
-    # FILTRAGE STRICT POUR S'ARRETER AU CUTOFF
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
-    
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
 
@@ -136,7 +134,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     return table_indices, df_sarr
 
 # ==============================================================================
-# FONCTION D'ANALYSE PÉRIODE MOMENTUM (CORRIGÉE)
+# FONCTION D'ANALYSE PÉRIODE MOMENTUM (MISE EN PAGE EXCEL)
 # ==============================================================================
 @st.cache_data(show_spinner="Génération du tableau décalé...")
 def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite_affichage: str):
@@ -152,37 +150,46 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
         contenance = group_n.loc[0, 'contenance_cl'] if 'contenance_cl' in group_n.columns else 100.0
         multiplicateur = (10000 / contenance) if unite_affichage == "Cols" else 1.0
         
+        # 1. Colonnes des Dates (M-1, M-2...)
         for i in range(periode_momentum):
-            n_idx = i + 1 
-            
             if i < len(group_n):
                 mois_val = int(group_n.loc[i, 'mois'])
                 annee_val = int(group_n.loc[i, 'annee'])
-                hl_val = group_n.loc[i, 'hl'] * multiplicateur
-                coef_val = group_n.loc[i, 'Indice']
-                sarr_val = group_n.loc[i, 'SARR_HL'] * multiplicateur
-                
                 date_str = f"{MOIS_NOMS[mois_val-1].lower()}-{str(annee_val)[-2:]}"
+                row[f"M-{i+1}"] = date_str
             else:
-                date_str = ""
-                mois_val = 0
-                hl_val = coef_val = sarr_val = 0
-            
-            # On nomme les colonnes exactement comme Excel
-            row[f"M-{n_idx} (Date)"] = date_str
-            row[f"M-{n_idx} (Ventes)"] = hl_val
-            row[f"M-{n_idx} (Mois)"] = mois_val
-            row[f"M-{n_idx} (Coef)"] = coef_val
-            row[f"SARR M-{n_idx}"] = sarr_val
-            
-        row["Moyenne SARR"] = np.mean([row[f"SARR M-{n_idx}"] for n_idx in range(1, periode_momentum + 1)])
+                row[f"M-{i+1}"] = ""
+                
+        # 2. Colonnes des Coefficients (M1, M2...)
+        for i in range(periode_momentum):
+            if i < len(group_n):
+                row[f"M{i+1}"] = group_n.loc[i, 'Indice']
+            else:
+                row[f"M{i+1}"] = 0
+
+        # 3. Colonnes des SARR (SARR M-1, SARR M-2...)
+        for i in range(periode_momentum):
+            if i < len(group_n):
+                row[f"SARR M-{i+1}"] = group_n.loc[i, 'SARR_HL'] * multiplicateur
+            else:
+                row[f"SARR M-{i+1}"] = 0
+                
+        # 4. Moyenne SARR
+        row["Moyenne SARR"] = np.mean([row[f"SARR M-{i+1}"] for i in range(periode_momentum)])
         resultats.append(row)
         
     df_final = pd.DataFrame(resultats)
     
+    # Réorganisation EXACTE des colonnes
     cols_ordered = ["Agence", "Article"]
-    for i in range(1, periode_momentum + 1):
-        cols_ordered.extend([f"M-{i} (Date)", f"M-{i} (Ventes)", f"M-{i} (Mois)", f"M-{i} (Coef)", f"SARR M-{i}"])
+    
+    # D'abord toutes les dates
+    cols_ordered.extend([f"M-{i+1}" for i in range(periode_momentum)])
+    # Ensuite tous les coefficients
+    cols_ordered.extend([f"M{i+1}" for i in range(periode_momentum)])
+    # Ensuite tous les SARR
+    cols_ordered.extend([f"SARR M-{i+1}" for i in range(periode_momentum)])
+    # Enfin la moyenne
     cols_ordered.append("Moyenne SARR")
     
     return df_final[cols_ordered]
@@ -223,7 +230,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=5, step=1)
 
-    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Agence & Article", "Par Article (Global)"], index=0)
+    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Agence & Article", "Par Article (Global)"], index=0, help="Pour correspondre à ton Excel, choisis 'Par Article (Global)'.")
 
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
@@ -239,20 +246,21 @@ if fichier_ventes is not None and fichier_ref is not None:
     df_analyse = generer_tableau_momentum(df_sarr, periode_momentum, unite_affichage)
 
     st.success(f"✅ Tableau généré avec succès.")
+    st.info("💡 **Pour retrouver les chiffres exacts de ton Excel** : Si ton coefficient Excel (M1) est à `1.0` et que Streamlit affiche `0.94`, change le paramètre **'Niveau de calcul des indices'** sur **'Par Article (Global)'** dans la barre latérale.")
     
     tab_analyse, tab_indices = st.tabs(["📊 Tableau d'Analyse Période", "📈 Table des Indices"])
 
     with tab_analyse:
-        st.subheader("Tableau Détaillé (Dates, Ventes, Coefficients, SARR)")
+        st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
         st.write(f"Toutes les valeurs sont en **{unite_affichage}**.")
         
+        # On formate l'affichage pour avoir des jolies colonnes
+        format_dict = {f"M{i+1}": "{:.2f}" for i in range(periode_momentum)}
+        format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
+        format_dict["Moyenne SARR"] = "{:,.2f}"
+        
         st.dataframe(
-            df_analyse.style.format({
-                **{f"M-{i} (Ventes)": "{:,.0f}" for i in range(1, periode_momentum + 1)},
-                **{f"M-{i} (Coef)": "{:.2f}" for i in range(1, periode_momentum + 1)},
-                **{f"SARR M-{i}": "{:,.1f}" for i in range(1, periode_momentum + 1)},
-                "Moyenne SARR": "{:,.2f}"
-            }),
+            df_analyse.style.format(format_dict),
             use_container_width=True,
             height=400
         )

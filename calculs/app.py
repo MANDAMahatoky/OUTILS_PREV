@@ -125,7 +125,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
-    # --- PRÉPARATION DES DONNÉES POUR LE DEBUG ---
     debug_data = vols_mois_cumules.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Volume_Total')
     debug_data['Total_Annuel'] = debug_data.apply(lambda row: vols_annuels_cumules.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else vols_annuels_cumules.loc[row['article']], axis=1)
 
@@ -162,19 +161,19 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
             else:
                 row[f"M-{i+1}"] = "-"
                 
-        # 2. Coefficients
+        # 2. Coefficients (CORRECTION ICI : np.nan au lieu de "-")
         for i in range(periode_momentum):
             if i < len(group_n): row[f"M{i+1}"] = group_n.loc[i, 'Indice']
-            else: row[f"M{i+1}"] = "-"
+            else: row[f"M{i+1}"] = np.nan
 
-        # 3. SARR
+        # 3. SARR (CORRECTION ICI : np.nan au lieu de "-")
         for i in range(periode_momentum):
             if i < len(group_n): row[f"SARR M-{i+1}"] = group_n.loc[i, 'SARR_HL'] * multiplicateur
-            else: row[f"SARR M-{i+1}"] = "-"
+            else: row[f"SARR M-{i+1}"] = np.nan
                 
-        # 4. Moyenne SARR
-        valides = [row[f"SARR M-{i+1}"] for i in range(periode_momentum) if row[f"SARR M-{i+1}"] != "-"]
-        row["Moyenne SARR"] = np.mean(valides) if valides else 0
+        # 4. Moyenne SARR (On ne prend que les valeurs valides)
+        valides = [row[f"SARR M-{i+1}"] for i in range(periode_momentum) if pd.notna(row[f"SARR M-{i+1}"])]
+        row["Moyenne SARR"] = np.mean(valides) if valides else np.nan
         
         resultats.append(row)
         
@@ -251,6 +250,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
         
+        # Le paramètre na_rep="-" affiche un tiret pour les NaN
         st.dataframe(
             df_analyse.style.format(format_dict, na_rep="-"),
             use_container_width=True,

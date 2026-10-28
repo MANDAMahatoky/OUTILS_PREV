@@ -109,12 +109,11 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         
     df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
 
-    # --- CORRECTION MAJEURE : FILTRE DES ANNÉES COMPLÈTES (12 MOIS) ---
+    # --- FILTRE DES ANNÉES COMPLÈTES (12 MOIS) ---
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
     
-    # Si aucune année complète n'est trouvée, on utilise df_hist par sécurité
     if df_hist_complet.empty:
         df_hist_complet = df_hist.copy()
 
@@ -124,9 +123,8 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     
     if methode_coef == "Moyenne des Ratios":
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
-        indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0) # Pas d'arrondi mathématique
+        indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
     else:
-        # Formule exacte : Somme des ventes du mois / Moyenne mensuelle globale
         vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
         vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
@@ -178,8 +176,18 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     st.sidebar.markdown("---")
     st.sidebar.header("🛠️ Options de Calcul")
-    fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
-    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
+    
+    # OPTIONS PAR DÉFAUT DEMANDÉES
+    fenetre_histo = st.sidebar.radio(
+        "Période pour les Coefs", 
+        options=["2 dernières années", "3 dernières années", "Tout l'historique"], 
+        index=0
+    )
+    methode_coef = st.sidebar.radio(
+        "Méthode de calcul", 
+        options=["Moyenne des Ratios", "Ratio des Sommes"], 
+        index=0
+    )
 
     # --- CALCULS ---
     table_indices, df_sarr = calculer_indices_et_sarr(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef)
@@ -188,7 +196,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.warning("⚠️ Aucune donnée calculée. Vérifiez vos filtres.")
         st.stop()
 
-    st.success(f"✅ Étape 4 complétée : Coefficients calculés sur les années complètes.")
+    st.success(f"✅ Étape 4 complétée : Coefficients calculés sur les années complètes ({fenetre_histo} - {methode_coef}).")
     
     tab_indices, tab_sarr = st.tabs(["📊 Table des Indices (Coefficients)", "📈 Table du SARR"])
 
@@ -200,7 +208,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         
-        # MODIFICATION ICI : Formatage à 1 décimale pour coller à Excel
+        # Formatage à 1 décimale comme Excel
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
 
     with tab_sarr:
@@ -214,7 +222,7 @@ if fichier_ventes is not None and fichier_ref is not None:
             df_sarr_display,
             column_config={
                 "hl": st.column_config.NumberColumn("Volume (HL)", format="%.2f"),
-                "Indice": st.column_config.NumberColumn("Coef (précis)", format="%.4f"), # Ici on garde la précision
+                "Indice": st.column_config.NumberColumn("Coef (précis)", format="%.4f"), 
                 "SARR_HL": st.column_config.NumberColumn("SARR (HL)", format="%.2f")
             },
             use_container_width=True,

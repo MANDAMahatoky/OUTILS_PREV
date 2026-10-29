@@ -197,12 +197,14 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     
     resultats_momentum = []
     
-    for keys, group in df_sarr_sorted.groupby(group_cols):
-        # CORRECTION DE L'ERREUR ICI
-        if isinstance(keys, tuple):
-            ag, art = keys
+    for _, group in df_sarr_sorted.groupby(group_cols):
+        # CORRECTION ICI : On extrait ag et art directement depuis le groupe
+        if len(group_cols) == 2:
+            ag = group[group_cols[0]].iloc[0]
+            art = group[group_cols[1]].iloc[0]
         else:
-            ag, art = "Global", keys
+            ag = "Global"
+            art = group[group_cols[0]].iloc[0]
 
         row_m = group[group['rang'] == 0]
         row_m1 = group[group['rang'] == 1]

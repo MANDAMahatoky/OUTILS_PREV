@@ -5,43 +5,8 @@ import re
 import io
 import unicodedata
 
-st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide", initial_sidebar_state="expanded")
-
-try:
-    st.logo("logo.png", size="large")
-except Exception:
-    pass
-
-st.markdown("""
-<style>
-    .block-container { padding-top: 2rem; }
-    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-    .stMetric label { font-size: 1rem !important; color: #555; }
-    .stMetric div[data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #111; font-weight: bold; }
-    h1 { color: #1f77b4; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { padding: 10px 20px; border-radius: 5px 5px 0 0; }
-</style>
-""", unsafe_allow_html=True)
-
-st.title("📊 Moteur de Prévision S&OP")
-st.markdown("**Étapes 4, 5.1 et 5.2 : Indices, Momentum, Base et Prévisions (CAGR)**")
-st.divider()
-
-# ==============================================================================
-# DICTIONNAIRE DE CORRESPONDANCE AGENCE -> REGION
-# ==============================================================================
-MAPPING_REGIONS = {
-    "11-Andranomahery": "Centre", "12-Antsirabe": "Centre",
-    "01-Tanjombato": "Est", "09-Tamatave": "Est",
-    "03-Usine-Diego": "Nord", "07-Majunga": "Nord", "18-Ambanja": "Nord",
-    "19-Sambava": "Nord", "21-Nosy-Be": "Nord",
-    "04-Tulear": "Sud", "05-Fianarantsoa": "Sud", "06-Ihosy": "Sud",
-    "08-Manakara": "Sud", "23-Morondova": "Sud", "24-Fort-Dauphin": "Sud"
-}
-
-def get_region(agence):
-    return MAPPING_REGIONS.get(str(agence).strip(), None)
+st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
+st.title("Moteur de Prévision S&OP (Étapes 1 à 5)")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -61,37 +26,36 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (AVEC CONVERSION COLS -> HL)
 # ==============================================================================
-@st.cache_data(show_spinner="Chargement et traitement des données...")
+@st.cache_data(show_spinner="Chargement et conversion des données (Cols -> HL)...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
+    
     df_ref = df_ref.rename(columns={
         "Article": "article_original", "Positionnement": "positionnement", 
         "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"
     })
+    
     for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
         if col not in df_ref.columns: df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
-    
+        
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
-    
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
     
-    if isinstance(df_raw.iloc[0, 0], str) and not df_raw.iloc[0, 0].replace('.','',1).isdigit():
-        df_raw = df_raw.iloc[1:].reset_index(drop=True)
-    
     if detecter_format_pivote(df_raw):
-        rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])}
+        # On lit la colonne volume sous le nom "volume_brut" car elle est en Cols
+        rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"])}
         df = df_raw.rename(columns=rename).copy()
         df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
         df["mois"] = df["mois"].apply(normaliser_mois)
-        df["hl"] = pd.to_numeric(df["hl"], errors="coerce").fillna(0.0)
+        df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
         masque_total = (
             df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) |
             df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) |
@@ -109,15 +73,17 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi = df_ref.merge(df, on="cle_article", how="left")
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
-    
-    # On stocke le volume brut (qui est en Cols)
-    df_enrichi["hl_brut"] = df_enrichi["hl"].fillna(0.0)
-    
+    df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
-    df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     
-    df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
+    # Sécurité sur la contenance pour éviter la division par zéro
+    df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
+    df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
+    
+    # --- LA FORMULE DE CONVERSION EST APPLIQUÉE ICI ---
+    # Volume (HL) = Volume (Cols) * (Contenance_cl / 10000)
+    df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000)
     
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
@@ -131,449 +97,263 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     ]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
-    return df_enrichi[["annee", "mois", "segment", "produit", "region", "agence", "hl_brut", "article", "positionnement", "occasion", "contenance_cl"]]
+    
+    return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# VÉRIFICATION DE L'INTÉGRALITÉ DE L'HISTORIQUE
+# ÉTAPES 4 & 5 : CALCUL DES INDICES, SARR ET PRÉVISIONS
 # ==============================================================================
-def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, annee_max: int):
-    annees_presentes = df_perimetre[(df_perimetre["annee"] >= annee_min) & (df_perimetre["annee"] <= annee_max)]
-    annees_uniques = sorted(annees_presentes["annee"].unique())
-    
-    annees_manquantes = [a for a in range(annee_min, annee_max + 1) if a not in annees_uniques]
-    
-    mois_par_annee = annees_presentes.groupby('annee')['mois'].nunique()
-    annees_incompletes = mois_par_annee[mois_par_annee < 12].index.tolist()
-    annees_completes = mois_par_annee[mois_par_annee == 12].index.tolist()
-    
-    return annees_manquantes, annees_incompletes, annees_completes
+@st.cache_data(show_spinner="Calcul des indices, SARR et prévisions...")
+def calculer_previsions_globales(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int, fenetre_histo: str, methode_coef: str):
+    df_realise = df_perimetre[df_perimetre["annee"] <= annee_cloture].copy()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-# ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS (NATIVEMENT EN HL)
-# ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions...")
-def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_min_histo: int, annee_max_histo: int, 
-                    methode_coef: str, niveau_agregation: str, annee_cible: int):
+    # --- ÉTAPE 4 : CALCUL DES INDICES & SARR ---
+    df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
+    if df_hist.empty: df_hist = df_realise.copy()
+
+    annee_max = annee_cloture - 1
+    if fenetre_histo == "3 dernières années": annee_min = annee_max - 2
+    elif fenetre_histo == "2 dernières années": annee_min = annee_max - 1
+    else: annee_min = df_hist['annee'].min()
+        
+    df_hist = df_hist[df_hist['annee'] >= annee_min].copy()
+
+    # Filtrage des années complètes (12 mois)
+    mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
+    annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
+    df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
     
-    df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
-    df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return None, None, None, None, None, None, None
+    if df_hist_complet.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
-    if df_hist.empty: return None, None, None, None, None, None, None
-
-    if niveau_agregation == "Par Agence & Article":
-        group_cols = ['agence', 'article']
-    else:
-        group_cols = ['article']
-
-    # --- CALCUL DES INDICES ---
-    vols = df_hist.groupby(group_cols + ['annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
-    vols = vols.reindex(columns=range(1, 13), fill_value=0.0)
+    vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
-    vols_mois_cumules = vols.groupby(group_cols).sum()
-    vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
-    nb_annees = df_hist.groupby(group_cols)['annee'].nunique()
-    
-    moy_histo = vols_mois_cumules.div(nb_annees, axis=0)
-    moy_globale = vols_annuels_cumules / (12.0 * nb_annees)
-
     if methode_coef == "Moyenne des Ratios":
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
-        indices = ratios.groupby(group_cols).mean().fillna(1.0)
+        indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
     else:
-        indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+        vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
+        vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
+        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
-    table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
+    table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
 
-    df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
+    df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # --- ÉTAPE 5.1 : MOMENTUM & BASE ---
-    df_sarr_sorted = df_sarr.sort_values(group_cols + ['annee', 'mois']).copy()
-    df_sarr_sorted['rang'] = df_sarr_sorted.groupby(group_cols).cumcount(ascending=False)
+    # --- ÉTAPE 5 : MOMENTUM, BASE ET PRÉVISIONS ---
+    df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
+    df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
+    df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
     
-    resultats_momentum = []
-    resultats_vue_excel = []
-    resultats_audit_m1_m2 = []
+    resultats_previsions = []
     
-    for _, group in df_sarr_sorted.groupby(group_cols):
-        if len(group_cols) == 2:
-            ag = group[group_cols[0]].iloc[0]
-            art = group[group_cols[1]].iloc[0]
-        else:
-            ag = "Global"
-            art = group[group_cols[0]].iloc[0]
-
-        row_m = group[group['rang'] == 0]
-        row_m1 = group[group['rang'] == 1]
-        row_m2 = group[group['rang'] == 2]
-        row_m3 = group[group['rang'] == 3]
-
-        sarr_m = row_m['SARR_HL'].values[0] if not row_m.empty else 0
-        sarr_m1 = row_m1['SARR_HL'].values[0] if not row_m1.empty else 0
-        sarr_m2 = row_m2['SARR_HL'].values[0] if not row_m2.empty else 0
-        sarr_m3 = row_m3['SARR_HL'].values[0] if not row_m3.empty else 0
+    for (ag, art), group in df_derniers.groupby(['agence', 'article']):
+        sarr_m = group[group['rang'] == 0]['SARR_HL'].values[0] if len(group[group['rang'] == 0]) > 0 else 0
+        sarr_m1 = group[group['rang'] == 1]['SARR_HL'].values[0] if len(group[group['rang'] == 1]) > 0 else 0
+        sarr_m2 = group[group['rang'] == 2]['SARR_HL'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
+        sarr_m3 = group[group['rang'] == 3]['SARR_HL'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
         
-        contenance = group['contenance_cl'].iloc[0] if 'contenance_cl' in group.columns else 100.0
-        multiplicateur = 10000 / contenance
-
-        date_m1 = f"{MOIS_NOMS[int(row_m1['mois'].values[0])-1]}-{str(int(row_m1['annee'].values[0]))[-2:]}" if not row_m1.empty else "-"
-        date_m2 = f"{MOIS_NOMS[int(row_m2['mois'].values[0])-1]}-{str(int(row_m2['annee'].values[0]))[-2:]}" if not row_m2.empty else "-"
+        var1 = sarr_m - sarr_m1
+        var2 = sarr_m1 - sarr_m2
+        var3 = sarr_m2 - sarr_m3
+        momentum = np.mean([var1, var2, var3])
         
-        momentum = sarr_m1 - sarr_m2
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
         base = max(sarr_m, moy_3_mois)
         
-        resultats_momentum.append({
-            "agence": ag, "article": art, 
-            "Mois M-1": date_m1, "SARR M-1": sarr_m1,
-            "Mois M-2": date_m2, "SARR M-2": sarr_m2,
-            "Momentum_HL": momentum, 
-            "Base_HL": base,
-            "Multiplicateur": multiplicateur
-        })
-
-        if not row_m1.empty and not row_m2.empty:
-            resultats_audit_m1_m2.append({
-                "Agence": ag, "Article": art,
-                "Mois M-1": date_m1, "Volume M-1 (HL)": row_m1['hl'].values[0], "Indice M-1": row_m1['Indice'].values[0], "SARR M-1 (HL)": sarr_m1,
-                "Mois M-2": date_m2, "Volume M-2 (HL)": row_m2['hl'].values[0], "Indice M-2": row_m2['Indice'].values[0], "SARR M-2 (HL)": sarr_m2
-            })
-
-        row_vue = {"agence": ag, "article": art, "Multiplicateur": multiplicateur}
-        for i in range(1, 13):
-            row_r = group[group['rang'] == i]
-            if not row_r.empty:
-                m_val = int(row_r['mois'].values[0])
-                a_val = int(row_r['annee'].values[0])
-                row_vue[f"M-{i} (Date)"] = f"{MOIS_NOMS[m_val-1].lower()}-{str(a_val)[-2:]}"
-                row_vue[f"M-{i} (Vol)"] = row_r['hl'].values[0]
-                row_vue[f"M-{i} (SARR)"] = row_r['SARR_HL'].values[0]
-            else:
-                row_vue[f"M-{i} (Date)"] = "-"
-                row_vue[f"M-{i} (Vol)"] = 0
-                row_vue[f"M-{i} (SARR)"] = 0
-        resultats_vue_excel.append(row_vue)
+        info_art = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)].iloc[0]
+        contenance = info_art['contenance_cl']
         
-    df_momentum = pd.DataFrame(resultats_momentum)
-    df_vue_excel = pd.DataFrame(resultats_vue_excel)
-    df_audit = pd.DataFrame(resultats_audit_m1_m2)
-
-    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR ---
-    resultats_previsions = []
-    
-    for _, row in df_momentum.iterrows():
-        ag, art = row['agence'], row['article']
-        base, momentum = row['Base_HL'], row['Momentum_HL']
-        multiplicateur = row['Multiplicateur']
-        
-        art_hist = df_hist[df_hist['article'] == art]
-        if len(group_cols) == 2:
-            art_hist = art_hist[art_hist['agence'] == ag]
-            
-        vol_debut = art_hist[art_hist['annee'] == annee_min_histo]['hl'].sum()
-        vol_fin = art_hist[art_hist['annee'] == annee_max_histo]['hl'].sum()
-        nb_ans = annee_max_histo - annee_min_histo
-        
-        if nb_ans > 0 and vol_debut > 0 and vol_fin > 0:
-            cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1
-        else:
-            cagr_val = 0.0
-
         for y in range(annee_cloture, annee_cible + 1):
-            multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
-            
             for m in range(1, 13):
                 if y == annee_cloture and m <= mois_cutoff: continue
+                if y == annee_cible and m > mois_cible: break
                 
-                if len(group_cols) == 2:
-                    coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
-                else:
-                    coef_data = table_indices[(table_indices['article'] == art) & (table_indices['mois'] == m)]
-                
+                coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
-                prev_hl = ((coef * base) + momentum) * multiplicateur_cagr
+                prev_hl = (coef * base) + momentum
                 prev_hl = max(0.0, prev_hl)
+                # Formule inverse pour l'affichage en Cols : HL * (10000 / Contenance)
+                prev_cols = prev_hl * (10000 / contenance)
                 
                 resultats_previsions.append({
-                    "annee": y, "mois": m, "agence": ag, "article": art,
+                    "agence": ag, "article": art, "annee": y, "mois": m,
                     "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
-                    "Indice": coef, "Base": base, "Momentum": momentum,
-                    "CAGR (%)": cagr_val * 100,
-                    "Prevision_HL": prev_hl,
-                    "Multiplicateur": multiplicateur
+                    "Indice": coef, "Base_HL": base, "Momentum_HL": momentum,
+                    "Prevision_HL": prev_hl, "Prevision_Cols": prev_cols
                 })
-
+                
     df_previsions = pd.DataFrame(resultats_previsions)
-    
-    return table_indices, df_sarr, df_momentum, df_hist, df_previsions, df_vue_excel, df_audit
-
-# ==============================================================================
-# FONCTION DE COLORATION
-# ==============================================================================
-def color_cells(val):
-    try:
-        val = float(val)
-        if val < 0.999:
-            return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-        elif val > 1.001:
-            return 'background-color: #d4edda; color: #155724; font-weight: bold;'
-        else:
-            return 'background-color: #e2e3e5; color: #383d41;'
-    except:
-        return ''
+    return table_indices, df_sarr, df_previsions
 
 # ==============================================================================
 # INTERFACE STREAMLIT
 # ==============================================================================
-col_info, col_app = st.columns([1, 3])
+col1, col2 = st.columns(2)
+with col1:
+    fichier_ventes = st.file_uploader("1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
+with col2:
+    fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"])
 
-with col_info:
-    st.markdown("### 📖 Guide Méthodologique")
-    st.info("⚙️ **Les volumes du fichier source (Cols) sont automatiquement convertis en HL pour les calculs.**")
-    with st.expander("1. Indices de Saisonnalité", expanded=True):
-        st.markdown("🟩 **Vert (> 1.0)** : Mois Fort\n🟥 **Rouge (< 1.0)** : Mois Faible")
-    with st.expander("2. SARR & Momentum", expanded=True):
-        st.markdown("**SARR** : `Volume / Indice`.\n**Momentum** : Variation M-1 vs M-2.")
-    with st.expander("3. Prévisions (CAGR)", expanded=True):
-        st.markdown("**Formule** : `(Indice * Base + Momentum) * (1 + CAGR)^n`.")
+if fichier_ventes is not None and fichier_ref is not None:
+    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-with col_app:
-    with st.container(border=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            fichier_ventes = st.file_uploader("📁 1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
-        with col2:
-            fichier_ref = st.file_uploader("📁 2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"])
+    # --- FILTRES ---
+    st.sidebar.header("🔍 Filtres")
+    segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
+    sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
+    
+    df_temp = df_enrichi.copy()
+    if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
+    articles_dispo = sorted(df_temp["article"].unique())
+    sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
+    
+    agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
+    sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
 
-    if fichier_ventes is not None and fichier_ref is not None:
-        df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
+    df_perimetre = df_enrichi.copy()
+    if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
+    if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
+    if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-        st.sidebar.header("🔍 1. Périmètre d'analyse")
+    # --- CUTOFF & OPTIONS ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("⚙️ Cutoff & Cible")
+    annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
+    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.header("🎯 Cible des Prévisions")
+    annee_cible = st.sidebar.number_input("Année Cible", min_value=2026, max_value=2035, value=2027)
+    mois_cible = st.sidebar.selectbox("Mois Cible", options=list(range(1, 13)), index=11, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("🛠️ Options de Calcul")
+    fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["Tout l'historique", "3 dernières années", "2 dernières années"], index=0)
+    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
+    
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
+
+    # --- CALCULS ---
+    table_indices, df_sarr, df_previsions = calculer_previsions_globales(df_perimetre, annee_cloture, mois_cutoff, annee_cible, mois_cible, fenetre_histo, methode_coef)
+
+    if df_sarr.empty or df_previsions.empty:
+        st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
+        st.stop()
+
+    st.success(f"✅ Étape 4 validée. Étape 5 calculée avec succès (Volumes sources convertis de Cols en HL).")
+    
+    tab_indices, tab_sarr, tab_prev, tab_bilan, tab_diag = st.tabs([
+        "📊 Table des Indices", 
+        "📈 Table du SARR (Historique)", 
+        "🚀 Détail des Prévisions (Étape 5)",
+        "📅 Bilan Annuel (TCD)",
+        "🩺 Diagnostic Données"
+    ])
+
+    # --- CONVERSION POUR L'AFFICHAGE ---
+    if unite_affichage == "Cols":
+        df_sarr["Vol_Aff"] = df_sarr["hl"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
+        df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
+        df_prev_aff = "Prevision_Cols"
+    else:
+        df_sarr["Vol_Aff"] = df_sarr["hl"]
+        df_sarr["SARR_Aff"] = df_sarr["SARR_HL"]
+        df_prev_aff = "Prevision_HL"
+
+    with tab_indices:
+        pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+        pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
+        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
+
+    with tab_sarr:
+        st.subheader(f"Table du SARR (en {unite_affichage})")
+        st.markdown(f"### 📊 Synthèse Annuelle")
+        pivot_annuel = df_sarr.pivot_table(index=['agence', 'article'], columns='annee', values='Vol_Aff', aggfunc='sum', margins=True, margins_name='Total Global').fillna(0)
+        st.dataframe(pivot_annuel.style.format("{:,.2f}"), use_container_width=True)
         
-        regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Autre Région"])
-        sel_regions = st.sidebar.multiselect("🌍 Région", options=regions_dispo, placeholder="Toutes")
-        
-        df_temp = df_enrichi.copy()
-        if sel_regions: df_temp = df_temp[df_temp["region"].isin(sel_regions)]
-        
-        segments_dispo = sorted([s for s in df_temp["segment"].unique() if pd.notna(s)])
-        sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
-        if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
-        
-        positions_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
-        sel_positions = st.sidebar.multiselect("🎯 Positionnement", options=positions_dispo, placeholder="Tous")
-        if sel_positions: df_temp = df_temp[df_temp["positionnement"].isin(sel_positions)]
-        
-        occasions_dispo = sorted([o for o in df_temp["occasion"].unique() if pd.notna(o)])
-        sel_occasions = st.sidebar.multiselect("🥂 Occasion", options=occasions_dispo, placeholder="Toutes")
-        if sel_occasions: df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)]
-
-        contenances_dispo = sorted([c for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
-        sel_contenances = st.sidebar.multiselect("🧴 Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
-        if sel_contenances: df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)]
-
-        articles_dispo = sorted(df_temp["article"].unique())
-        sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
-        
-        agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
-        sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
-
-        df_perimetre = df_enrichi.copy()
-        if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
-        if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
-        if sel_positions: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positions)]
-        if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
-        if sel_contenances: df_perimetre = df_perimetre[df_perimetre["contenance_cl"].isin(sel_contenances)]
-        if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
-        if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
-
-        st.sidebar.markdown("---")
-        st.sidebar.header("⚙️ 2. Paramètres du Modèle")
-        
-        annee_min_reelle = int(df_perimetre["annee"].min()) if not df_perimetre.empty else 2020
-        annee_max_reelle = int(df_perimetre["annee"].max()) if not df_perimetre.empty else 2026
-        
-        with st.sidebar.expander("📅 Intervalle Historique", expanded=True):
-            st.success(f"Données détectées : **{annee_min_reelle}** à **{annee_max_reelle}**")
-            annee_min_histo = st.number_input("Année Min (Début)", min_value=2015, max_value=2030, value=2024)
-            annee_max_histo = st.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=2030, value=2025)
-            
-        with st.sidebar.expander("🎯 Cutoff & Cible", expanded=True):
-            annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-            mois_cutoff = st.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
-            
-            st.markdown("---")
-            annee_cible = st.number_input("Année Cible (Prévisions)", min_value=annee_cloture, max_value=2035, value=2027)
-            
-        with st.sidebar.expander("🛠️ Options de Calcul", expanded=True):
-            niveau_agregation = st.radio("Niveau d'agrégation", options=["Par Agence & Article", "Par Article (Global)"], index=0)
-            methode_coef = st.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
-            
-            # HL EN VALEUR PAR DÉFAUT POUR L'AFFICHAGE
-            unite_affichage = st.radio(
-                "Unité d'affichage", 
-                options=["HL", "Cols"], 
-                index=0,
-                help="Les calculs sont natifs en HL. 'Cols' convertit l'affichage final."
-            )
-
-        # --- CONVERSION FORCÉE EN HL ---
-        # Le fichier source est considéré comme étant en Cols.
-        # Formule : HL = Cols / (10000 / contenance_cl)
-        df_perimetre["hl"] = df_perimetre["hl_brut"] / (10000 / df_perimetre["contenance_cl"].replace(0, 100))
-
-        # VÉRIFICATION
-        annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(df_perimetre, annee_min_histo, annee_max_histo)
-
-        if annees_manquantes or annees_incompletes:
-            st.error("🚨 **Calcul interrompu : Données historiques incomplètes.**")
-            if annees_manquantes:
-                st.warning(f"Les années suivantes n'existent pas : **{', '.join(map(str, annees_manquantes))}**.")
-            if annees_incompletes:
-                st.warning(f"Les années suivantes sont incomplètes (moins de 12 mois) : **{', '.join(map(str, annees_incompletes))}**.")
-            
-            if annees_completes:
-                st.info(f"💡 **Proposition :** Modifiez l'intervalle. Données complètes pour : **{', '.join(map(str, annees_completes))}**. Sélectionnez Min=**{annees_completes[0]}** et Max=**{annees_completes[-1]}**.")
-            st.stop()
-
-        # CALCULS
-        table_indices, df_sarr, df_momentum, df_hist, df_previsions, df_vue_excel, df_audit = calculer_modele(
-            df_perimetre, annee_cloture, mois_cutoff, annee_min_histo, annee_max_histo, methode_coef, niveau_agregation, annee_cible
+        st.markdown(f"### 📅 Détail Mensuel")
+        st.dataframe(
+            df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"]),
+            column_config={
+                "Vol_Aff": st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
+                "Indice": st.column_config.NumberColumn("Coef", format="%.1f"),
+                "SARR_Aff": st.column_config.NumberColumn(f"SARR ({unite_affichage})", format="%.2f")
+            },
+            use_container_width=True, height=400
         )
+
+    with tab_prev:
+        st.subheader(f"Détail des Prévisions (Étape 5) (en {unite_affichage})")
         
-        if table_indices is None:
-            st.error("⚠️ Impossible de calculer le modèle.")
+        st.info("💡 La Base et le Momentum sont calculés en HL. La Prévision est ensuite convertie dans l'unité choisie. Le Total Année correspond à la somme des prévisions mensuelles.")
+        
+        # ---- TCD Mensuel avec Total Année (somme des mois) ----
+        st.markdown(f"### 📊 TCD Mensuel des Prévisions + Total Année (en {unite_affichage})")
+        pivot_mensuel = df_previsions.pivot_table(
+            index=['annee', 'agence', 'article'],
+            columns='mois',
+            values=df_prev_aff,
+            aggfunc='sum'
+        ).fillna(0)
+        pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
+        pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
+        st.dataframe(pivot_mensuel.style.format("{:,.2f}"), use_container_width=True)
+        
+        # ---- Détail mensuel avec colonne Total Année ----
+        st.markdown("### 📅 Détail Mensuel des Prévisions (avec Total Année)")
+        df_prev_detail = df_previsions.copy()
+        df_prev_detail['Total_Annee'] = (
+            df_prev_detail
+            .groupby(['annee', 'agence', 'article'])[df_prev_aff]
+            .transform('sum')
+        )
+        st.dataframe(
+            df_prev_detail[["annee", "mois", "Date", "agence", "article",
+                            "Indice", "Base_HL", "Momentum_HL",
+                            df_prev_aff, "Total_Annee"]]
+            .sort_values(["annee", "mois", "agence", "article"]),
+            column_config={
+                "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
+                "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.0f"),
+                "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.0f"),
+                df_prev_aff: st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
+                "Total_Annee": st.column_config.NumberColumn(f"Total Année ({unite_affichage})", format="%.2f"),
+            },
+            use_container_width=True, height=400
+        )
+
+    with tab_bilan:
+        st.subheader(f"Bilan Annuel {annee_cible} (en {unite_affichage})")
+        st.write("Ce tableau est la somme des 12 mois de l'année cible. Il correspond exactement à la colonne 'Total general' de votre Excel.")
+        
+        df_annee = df_previsions[df_previsions["annee"] == annee_cible]
+        if not df_annee.empty:
+            pivot_annuel_prev = pd.pivot_table(df_annee, values=df_prev_aff, index="article", columns="agence", aggfunc="sum", margins=True, margins_name="Total general").fillna(0)
+            st.dataframe(pivot_annuel_prev.style.format("{:,.2f}"), use_container_width=True)
         else:
-            # --- KPIs GLOBAUX ---
-            with st.container(border=True):
-                kpi1, kpi2, kpi3 = st.columns(3)
-                vol_total = df_hist["hl"].sum()
-                kpi1.metric(f"Volume Histo {annee_min_histo}-{annee_max_histo} (HL)", f"{vol_total:,.0f}")
-                
-                nb_articles_filtres = df_hist['article'].nunique()
-                nb_articles_total = df_enrichi['article'].nunique()
-                kpi2.metric("Nb Articles Histo", f"{nb_articles_filtres} / {nb_articles_total}")
-                
-                kpi3.metric("Nb Agences Histo", f"{df_hist[df_hist['agence'] != 'Aucune vente']['agence'].nunique()}")
-            
-            st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo}.")
-            
-            # --- TABS DE RESULTATS ---
-            tab_indices, tab_momentum, tab_prev, tab_audit, tab_vue, tab_diag = st.tabs([
-                "📊 Indices", "📈 Momentum & Base", "🚀 5.2 Prévisions", "🔍 Audit M-1 / M-2", "🔍 Vue Excel", "🩺 Inspection des Données"
-            ])
+            st.warning("Aucune prévision pour cette année.")
 
-            with tab_indices:
-                with st.container(border=True):
-                    st.subheader("Table des Indices")
-                    if niveau_agregation == "Par Agence & Article":
-                        pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
-                    else:
-                        pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
-                    pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-                    
-                    try:
-                        styled_df = pivot_indices.style.map(color_cells).format("{:.2f}")
-                    except AttributeError:
-                        styled_df = pivot_indices.style.applymap(color_cells).format("{:.2f}")
-                    st.dataframe(styled_df, use_container_width=True, height=400)
-
-            with tab_momentum:
-                with st.container(border=True):
-                    st.subheader("Calcul du Momentum et de la Base")
-                    if unite_affichage == "Cols":
-                        df_momentum["Momentum_Aff"] = df_momentum["Momentum_HL"] * df_momentum["Multiplicateur"]
-                        df_momentum["Base_Aff"] = df_momentum["Base_HL"] * df_momentum["Multiplicateur"]
-                        st.dataframe(
-                            df_momentum[["agence", "article", "Mois M-1", "SARR M-1", "Mois M-2", "SARR M-2", "Momentum_Aff", "Base_Aff"]],
-                            column_config={
-                                "SARR M-1": st.column_config.NumberColumn("SARR M-1 (HL)", format="%.2f"),
-                                "SARR M-2": st.column_config.NumberColumn("SARR M-2 (HL)", format="%.2f"),
-                                "Momentum_Aff": st.column_config.NumberColumn("Momentum (Cols)", format="%.2f"),
-                                "Base_Aff": st.column_config.NumberColumn("Base (Cols)", format="%.2f"),
-                            },
-                            use_container_width=True, height=400
-                        )
-                    else:
-                        st.dataframe(
-                            df_momentum[["agence", "article", "Mois M-1", "SARR M-1", "Mois M-2", "SARR M-2", "Momentum_HL", "Base_HL"]],
-                            column_config={
-                                "SARR M-1": st.column_config.NumberColumn("SARR M-1 (HL)", format="%.2f"),
-                                "SARR M-2": st.column_config.NumberColumn("SARR M-2 (HL)", format="%.2f"),
-                                "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
-                                "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
-                            },
-                            use_container_width=True, height=400
-                        )
-
-            with tab_prev:
-                with st.container(border=True):
-                    st.subheader(f"Prévisions Finales avec CAGR jusqu'en {annee_cible}")
-                    if unite_affichage == "Cols":
-                        df_previsions["Prevision_Aff"] = df_previsions["Prevision_HL"] * df_previsions["Multiplicateur"]
-                        col_aff = "Prevision_Aff"
-                    else:
-                        col_aff = "Prevision_HL"
-
-                    st.markdown(f"### 📊 TCD des Prévisions Mensuelles ({unite_affichage})")
-                    pivot_prev = df_previsions.pivot_table(
-                        index=['annee', 'agence', 'article'], columns='mois', values=col_aff, aggfunc='sum'
-                    )
-                    pivot_prev.columns = [MOIS_NOMS[c-1] for c in pivot_prev.columns]
-                    pivot_prev['Total Année'] = pivot_prev.sum(axis=1)
-                    st.dataframe(pivot_prev.style.format("{:,.2f}", na_rep="-"), use_container_width=True)
-
-            with tab_audit:
-                st.subheader("🔍 Audit des Composants (M-1 et M-2)")
-                st.write("Compare ces chiffres avec ton Excel !")
-                st.dataframe(
-                    df_audit.style.format({
-                        "Volume M-1 (HL)": "{:,.2f}", "Indice M-1": "{:.4f}", "SARR M-1 (HL)": "{:,.2f}",
-                        "Volume M-2 (HL)": "{:,.2f}", "Indice M-2": "{:.4f}", "SARR M-2 (HL)": "{:,.2f}"
-                    }),
-                    use_container_width=True
-                )
-
-            with tab_vue:
-                st.subheader("Validation : Historique Décalé (M-1 à M-12)")
-                if unite_affichage == "Cols":
-                    df_vue_aff = df_vue_excel.copy()
-                    for i in range(1, 13):
-                        df_vue_aff[f"M-{i} (Vol)"] = df_vue_aff[f"M-{i} (Vol)"] * df_vue_aff["Multiplicateur"]
-                        df_vue_aff[f"M-{i} (SARR)"] = df_vue_aff[f"M-{i} (SARR)"] * df_vue_aff["Multiplicateur"]
-                    df_vue_aff = df_vue_aff.drop(columns=["Multiplicateur"])
-                else:
-                    df_vue_aff = df_vue_excel.copy().drop(columns=["Multiplicateur"])
-
-                if len(sel_articles) > 0: df_vue_aff = df_vue_aff[df_vue_aff["article"].isin(sel_articles)]
-                if len(sel_agences) > 0: df_vue_aff = df_vue_aff[df_vue_aff["agence"].isin(sel_agences)]
-
-                st.dataframe(df_vue_aff, use_container_width=True, height=400)
-
-            with tab_diag:
-                with st.container(border=True):
-                    st.subheader("🩺 Inspection des Données")
-                    st.warning("⚠️ Le fichier source est considéré comme étant en **Cols (Bouteilles)**. Il est automatiquement converti en **HL** pour les calculs.")
-                    
-                    # Regroupement mensuel pour voir les volumes bruts et convertis
-                    df_diag = df_hist.groupby(['annee', 'mois', 'agence', 'article'])[['hl_brut', 'hl']].sum().reset_index()
-                    df_diag = df_diag[(df_diag['hl_brut'] > 0) | (df_diag['hl'] > 0)].sort_values(['annee', 'mois', 'agence', 'article'])
-                    
-                    # Filtres sur le diagnostic
-                    if len(sel_articles) > 0: df_diag = df_diag[df_diag["article"].isin(sel_articles)]
-                    if len(sel_agences) > 0: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
-                    
-                    st.dataframe(
-                        df_diag.style.format({"hl_brut": "{:,.2f}", "hl": "{:,.2f}"}),
-                        column_config={
-                            "hl_brut": st.column_config.NumberColumn("Volume Brut Fichier (Cols)", format="%.2f"),
-                            "hl": st.column_config.NumberColumn("Volume Converti (HL)", format="%.2f")
-                        },
-                        use_container_width=True, height=400
-                    )
-                    st.info("💡 **Astuce :** La colonne 'Volume Brut' correspond à ce qu'il y a dans votre fichier Excel `DATA_BRUT.xlsx`. La colonne 'Volume Converti' est celle utilisée pour calculer les prévisions (ex: pour du 200cl, 1 HL = 50 cols).")
+    with tab_diag:
+        st.subheader("🩺 Vérification des volumes bruts vs convertis")
+        st.warning("Vérifiez que la colonne 'Volume Converti (HL)' correspond bien à ce que vous attendez.")
+        
+        df_diag = df_perimetre[df_perimetre["annee"] == annee_cloture].groupby(['mois', 'agence', 'article', 'contenance_cl'])[['volume_brut', 'hl']].sum().reset_index()
+        df_diag = df_diag[(df_diag['volume_brut'] > 0) | (df_diag['hl'] > 0)].sort_values(['mois', 'agence', 'article'])
+        
+        if sel_articles: df_diag = df_diag[df_diag["article"].isin(sel_articles)]
+        if sel_agences: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
+        
+        st.dataframe(
+            df_diag.style.format({"volume_brut": "{:,.0f}", "hl": "{:,.2f}", "contenance_cl": "{:,.0f}"}),
+            column_config={
+                "contenance_cl": st.column_config.NumberColumn("Contenance (cl)"),
+                "volume_brut": st.column_config.NumberColumn("Volume Fichier Brut (Cols)"),
+                "hl": st.column_config.NumberColumn("Volume Converti (HL)")
+            },
+            use_container_width=True
+        )

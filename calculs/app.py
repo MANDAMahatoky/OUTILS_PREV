@@ -155,9 +155,16 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(group_cols).cumcount(ascending=False)
     
     resultats_momentum = []
-    for keys, group in df_sarr_sorted.groupby(group_cols):
-        ag, art = keys if isinstance(keys, tuple) else ("Global", keys)
-        
+    
+    # CORRECTION ICI : On extrait ag et art directement depuis le groupe
+    for _, group in df_sarr_sorted.groupby(group_cols):
+        if len(group_cols) == 2:
+            ag = group[group_cols[0]].iloc[0]
+            art = group[group_cols[1]].iloc[0]
+        else:
+            ag = "Global"
+            art = group[group_cols[0]].iloc[0]
+
         sarr_m1 = group[group['rang'] == 1]['SARR_HL'].values[0] if len(group[group['rang'] == 1]) > 0 else 0
         sarr_m2 = group[group['rang'] == 2]['SARR_HL'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
         sarr_m3 = group[group['rang'] == 3]['SARR_HL'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
@@ -184,7 +191,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         
         # Calcul du CAGR
         if use_cagr:
-            # On récupère les volumes annuels de la période historique
             if niveau_agregation == "Par Agence & Article":
                 hist_group = vols_annuels.loc[(ag, art)]
             else:
@@ -201,19 +207,16 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         else:
             cagr_val = 0.0
             
-        # Prévisions jusqu'à l'année cible
         for y in range(annee_cloture, annee_cible + 1):
             multiplicateur = (1 + cagr_val) ** (y - annee_cloture)
             
             for m in range(1, 13):
-                # On applique la même logique de Cutoff
                 if y == annee_cloture and m <= mois_cutoff: continue
                 
-                coef_data = table_indices[(table_indices['mois'] == m)]
                 if niveau_agregation == "Par Agence & Article":
-                    coef_data = coef_data[(coef_data['agence'] == ag) & (coef_data['article'] == art)]
+                    coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
                 else:
-                    coef_data = coef_data[coef_data['article'] == art]
+                    coef_data = table_indices[(table_indices['article'] == art) & (table_indices['mois'] == m)]
                 
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
@@ -294,7 +297,6 @@ with col_app:
         use_cagr = st.sidebar.checkbox("Activer le CAGR pour la projection", value=True)
         unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
-        # --- VERIFICATION DE L'INTÉGRALITÉ ---
         annees_manquantes, annees_incompletes, annees_uniques = verifier_integrite_historique(
             df_perimetre, annee_min_histo, annee_max_histo, niveau_agregation
         )
@@ -311,7 +313,6 @@ with col_app:
             
             st.stop()
 
-        # --- CALCULS ---
         table_indices, df_sarr, df_momentum, df_previsions = calculer_modele(
             df_perimetre, annee_cloture, mois_cutoff, annee_min_histo, annee_max_histo, 
             methode_coef, niveau_agregation, use_cagr, annee_cible
@@ -337,14 +338,12 @@ with col_app:
             with tab_prev:
                 st.subheader("Prévisions Finales avec CAGR")
                 
-                # Conversion pour affichage
                 if unite_affichage == "Cols":
                     df_previsions["Prevision_Aff"] = df_previsions["Prevision_HL"] * 100
                     col_aff = "Prevision_Aff"
                 else:
                     col_aff = "Prevision_HL"
 
-                # TCD Mensuel
                 pivot_prev = df_previsions.pivot_table(
                     index=['annee', 'agence', 'article'], columns='mois', values=col_aff, aggfunc='sum'
                 )
@@ -352,7 +351,6 @@ with col_app:
                 pivot_prev['Total Année'] = pivot_prev.sum(axis=1)
                 st.dataframe(pivot_prev.style.format("{:,.2f}", na_rep="-"), use_container_width=True)
 
-                # Détail
                 st.dataframe(
                     df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base", "Momentum", "CAGR", col_aff]].sort_values(["annee", "mois", "agence", "article"]),
                     column_config={

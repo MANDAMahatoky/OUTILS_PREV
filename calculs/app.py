@@ -26,7 +26,6 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-# Arrondi "Excel" pour l'affichage
 def excel_round(val, decimals=1):
     if pd.isna(val): return val
     factor = 10 ** decimals
@@ -124,7 +123,6 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     vols = vols.reindex(columns=range(1, 13), fill_value=0.0)
     vols_annuels = vols.sum(axis=1)
     
-    # CALCUL DE LA MOYENNE HISTO
     vols_mois_cumules = vols.groupby(group_cols).sum()
     vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
     nb_annees = df_hist_complet.groupby(group_cols)['annee'].nunique()
@@ -135,17 +133,13 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
         indices = ratios.groupby(group_cols).mean().fillna(1.0)
     else:
-        # Ratio des Sommes (Formule Excel)
         indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     debug_data = vols_mois_cumules.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Volume_Total')
-    debug_data['Total_Annuel'] = debug_data.apply(lambda row: vols_annuels_cumules.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else vols_annuels_cumules.loc[row['article']], axis=1)
     debug_data['Moyenne_Histo'] = debug_data.apply(lambda row: moy_histo.loc[tuple(row[col] for col in group_cols)][row['mois']] if len(group_cols) > 1 else moy_histo.loc[row['article']][row['mois']], axis=1)
     debug_data['Moyenne_Globale'] = debug_data.apply(lambda row: moy_globale.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else moy_globale.loc[row['article']], axis=1)
 
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
-    
-    # Ajout d'une colonne d'indice formaté comme Excel
     table_indices['Indice_Excel'] = table_indices['Indice'].apply(lambda x: excel_round(x, 1))
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
@@ -155,7 +149,7 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     return table_indices, df_sarr, debug_data
 
 # ==============================================================================
-# FONCTION D'ANALYSE PÉRIODE MOMENTUM
+# FONCTION D'ANALYSE PÉRIODE MOMENTUM (DOUBLE CALCUL)
 # ==============================================================================
 @st.cache_data(show_spinner="Génération du tableau...")
 def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite_affichage: str):
@@ -180,36 +174,43 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
                 
         for i in range(periode_momentum):
             if i < len(group_n): 
-                # On utilise l'indice Excel arrondi pour l'affichage, mais le calcul du SARR garde la précision
-                row[f"M{i+1}"] = group_n.loc[i, 'Indice']
+                row[f"Vol_M{i+1}"] = group_n.loc[i, 'hl'] * multiplicateur
+                row[f"Coef_M{i+1}_exact"] = group_n.loc[i, 'Indice']
+                row[f"Coef_M{i+1}_aff"] = group_n.loc[i, 'Indice_Excel']
+                row[f"M{i+1}"] = group_n.loc[i, 'Indice_Excel'] # Pour l'affichage principal
             else: 
+                row[f"Vol_M{i+1}"] = np.nan
+                row[f"Coef_M{i+1}_exact"] = np.nan
+                row[f"Coef_M{i+1}_aff"] = np.nan
                 row[f"M{i+1}"] = np.nan
 
         for i in range(periode_momentum):
             if i < len(group_n): 
-                coef_val = group_n.loc[i, 'Indice'] # Précision maximale pour le calcul
-                if pd.notna(coef_val) and coef_val > 0:
-                    sarr_val = (group_n.loc[i, 'hl'] / coef_val) * multiplicateur
-                else:
-                    sarr_val = np.nan
-                row[f"SARR M-{i+1}"] = sarr_val
-            else: 
-                row[f"SARR M-{i+1}"] = np.nan
+                vol = group_n.loc[i, 'hl'] * multiplicateur
+                coef_exact = group_n.loc[i, 'Indice']
+                coef_aff = group_n.loc[i, 'Indice_Excel']
                 
-        valides = [row[f"SARR M-{i+1}"] for i in range(periode_momentum) if pd.notna(row[f"SARR M-{i+1}"])]
-        row["Moyenne SARR"] = np.mean(valides) if valides else np.nan
+                # 1. Calcul VRAI (Mathématique)
+                sarr_vrai = vol / coef_exact if pd.notna(coef_exact) and coef_exact > 0 else np.nan
+                # 2. Calcul FAUX (Excel avec arrondi)
+                sarr_faux = vol / coef_aff if pd.notna(coef_aff) and coef_aff > 0 else np.nan
+                
+                row[f"SARR_Vrai_M{i+1}"] = sarr_vrai
+                row[f"SARR_Faux_M{i+1}"] = sarr_faux
+            else: 
+                row[f"SARR_Vrai_M{i+1}"] = np.nan
+                row[f"SARR_Faux_M{i+1}"] = np.nan
+                
+        # Moyenne des SARR (pour les deux)
+        valides_vrai = [row[f"SARR_Vrai_M{i+1}"] for i in range(periode_momentum) if pd.notna(row[f"SARR_Vrai_M{i+1}"])]
+        valides_faux = [row[f"SARR_Faux_M{i+1}"] for i in range(periode_momentum) if pd.notna(row[f"SARR_Faux_M{i+1}"])]
+        
+        row["Moyenne_Vrai"] = np.mean(valides_vrai) if valides_vrai else np.nan
+        row["Moyenne_Faux"] = np.mean(valides_faux) if valides_faux else np.nan
         
         resultats.append(row)
         
-    df_final = pd.DataFrame(resultats)
-    
-    cols_ordered = ["Agence", "Article"]
-    cols_ordered.extend([f"M-{i+1}" for i in range(periode_momentum)])
-    cols_ordered.extend([f"M{i+1}" for i in range(periode_momentum)])
-    cols_ordered.extend([f"SARR M-{i+1}" for i in range(periode_momentum)])
-    cols_ordered.append("Moyenne SARR")
-    
-    return df_final[cols_ordered]
+    return pd.DataFrame(resultats)
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -264,56 +265,71 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Tableau généré avec succès.")
     
-    tab_analyse, tab_verif, tab_indices = st.tabs([
-        "📊 Tableau d'Analyse Période", 
-        "🧮 Vérification Formule Excel",
-        "📈 Table des Indices (Vue Globale)"
+    tab_analyse, tab_comparaison, tab_indices = st.tabs([
+        "📊 Tableau VRAI (Mathématique)", 
+        "⚖️ Comparaison Vrai vs Excel",
+        "📈 Table des Indices"
     ])
 
     with tab_analyse:
-        st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
+        st.subheader("SARR Vrai (Calculé avec le Coefficient exact)")
         
-        # Affichage calqué sur Excel (1 décimale)
         format_dict = {f"M{i+1}": "{:.1f}" for i in range(periode_momentum)}
-        format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
-        format_dict["Moyenne SARR"] = "{:,.2f}"
+        format_dict.update({f"SARR_Vrai_M{i+1}": "{:,.1f}" for i in range(periode_momentum)})
+        format_dict["Moyenne_Vrai"] = "{:,.2f}"
+        
+        # On sélectionne uniquement les colonnes du VRAI calcul
+        cols_vrai = ["Agence", "Article"] + [f"M-{i+1}" for i in range(periode_momentum)] + [f"M{i+1}" for i in range(periode_momentum)] + [f"SARR_Vrai_M{i+1}" for i in range(periode_momentum)] + ["Moyenne_Vrai"]
         
         st.dataframe(
-            df_analyse.style.format(format_dict, na_rep="-"),
+            df_analyse[cols_vrai].style.format(format_dict, na_rep="-"),
             use_container_width=True,
             height=400
         )
 
-    with tab_verif:
-        st.subheader("Vérification : Moyenne Histo / Moyenne Globale")
-        st.write("Ce tableau reproduit exactement les colonnes D et E de ton fichier Excel : `Moyenne_Histo (Mois) / Moyenne_Globale`.")
+    with tab_comparaison:
+        st.subheader("Comparaison : Ce que voit l'œil vs La réalité mathématique")
+        st.write("Ce tableau montre la différence de résultat entre le calcul exact et le calcul faussé par l'arrondi (comme dans Excel).")
         
-        if len(sel_articles) > 0:
-            if niveau_agregation == "Par Agence & Article" and len(sel_agences) > 0:
-                dbg = debug_data[(debug_data['agence'] == sel_agences[0]) & (debug_data['article'] == sel_articles[0])].copy()
-            else:
-                dbg = debug_data[debug_data['article'] == sel_articles[0]].copy()
-
-            if not dbg.empty:
-                dbg['mois'] = dbg['mois'].map(lambda x: MOIS_NOMS[x-1])
-                moy_globale = dbg['Moyenne_Globale'].values[0]
+        if not df_analyse.empty:
+            row = df_analyse.iloc[0]
+            comp_data = []
+            
+            for i in range(periode_momentum):
+                date_m = row.get(f"M-{i+1}", "-")
+                vol = row.get(f"Vol_M{i+1}", np.nan)
+                coef_exact = row.get(f"Coef_M{i+1}_exact", np.nan)
+                coef_aff = row.get(f"Coef_M{i+1}_aff", np.nan)
+                sarr_vrai = row.get(f"SARR_Vrai_M{i+1}", np.nan)
+                sarr_faux = row.get(f"SARR_Faux_M{i+1}", np.nan)
                 
-                st.info(f"**Moyenne Globale de l'article = {moy_globale:,.2f} HL**")
+                ecart = sarr_faux - sarr_vrai if pd.notna(sarr_vrai) and pd.notna(sarr_faux) else np.nan
                 
-                dbg['Indice_Calculé'] = dbg['Moyenne_Histo'] / moy_globale
+                comp_data.append({
+                    "Mois": f"M-{i+1} ({date_m})",
+                    "Volume": vol,
+                    "Coef Exact": coef_exact,
+                    "Coef Arrondi": coef_aff,
+                    "SARR Vrai (Exact)": sarr_vrai,
+                    "SARR Excel (Arrondi)": sarr_faux,
+                    "Écart (Perte due à l'arrondi)": ecart
+                })
                 
-                st.dataframe(
-                    dbg[['article'] + (['agence'] if niveau_agregation == "Par Agence & Article" else []) + ["mois", "Moyenne_Histo", "Indice_Calculé"]].style.format({
-                        "Moyenne_Histo": "{:,.2f}",
-                        "Indice_Calculé": "{:.6f}"
-                    }),
-                    use_container_width=True
-                )
-                st.warning("💡 **Analyse :** Si le mois de Mai affiche `0.8` dans le tableau final mais `0.8503` ici, c'est un problème d'arrondi standard (Python arrondit .5 à l'inférieur par défaut). Mais le SARR est calculé avec la vraie valeur.")
-            else:
-                st.write("Pas assez de données pour afficher le détail.")
+            st.dataframe(
+                pd.DataFrame(comp_data).style.format({
+                    "Volume": "{:,.0f}",
+                    "Coef Exact": "{:.6f}",
+                    "Coef Arrondi": "{:.1f}",
+                    "SARR Vrai (Exact)": "{:,.1f}",
+                    "SARR Excel (Arrondi)": "{:,.1f}",
+                    "Écart (Perte due à l'arrondi)": "{:,.1f}"
+                }),
+                use_container_width=True
+            )
+            
+            st.warning("💡 **Analyse :** Le SARR Excel est souvent plus élevé ou plus bas que le SARR Vrai car il utilise un coefficient arrondi (ex: `0.9` au lieu de `0.9353`). C'est pour cela que ton Excel et Streamlit ne donnaient pas les mêmes résultats.")
         else:
-            st.write("Sélectionne un article pour voir le détail.")
+            st.write("Sélectionne un article pour voir la comparaison.")
 
     with tab_indices:
         st.subheader("Table des Indices (Coefficients)")

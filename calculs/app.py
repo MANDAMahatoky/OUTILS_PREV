@@ -89,7 +89,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     
-    # CORRECTION ICI : On garde tous les articles uniques
     df_ref = df_ref.drop_duplicates(subset=["article_original"]).reset_index(drop=True)
 
     flux_ventes = io.BytesIO(ventes_bytes)
@@ -155,13 +154,12 @@ def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, an
     return annees_manquantes, annees_incompletes, annees_completes
 
 # ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS (Indices, SARR, Momentum, Base, Prévisions)
+# ÉTAPES 4, 5.1 & 5.2 : CALCULS
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_min_histo: int, annee_max_histo: int, 
                     methode_coef: str, niveau_agregation: str, annee_cible: int):
     
-    # --- ÉTAPE 4 : INDICES & SARR ---
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, None
@@ -174,6 +172,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     else:
         group_cols = ['article']
 
+    # --- CALCUL DES INDICES ---
     vols = df_hist.groupby(group_cols + ['annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols = vols.reindex(columns=range(1, 13), fill_value=0.0)
     vols_annuels = vols.sum(axis=1)
@@ -238,21 +237,20 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR ---
+    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR (Correction ici) ---
     resultats_previsions = []
     
     for _, row in df_momentum.iterrows():
         ag, art = row['agence'], row['article']
         base, momentum = row['Base_HL'], row['Momentum_HL']
         
-        # Calcul du CAGR
+        # On filtre directement les données historiques pour l'article en cours
+        art_hist = df_hist[df_hist['article'] == art]
         if len(group_cols) == 2:
-            hist_group = vols_annuels.loc[(ag, art)]
-        else:
-            hist_group = vols_annuels.loc[art]
+            art_hist = art_hist[art_hist['agence'] == ag]
             
-        vol_debut = hist_group.get(annee_min_histo, 0)
-        vol_fin = hist_group.get(annee_max_histo, 0)
+        vol_debut = art_hist[art_hist['annee'] == annee_min_histo]['hl'].sum()
+        vol_fin = art_hist[art_hist['annee'] == annee_max_histo]['hl'].sum()
         nb_ans = annee_max_histo - annee_min_histo
         
         if nb_ans > 0 and vol_debut > 0 and vol_fin > 0:
@@ -260,12 +258,10 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         else:
             cagr_val = 0.0
 
-        # On génère les prévisions
         for y in range(annee_cloture, annee_cible + 1):
             multiplicateur = (1 + cagr_val) ** (y - annee_cloture)
             
             for m in range(1, 13):
-                # Si on est sur l'année de clôture, on ne prévoit que les mois futurs (après le cutoff)
                 if y == annee_cloture and m <= mois_cutoff: continue
                 
                 if len(group_cols) == 2:

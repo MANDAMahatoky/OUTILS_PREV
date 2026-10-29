@@ -10,6 +10,31 @@ st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
 st.title("Moteur de Prévision : Étapes 4 et 5.1")
 
 # ==============================================================================
+# DICTIONNAIRE DE CORRESPONDANCE AGENCE -> REGION (Selon ton découpage)
+# ==============================================================================
+MAPPING_REGIONS = {
+    "11-Andranomahery": "Centre",
+    "12-Antsirabe": "Centre",
+    "01-Tanjombato": "Est",
+    "09-Tamatave": "Est",
+    "03-Usine-Diego": "Nord",
+    "07-Majunga": "Nord",
+    "18-Ambanja": "Nord",
+    "19-Sambava": "Nord",
+    "21-Nosy-Be": "Nord",
+    "04-Tulear": "Sud",
+    "05-Fianarantsoa": "Sud",
+    "06-Ihosy": "Sud",
+    "08-Manakara": "Sud",
+    "23-Morondova": "Sud",
+    "24-Fort-Dauphin": "Sud"
+}
+
+def get_region(agence):
+    # Recherche l'agence exacte dans le dictionnaire, sinon retourne "Autre Région"
+    return MAPPING_REGIONS.get(str(agence).strip(), "Autre Région")
+
+# ==============================================================================
 # FONCTIONS UTILITAIRES
 # ==============================================================================
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
@@ -81,6 +106,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["article"] = df_enrichi["article_original_x"]
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     
+    # AJOUT DE LA REGION VIA LE MAPPING EXACT
+    df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
+    
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
         df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
@@ -93,7 +121,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     ]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
-    return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
+    return df_enrichi[["annee", "mois", "segment", "produit", "region", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
 # VÉRIFICATION DE L'INTÉGRALITÉ DE L'HISTORIQUE
@@ -243,10 +271,16 @@ with col_app:
 
         # --- FILTRES PERIMETRE COMPLETS ---
         st.sidebar.header("🔍 1. Périmètre")
-        segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
-        sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
+        
+        # Filtre Région (Regroupement d'agences exact)
+        regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r)])
+        sel_regions = st.sidebar.multiselect("🌍 Région", options=regions_dispo, placeholder="Toutes")
         
         df_temp = df_enrichi.copy()
+        if sel_regions: df_temp = df_temp[df_temp["region"].isin(sel_regions)]
+        
+        segments_dispo = sorted([s for s in df_temp["segment"].unique() if pd.notna(s)])
+        sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
         if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
         
         positions_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
@@ -260,10 +294,11 @@ with col_app:
         articles_dispo = sorted(df_temp["article"].unique())
         sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
         
-        agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
+        agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
         sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
 
         df_perimetre = df_enrichi.copy()
+        if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
         if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
         if sel_positions: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positions)]
         if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]

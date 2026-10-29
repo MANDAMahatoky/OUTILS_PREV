@@ -4,12 +4,10 @@ import numpy as np
 import re
 import io
 import unicodedata
-import base64
 
 # --- CONFIGURATION & DESIGN PREMIUM ---
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide", initial_sidebar_state="expanded")
 
-# Logo (Optionnel, si le fichier logo.png existe)
 try:
     st.logo("logo.png", size="large")
 except Exception:
@@ -63,7 +61,6 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-# --- AMÉLIORATION UI : Bouton de téléchargement natif Streamlit ---
 def bouton_telechargement(df, filename, label="📥 Télécharger le CSV"):
     csv = df.to_csv(index=True).encode('utf-8')
     st.download_button(
@@ -91,8 +88,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
-    
-    # CORRECTION : Suppression des doublons sur la clé normalisée
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
     flux_ventes = io.BytesIO(ventes_bytes)
@@ -159,7 +154,7 @@ def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, an
 # ==============================================================================
 # ÉTAPES 4, 5.1 & 5.2 : CALCULS PURS (NATIVEMENT EN HL)
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions en HL...")
+@st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_min_histo: int, annee_max_histo: int, 
                     methode_coef: str, niveau_agregation: str, annee_cible: int):
     
@@ -314,13 +309,13 @@ def color_cells(val):
         return ''
 
 # ==============================================================================
-# INTERFACE STREAMLIT (AMÉLIORÉE)
+# INTERFACE STREAMLIT
 # ==============================================================================
 col_info, col_app = st.columns([1, 3])
 
 with col_info:
     st.markdown("### 📖 Guide")
-    st.info("⚙️ **Note :** Tous les calculs de base (SARR, Momentum, Base, Prévisions) sont effectués en **HL (Hectolitres)**.")
+    st.info("⚙️ **Note :** Tous les calculs (SARR, Momentum, Base, Prévisions) sont effectués en **HL**.")
     with st.expander("1. Indices", expanded=True):
         st.markdown("🟩 **Vert (> 1.0)** : Mois Fort\n🟥 **Rouge (< 1.0)** : Mois Faible")
     with st.expander("2. SARR & Momentum", expanded=True):
@@ -401,12 +396,12 @@ with col_app:
             niveau_agregation = st.radio("Niveau d'agrégation", options=["Par Agence & Article", "Par Article (Global)"], index=0)
             methode_coef = st.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
             
-            # AMÉLIORATION : HL par défaut
+            # HL par défaut
             unite_affichage = st.sidebar.radio(
                 "Unité d'affichage", 
                 options=["HL", "Cols"], 
                 index=0, 
-                help="HL = Hectolitres (Unité de calcul par défaut). Cols = Bouteilles (1 HL = 50 cols pour du 200cl)."
+                help="HL = Hectolitres (Unité de calcul par défaut). Cols = Bouteilles."
             )
 
         # --- VÉRIFICATION INTÉGRITÉ ---
@@ -446,7 +441,7 @@ with col_app:
             st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo}.")
             
             # --- TABS ---
-            tab_indices, tab_momentum, tab_prev = st.tabs(["📊 Indices de Saisonnalité", "📈 Momentum & Base", "🚀 5.2 Prévisions"])
+            tab_indices, tab_momentum, tab_prev, tab_diag = st.tabs(["📊 Indices", "📈 Momentum & Base", "🚀 Prévisions", "🔍 Diagnostic Données"])
 
             with tab_indices:
                 with st.container(border=True):
@@ -487,10 +482,10 @@ with col_app:
                         st.dataframe(
                             df_momentum[["agence", "article", "Mois M-1", "SARR M-1", "Mois M-2", "SARR M-2", "Momentum_HL", "Base_HL"]],
                             column_config={
-                                "SARR M-1": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
-                                "SARR M-2": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
-                                "Momentum_HL": st.column_config.NumberColumn("Momentum", format="%.2f"),
-                                "Base_HL": st.column_config.NumberColumn("Base", format="%.2f"),
+                                "SARR M-1": st.column_config.NumberColumn("SARR M-1 (HL)", format="%.2f"),
+                                "SARR M-2": st.column_config.NumberColumn("SARR M-2 (HL)", format="%.2f"),
+                                "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
+                                "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
                             },
                             use_container_width=True, height=400
                         )
@@ -500,7 +495,6 @@ with col_app:
                 with st.container(border=True):
                     st.subheader(f"Prévisions Finales avec CAGR jusqu'en {annee_cible}")
                     
-                    # Définition des colonnes dynamiques selon l'unité
                     if unite_affichage == "Cols":
                         col_aff = "Prevision_Cols"
                         col_base = "Base_Cols"
@@ -510,7 +504,7 @@ with col_app:
                         col_base = "Base_HL"
                         col_mom = "Momentum_HL"
 
-                    st.markdown("### 📊 TCD des Prévisions Mensuelles")
+                    st.markdown(f"### 📊 TCD des Prévisions Mensuelles ({unite_affichage})")
                     pivot_prev = df_previsions.pivot_table(
                         index=['annee', 'agence', 'article'], columns='mois', values=col_aff, aggfunc='sum'
                     )
@@ -532,3 +526,21 @@ with col_app:
                         use_container_width=True, height=400
                     )
                     bouton_telechargement(df_previsions, "previsions_detail.csv")
+
+            # --- NOUVEL ONGLET DIAGNOSTIC ---
+            with tab_diag:
+                with st.container(border=True):
+                    st.subheader("🔍 Vérification des volumes historiques bruts (en HL)")
+                    st.info("Comparez ces chiffres avec votre fichier Excel pour identifier si le fichier brut contient des doublons ou des unités incorrectes.")
+                    
+                    df_diag = df_hist.groupby(['annee', 'agence', 'article'])['hl'].sum().reset_index()
+                    df_diag = df_diag.sort_values(by=['annee', 'agence', 'article'])
+                    
+                    st.dataframe(
+                        df_diag,
+                        column_config={
+                            "hl": st.column_config.NumberColumn("Volume Total Annuel (HL)", format="%.2f")
+                        },
+                        use_container_width=True, height=400
+                    )
+                    st.markdown("💡 **Rappel :** Si vos volumes historiques ici sont beaucoup plus élevés que dans Excel, le problème vient du fichier `DATA_BRUT.xlsx` (ex: le fichier contient toutes les agences au lieu d'une seule, ou les volumes sont en Cols au lieu de HL).")

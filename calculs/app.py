@@ -156,7 +156,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     
     resultats_momentum = []
     
-    # CORRECTION ICI : On extrait ag et art directement depuis le groupe
     for _, group in df_sarr_sorted.groupby(group_cols):
         if len(group_cols) == 2:
             ag = group[group_cols[0]].iloc[0]
@@ -327,7 +326,13 @@ with col_app:
 
             with tab_indices:
                 st.subheader("Table des Indices Saisonniers")
-                pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+                
+                # CORRECTION ICI : Gestion dynamique du niveau d'agrégation
+                if niveau_agregation == "Par Agence & Article":
+                    pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+                else:
+                    pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+                    
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                 st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
 

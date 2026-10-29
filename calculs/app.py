@@ -121,6 +121,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["article"] = df_enrichi["article_original_x"]
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     
+    # AJOUT DE LA REGION VIA LE MAPPING EXACT
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     
     conditions = [
@@ -279,33 +280,55 @@ with col_app:
     if fichier_ventes is not None and fichier_ref is not None:
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-        # --- BARRE LATÉRALE ORGANISÉE ---
-        st.sidebar.header("🔍 Périmètre d'analyse")
+        # --- BARRE LATÉRALE ORGANISÉE AVEC TOUS LES FILTRES ---
+        st.sidebar.header("🔍 1. Périmètre d'analyse")
         
+        # Région
         regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Autre Région"])
         sel_regions = st.sidebar.multiselect("🌍 Région", options=regions_dispo, placeholder="Toutes")
         
         df_temp = df_enrichi.copy()
         if sel_regions: df_temp = df_temp[df_temp["region"].isin(sel_regions)]
         
+        # Segment
         segments_dispo = sorted([s for s in df_temp["segment"].unique() if pd.notna(s)])
         sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
         if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
         
+        # Positionnement (Réintégré)
+        positions_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
+        sel_positions = st.sidebar.multiselect("🎯 Positionnement", options=positions_dispo, placeholder="Tous")
+        if sel_positions: df_temp = df_temp[df_temp["positionnement"].isin(sel_positions)]
+        
+        # Occasion (Réintégré)
+        occasions_dispo = sorted([o for o in df_temp["occasion"].unique() if pd.notna(o)])
+        sel_occasions = st.sidebar.multiselect("🥂 Occasion", options=occasions_dispo, placeholder="Toutes")
+        if sel_occasions: df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)]
+
+        # Contenance (Ajouté)
+        contenances_dispo = sorted([c for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
+        sel_contenances = st.sidebar.multiselect("🧴 Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
+        if sel_contenances: df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)]
+
+        # Article
         articles_dispo = sorted(df_temp["article"].unique())
         sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
         
+        # Agence
         agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
         sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
 
         df_perimetre = df_enrichi.copy()
         if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
         if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
+        if sel_positions: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positions)]
+        if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
+        if sel_contenances: df_perimetre = df_perimetre[df_perimetre["contenance_cl"].isin(sel_contenances)]
         if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
         if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
         st.sidebar.markdown("---")
-        st.sidebar.header("⚙️ Paramètres du Modèle")
+        st.sidebar.header("⚙️ 2. Paramètres du Modèle")
         
         annee_min_reelle = int(df_perimetre["annee"].min()) if not df_perimetre.empty else 2020
         annee_max_reelle = int(df_perimetre["annee"].max()) if not df_perimetre.empty else 2026

@@ -7,7 +7,7 @@ import unicodedata
 import math
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
-st.title("Moteur de Prévision : Calcul Exact vs Calcul Arrondi")
+st.title("Moteur de Prévision : Analyse des 3 Calculs")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -25,12 +25,6 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
-
-# Arrondi "Excel" (0.85 -> 0.9)
-def excel_round(val, decimals=1):
-    if pd.isna(val): return val
-    factor = 10 ** decimals
-    return math.floor(val * factor + 0.5) / factor
 
 # ==============================================================================
 # ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
@@ -137,60 +131,13 @@ def calculer_indices(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff
         indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
-    
-    # On ajoute la colonne avec l'arrondi Excel (ex: 0.855 -> 0.9)
-    table_indices['Indice_Excel'] = table_indices['Indice'].apply(lambda x: excel_round(x, 1))
+    # On garde l'indice exact et on crée une colonne avec l'arrondi
+    table_indices['Indice_Arrondi'] = table_indices['Indice'].apply(lambda x: math.floor(x * 10 + 0.5) / 10)
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     
     return table_indices, df_sarr
-
-# ==============================================================================
-# FONCTION D'ANALYSE COMPARATIVE
-# ==============================================================================
-@st.cache_data(show_spinner="Génération du tableau...")
-def generer_tableau_comparatif(df_sarr: pd.DataFrame, periode_momentum: int, unite_affichage: str):
-    df_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois'], ascending=[True, True, False, False]).copy()
-    resultats = []
-    
-    for (ag, art), group in df_sorted.groupby(['agence', 'article']):
-        group_n = group.head(periode_momentum).reset_index(drop=True)
-        if len(group_n) == 0: continue
-            
-        row = {"Agence": ag, "Article": art}
-        contenance = group_n.loc[0, 'contenance_cl'] if 'contenance_cl' in group_n.columns else 100.0
-        multiplicateur = (10000 / contenance) if unite_affichage == "Cols" else 1.0
-        
-        for i in range(periode_momentum):
-            if i < len(group_n):
-                mois_val = int(group_n.loc[i, 'mois'])
-                annee_val = int(group_n.loc[i, 'annee'])
-                row[f"M-{i+1}"] = f"{MOIS_NOMS[mois_val-1].lower()}-{str(annee_val)[-2:]}"
-                
-                vol = group_n.loc[i, 'hl'] * multiplicateur
-                coef_exact = group_n.loc[i, 'Indice']
-                coef_arrondi = group_n.loc[i, 'Indice_Excel']
-                
-                row[f"Vol_M{i+1}"] = vol
-                row[f"Coef_Exact_M{i+1}"] = coef_exact
-                row[f"Coef_Affiché_M{i+1}"] = coef_arrondi
-                
-                # 1. Calcul VRAI (Mathématique) - Ce que Streamlit fait
-                row[f"SARR_Vrai_M{i+1}"] = vol / coef_exact if pd.notna(coef_exact) and coef_exact > 0 else np.nan
-                # 2. Calcul FAUX (Ce que donnerait la division par l'arrondi)
-                row[f"SARR_Faux_M{i+1}"] = vol / coef_arrondi if pd.notna(coef_arrondi) and coef_arrondi > 0 else np.nan
-            else:
-                row[f"M-{i+1}"] = "-"
-                row[f"Vol_M{i+1}"] = np.nan
-                row[f"Coef_Exact_M{i+1}"] = np.nan
-                row[f"Coef_Affiché_M{i+1}"] = np.nan
-                row[f"SARR_Vrai_M{i+1}"] = np.nan
-                row[f"SARR_Faux_M{i+1}"] = np.nan
-
-        resultats.append(row)
-        
-    return pd.DataFrame(resultats)
 
 # ==============================================================================
 # INTERFACE STREAMLIT
@@ -241,58 +188,53 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.warning("⚠️ Impossible de calculer le SARR.")
         st.stop()
 
-    df_analyse = generer_tableau_comparatif(df_sarr, periode_momentum, unite_affichage)
-
     st.success(f"✅ Tableau généré avec succès.")
     
-    tab_comparaison, tab_indices = st.tabs(["⚖️ Comparaison (Vrai vs Arrondi)", "📈 Table Indices"])
-
-    with tab_comparaison:
-        st.subheader("Preuve Mathématique : L'impact de l'arrondi")
-        st.write("Ce tableau te montre exactement ce qu'il se passe si on utilise l'arrondi (0.9 au lieu de 0.855) pour faire le calcul.")
+    st.markdown("---")
+    st.subheader("🔍 Comparatif à 3 colonnes (Exact vs Arrondi vs Excel)")
+    st.write("Ce tableau montre l'impact des arrondis. Le SARR Excel doit normalement correspondre au calcul avec le Coef Exact.")
+    
+    if not df_sarr.empty:
+        df_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois'], ascending=[True, True, False, False]).head(periode_momentum)
+        comp_data = []
         
-        if not df_analyse.empty:
-            row = df_analyse.iloc[0]
-            comp_data = []
+        for _, row in df_sorted.iterrows():
+            vol = row['hl'] * 100 # En Cols
+            coef_exact = row['Indice']
+            coef_arrondi = row['Indice_Arrondi']
             
-            for i in range(periode_momentum):
-                date_m = row.get(f"M-{i+1}", "-")
-                vol = row.get(f"Vol_M{i+1}", np.nan)
-                coef_ex = row.get(f"Coef_Exact_M{i+1}", np.nan)
-                coef_ar = row.get(f"Coef_Affiché_M{i+1}", np.nan)
-                sarr_vrai = row.get(f"SARR_Vrai_M{i+1}", np.nan)
-                sarr_faux = row.get(f"SARR_Faux_M{i+1}", np.nan)
-                
-                comp_data.append({
-                    "Mois": f"M-{i+1} ({date_m})",
-                    "Volume (Cols)": vol,
-                    "Coef Exact (Python)": coef_ex,
-                    "Coef Arrondi (Excel)": coef_ar,
-                    "SARR Exact (Volume / Coef Exact)": sarr_vrai,
-                    "SARR Faux (Volume / Coef Arrondi)": sarr_faux,
-                })
-                
-            st.dataframe(
-                pd.DataFrame(comp_data).style.format({
-                    "Volume (Cols)": "{:,.0f}",
-                    "Coef Exact (Python)": "{:.6f}",
-                    "Coef Arrondi (Excel)": "{:.1f}",
-                    "SARR Exact (Volume / Coef Exact)": "{:,.1f}",
-                    "SARR Faux (Volume / Coef Arrondi)": "{:,.1f}",
-                }),
-                use_container_width=True
-            )
+            # 1. Calcul avec le coefficient exact (Ce que fait Streamlit et Excel en interne)
+            sarr_exact = vol / coef_exact if coef_exact > 0 else 0
             
-            st.error("⚠️ **Observation cruciale :** Regarde bien le SARR Faux ! Par exemple pour Août, si on divise `511 201` par `1.0` (l'arrondi), on obtient `511 201`. Or, ton Excel affiche `506 829,3`. C'est la preuve absolue que **ton Excel n'utilise pas l'arrondi pour calculer**, il utilise le chiffre exact (`1.0086`), mais il l'affiche arrondi à `1.0`.")
-        else:
-            st.write("Sélectionne un article pour voir la comparaison.")
-
-    with tab_indices:
-        st.subheader("Table des Indices (Coefficients)")
-        if niveau_agregation == "Par Agence & Article":
-            pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice_Excel', aggfunc='first').fillna(1.0)
-        else:
-            pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice_Excel', aggfunc='first').fillna(1.0)
+            # 2. Calcul avec le coefficient arrondi (Ce qu'on ferait si on se trompait)
+            sarr_arrondi = vol / coef_arrondi if coef_arrondi > 0 else 0
             
-        pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
+            comp_data.append({
+                "Mois": f"{MOIS_NOMS[row['mois']-1]}-{str(row['annee'])[-2:]}",
+                "Volume (Cols)": vol,
+                "1. Coef Exact": coef_exact,
+                "2. Coef Arrondi": coef_arrondi,
+                "SARR Calculé (avec Coef Exact)": sarr_exact,
+                "SARR Calculé (avec Coef Arrondi)": sarr_arrondi,
+            })
+            
+        st.dataframe(
+            pd.DataFrame(comp_data).style.format({
+                "Volume (Cols)": "{:,.0f}",
+                "1. Coef Exact": "{:.6f}",
+                "2. Coef Arrondi": "{:.1f}",
+                "SARR Calculé (avec Coef Exact)": "{:,.1f}",
+                "SARR Calculé (avec Coef Arrondi)": "{:,.1f}",
+            }),
+            use_container_width=True
+        )
+        
+        st.info("""
+        💡 **Analyse :** 
+        *   Regarde la colonne **SARR Calculé (avec Coef Arrondi)**. Par exemple, pour Août, le volume est de 511 201 et le coef arrondi est de 1,0. Le résultat est donc **511 201**. 
+        *   Or, ton Excel affiche **506 829,3**. 
+        *   Cela prouve que **ton Excel utilise le Coef Exact (1.0086) pour son calcul**, et pas l'arrondi. Streamlit fait exactement pareil.
+        *   Si le SARR Exact de Streamlit ne correspond pas à ton Excel, c'est que les Coefficients Exacts eux-mêmes sont différents (car calculés sur un historique de données différent).
+        """)
+    else:
+        st.write("Sélectionne un article pour voir la comparaison.")

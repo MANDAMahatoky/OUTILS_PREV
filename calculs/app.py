@@ -38,9 +38,13 @@ def get_csv_download_link(df, filename):
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
-    df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"})
+    df_ref = df_ref.rename(columns={
+        "Article": "article_original", "Positionnement": "positionnement", 
+        "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"
+    })
     for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
         if col not in df_ref.columns: df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
+    
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
@@ -217,8 +221,8 @@ with col_info:
     
     st.markdown("**1. Indices (Coefs)**")
     st.markdown("Le ratio entre les ventes d'un mois et la moyenne globale.")
-    st.markdown("🟩 > 1.0 : **Mois Fort** (Ventes supérieures à la moyenne)")
-    st.markdown("🟥 < 1.0 : **Mois Faible** (Ventes inférieures à la moyenne)")
+    st.markdown("🟩 > 1.0 : **Mois Fort**")
+    st.markdown("🟥 < 1.0 : **Mois Faible**")
     
     st.markdown("**2. SARR & Momentum**")
     st.markdown("`SARR = Volume / Indice`. Le Momentum est la différence de SARR entre les deux derniers mois (`M-1 - M-2`).")
@@ -237,13 +241,22 @@ with col_app:
         annee_min_reelle = int(df_enrichi["annee"].min()) if not df_enrichi.empty else 2020
         annee_max_reelle = int(df_enrichi["annee"].max()) if not df_enrichi.empty else 2026
 
+        # --- FILTRES PERIMETRE COMPLETS ---
         st.sidebar.header("🔍 1. Périmètre")
-        # Filtres vides par défaut (Tous)
         segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
         sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
         
         df_temp = df_enrichi.copy()
         if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
+        
+        positions_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
+        sel_positions = st.sidebar.multiselect("🎯 Positionnement", options=positions_dispo, placeholder="Tous")
+        if sel_positions: df_temp = df_temp[df_temp["positionnement"].isin(sel_positions)]
+        
+        occasions_dispo = sorted([o for o in df_temp["occasion"].unique() if pd.notna(o)])
+        sel_occasions = st.sidebar.multiselect("🥂 Occasion", options=occasions_dispo, placeholder="Toutes")
+        if sel_occasions: df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)]
+
         articles_dispo = sorted(df_temp["article"].unique())
         sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
         
@@ -252,6 +265,8 @@ with col_app:
 
         df_perimetre = df_enrichi.copy()
         if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
+        if sel_positions: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positions)]
+        if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
         if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
         if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
@@ -263,7 +278,6 @@ with col_app:
         st.sidebar.markdown("---")
         st.sidebar.header("📅 3. Intervalle Historique")
         
-        # Mise en évidence des années détectées
         st.sidebar.success(f"📊 Années détectées : **{annee_min_reelle}** à **{annee_max_reelle}**")
         
         annee_min_histo = st.sidebar.number_input("Année Min (Début)", min_value=2015, max_value=annee_cloture-1, value=annee_min_reelle)
@@ -309,7 +323,6 @@ with col_app:
                     
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                 
-                # Application des couleurs sans matplotlib
                 try:
                     styled_df = pivot_indices.style.map(color_cells).format("{:.2f}")
                 except AttributeError:

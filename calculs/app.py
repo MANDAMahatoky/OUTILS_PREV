@@ -89,23 +89,21 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # VÉRIFICATION DE L'INTÉGRALITÉ DE L'HISTORIQUE
 # ==============================================================================
 def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, annee_max: int, niveau_agregation: str):
-    if niveau_agregation == "Par Agence & Article":
-        group_cols = ['agence', 'article']
-    else:
-        group_cols = ['article']
-
+    # On vérifie si le jeu de données filtré possède bien les 12 mois pour chaque année
     annees_presentes = df_perimetre[(df_perimetre["annee"] >= annee_min) & (df_perimetre["annee"] <= annee_max)]
     annees_uniques = sorted(annees_presentes["annee"].unique())
     
+    # Années complètement absentes de la sélection
     annees_manquantes = [a for a in range(annee_min, annee_max + 1) if a not in annees_uniques]
     
-    annees_incompletes = []
-    for a in annees_uniques:
-        mois_par_art = annees_presentes[annees_presentes["annee"] == a].groupby(group_cols)["mois"].nunique()
-        if (mois_par_art < 12).any():
-            annees_incompletes.append(a)
-            
-    return annees_manquantes, annees_incompletes, annees_uniques
+    # Années présentes mais avec moins de 12 mois distincts dans TOUT le jeu de données
+    mois_par_annee = annees_presentes.groupby('annee')['mois'].nunique()
+    annees_incompletes = mois_par_annee[mois_par_annee < 12].index.tolist()
+    
+    # Années parfaitement complètes (pour la proposition)
+    annees_completes = mois_par_annee[mois_par_annee == 12].index.tolist()
+    
+    return annees_manquantes, annees_incompletes, annees_completes
 
 # ==============================================================================
 # ÉTAPE 4 & 5 : CALCULS (INDICES, SARR, MOMENTUM, CAGR, PREVISIONS)
@@ -296,7 +294,7 @@ with col_app:
         use_cagr = st.sidebar.checkbox("Activer le CAGR pour la projection", value=True)
         unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
-        annees_manquantes, annees_incompletes, annees_uniques = verifier_integrite_historique(
+        annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(
             df_perimetre, annee_min_histo, annee_max_histo, niveau_agregation
         )
 
@@ -305,10 +303,10 @@ with col_app:
             if annees_manquantes:
                 st.warning(f"Les années suivantes n'existent pas du tout dans les données : **{', '.join(map(str, annees_manquantes))}**.")
             if annees_incompletes:
-                st.warning(f"Les années suivantes sont incomplètes (moins de 12 mois) : **{', '.join(map(str, annees_incompletes))}**.")
+                st.warning(f"Les années suivantes sont incomplètes (moins de 12 mois de données) : **{', '.join(map(str, annees_incompletes))}**.")
             
-            if annees_uniques:
-                st.info(f"💡 **Proposition :** Modifiez l'intervalle historique. Les données complètes sont disponibles pour : **{', '.join(map(str, annees_uniques))}**. Essayez de sélectionner l'année min à **{annees_uniques[0]}** et l'année max à **{annees_uniques[-1]}**.")
+            if annees_completes:
+                st.info(f"💡 **Proposition :** Modifiez l'intervalle historique. Les données complètes sont disponibles pour : **{', '.join(map(str, annees_completes))}**. Essayez de sélectionner l'année min à **{annees_completes[0]}** et l'année max à **{annees_completes[-1]}**.")
             
             st.stop()
 
@@ -326,8 +324,6 @@ with col_app:
 
             with tab_indices:
                 st.subheader("Table des Indices Saisonniers")
-                
-                # CORRECTION ICI : Gestion dynamique du niveau d'agrégation
                 if niveau_agregation == "Par Agence & Article":
                     pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
                 else:

@@ -413,7 +413,7 @@ with col_app:
             unite_source = st.radio(
                 "Unité du fichier source (DATA_BRUT)", 
                 options=["Cols", "HL"], 
-                index=0,
+                index=0, # Index 0 = Cols par défaut
                 help="Si votre fichier brut est en bouteilles (Cols), sélectionnez 'Cols'. Le script le convertira en HL pour les calculs."
             )
 
@@ -424,9 +424,12 @@ with col_app:
             unite_affichage = st.radio(
                 "Unité d'affichage", 
                 options=["HL", "Cols"], 
-                index=0,
+                index=0, # Index 0 = HL par défaut
                 help="Les calculs sont natifs en HL. 'Cols' convertit l'affichage final."
             )
+
+        # --- SAUVEGARDE DU VOLUME BRUT POUR LE DIAGNOSTIC ---
+        df_perimetre["hl_brut"] = df_perimetre["hl"]
 
         # --- CONVERSION EN HL SI LE FICHIER SOURCE EST EN COLS ---
         if unite_source == "Cols":
@@ -563,20 +566,23 @@ with col_app:
 
             with tab_diag:
                 with st.container(border=True):
-                    st.subheader("🩺 Diagnostic de la donnée brute (Volumes Historiques en HL)")
-                    st.warning("⚠️ Vérifiez si les volumes ci-dessous correspondent à votre réalité Excel (après conversion en HL).")
+                    st.subheader("🩺 Diagnostic de la donnée brute")
+                    st.warning("⚠️ Vérifiez la correspondance exacte entre le volume brut du fichier et le volume converti (utilisé pour les calculs).")
                     
-                    df_diag = df_hist.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index()
-                    df_diag = df_diag[df_diag['hl'] > 0].sort_values(['annee', 'mois', 'agence', 'article'])
+                    # Regroupement mensuel pour voir les volumes exacts
+                    df_diag = df_hist.groupby(['annee', 'mois', 'agence', 'article'])[['hl_brut', 'hl']].sum().reset_index()
+                    df_diag = df_diag[(df_diag['hl_brut'] > 0) | (df_diag['hl'] > 0)].sort_values(['annee', 'mois', 'agence', 'article'])
                     
+                    # Filtres sur le diagnostic
                     if len(sel_articles) > 0: df_diag = df_diag[df_diag["article"].isin(sel_articles)]
                     if len(sel_agences) > 0: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
                     
                     st.dataframe(
-                        df_diag.style.format({"hl": "{:,.2f}"}),
+                        df_diag.style.format({"hl_brut": "{:,.2f}", "hl": "{:,.2f}"}),
                         column_config={
-                            "hl": st.column_config.NumberColumn("Volume Total Mois (HL)", format="%.2f")
+                            "hl_brut": st.column_config.NumberColumn(f"Volume Brut Fichier ({unite_source})", format="%.2f"),
+                            "hl": st.column_config.NumberColumn("Volume Converti (HL)", format="%.2f")
                         },
                         use_container_width=True, height=400
                     )
-                    st.info("💡 **Astuce :** Si vous voyez ici des volumes très élevés (ex: > 3000 HL par mois) alors que vous savez que vous vendez beaucoup moins, c'est que votre fichier `DATA_BRUT.xlsx` a un problème de doublons ou que la colonne volume n'est pas lue au bon endroit.")
+                    st.info(f"💡 **Astuce :** Si les chiffres dans la colonne 'Volume Brut' correspondent à votre fichier Excel d'origine, mais que la colonne 'Volume Converti' est plus petite, c'est que la conversion fonctionne parfaitement (1 HL = 50 bouteilles de 200cl).")

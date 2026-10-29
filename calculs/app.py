@@ -7,13 +7,11 @@ import unicodedata
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide", initial_sidebar_state="expanded")
 
-# --- LOGO (Optionnel) ---
 try:
     st.logo("logo.png", size="large")
 except Exception:
     pass
 
-# Style CSS personnalisé
 st.markdown("""
 <style>
     .block-container { padding-top: 2rem; }
@@ -80,10 +78,13 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     
-    df_ref = df_ref.drop_duplicates(subset=["article_original"]).reset_index(drop=True)
+    df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
+    
+    if isinstance(df_raw.iloc[0, 0], str) and not df_raw.iloc[0, 0].replace('.','',1).isdigit():
+        df_raw = df_raw.iloc[1:].reset_index(drop=True)
     
     if detecter_format_pivote(df_raw):
         rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "hl"])}
@@ -145,7 +146,7 @@ def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, an
     return annees_manquantes, annees_incompletes, annees_completes
 
 # ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS
+# ÉTAPES 4, 5.1 & 5.2 : CALCULS (NATIVEMENT EN HL)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_min_histo: int, annee_max_histo: int, 
@@ -213,7 +214,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         sarr_m2 = row_m2['SARR_HL'].values[0] if not row_m2.empty else 0
         sarr_m3 = row_m3['SARR_HL'].values[0] if not row_m3.empty else 0
         
-        # Récupération de la contenance pour le multiplicateur
         contenance = group['contenance_cl'].iloc[0] if 'contenance_cl' in group.columns else 100.0
         multiplicateur = 10000 / contenance
 
@@ -331,7 +331,7 @@ col_info, col_app = st.columns([1, 3])
 
 with col_info:
     st.markdown("### 📖 Guide Méthodologique")
-    st.info("⚙️ **Tous les calculs natifs (SARR, Momentum, Base) sont réalisés en Hectolitres (HL).**")
+    st.info("⚙️ **Tous les calculs (SARR, Momentum, Base) sont réalisés en Hectolitres (HL).**")
     with st.expander("1. Indices de Saisonnalité", expanded=True):
         st.markdown("🟩 **Vert (> 1.0)** : Mois Fort\n🟥 **Rouge (< 1.0)** : Mois Faible")
     with st.expander("2. SARR & Momentum", expanded=True):
@@ -407,17 +407,31 @@ with col_app:
             st.markdown("---")
             annee_cible = st.number_input("Année Cible (Prévisions)", min_value=annee_cloture, max_value=2035, value=2027)
             
-        with st.sidebar.expander("🛠️ Options de Calcul", expanded=False):
+        with st.sidebar.expander("🛠️ Options de Calcul", expanded=True):
+            
+            # FICHIER SOURCE EN COLS PAR DÉFAUT
+            unite_source = st.radio(
+                "Unité du fichier source (DATA_BRUT)", 
+                options=["Cols", "HL"], 
+                index=0,
+                help="Si votre fichier brut est en bouteilles (Cols), sélectionnez 'Cols'. Le script le convertira en HL pour les calculs."
+            )
+
             niveau_agregation = st.radio("Niveau d'agrégation", options=["Par Agence & Article", "Par Article (Global)"], index=0)
             methode_coef = st.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
             
-            # HL EN VALEUR PAR DÉFAUT
+            # AFFICHAGE EN HL PAR DÉFAUT
             unite_affichage = st.radio(
                 "Unité d'affichage", 
                 options=["HL", "Cols"], 
                 index=0,
                 help="Les calculs sont natifs en HL. 'Cols' convertit l'affichage final."
             )
+
+        # --- CONVERSION EN HL SI LE FICHIER SOURCE EST EN COLS ---
+        if unite_source == "Cols":
+            # Formule : HL = Cols / (10000 / contenance_cl)
+            df_perimetre["hl"] = df_perimetre["hl"] / (10000 / df_perimetre["contenance_cl"].replace(0, 100))
 
         # VÉRIFICATION
         annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(df_perimetre, annee_min_histo, annee_max_histo)
@@ -456,8 +470,8 @@ with col_app:
             st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo}.")
             
             # --- TABS DE RESULTATS ---
-            tab_indices, tab_momentum, tab_prev, tab_audit, tab_vue = st.tabs([
-                "📊 Indices", "📈 Momentum & Base", "🚀 5.2 Prévisions", "🔍 Audit M-1 / M-2", "🔍 Vue Excel"
+            tab_indices, tab_momentum, tab_prev, tab_audit, tab_vue, tab_diag = st.tabs([
+                "📊 Indices", "📈 Momentum & Base", "🚀 5.2 Prévisions", "🔍 Audit M-1 / M-2", "🔍 Vue Excel", "🩺 Inspection des Données"
             ])
 
             with tab_indices:
@@ -546,3 +560,23 @@ with col_app:
                 if len(sel_agences) > 0: df_vue_aff = df_vue_aff[df_vue_aff["agence"].isin(sel_agences)]
 
                 st.dataframe(df_vue_aff, use_container_width=True, height=400)
+
+            with tab_diag:
+                with st.container(border=True):
+                    st.subheader("🩺 Diagnostic de la donnée brute (Volumes Historiques en HL)")
+                    st.warning("⚠️ Vérifiez si les volumes ci-dessous correspondent à votre réalité Excel (après conversion en HL).")
+                    
+                    df_diag = df_hist.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index()
+                    df_diag = df_diag[df_diag['hl'] > 0].sort_values(['annee', 'mois', 'agence', 'article'])
+                    
+                    if len(sel_articles) > 0: df_diag = df_diag[df_diag["article"].isin(sel_articles)]
+                    if len(sel_agences) > 0: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
+                    
+                    st.dataframe(
+                        df_diag.style.format({"hl": "{:,.2f}"}),
+                        column_config={
+                            "hl": st.column_config.NumberColumn("Volume Total Mois (HL)", format="%.2f")
+                        },
+                        use_container_width=True, height=400
+                    )
+                    st.info("💡 **Astuce :** Si vous voyez ici des volumes très élevés (ex: > 3000 HL par mois) alors que vous savez que vous vendez beaucoup moins, c'est que votre fichier `DATA_BRUT.xlsx` a un problème de doublons ou que la colonne volume n'est pas lue au bon endroit.")

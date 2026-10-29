@@ -63,10 +63,16 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-def get_csv_download_link(df, filename):
+# --- AMÉLIORATION UI : Bouton de téléchargement natif Streamlit ---
+def bouton_telechargement(df, filename, label="📥 Télécharger le CSV"):
     csv = df.to_csv(index=True).encode('utf-8')
-    b64 = base64.b64encode(csv).decode()
-    return f'<a href="data:file/csv;base64,{b64}" download="{filename}" style="text-decoration: none; color: white; background-color: #28a745; padding: 8px 15px; border-radius: 5px; font-size: 14px;">📥 Télécharger {filename}</a>'
+    st.download_button(
+        label=label,
+        data=csv,
+        file_name=filename,
+        mime="text/csv",
+        use_container_width=False
+    )
 
 # ==============================================================================
 # ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
@@ -198,7 +204,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     resultats_momentum = []
     
     for _, group in df_sarr_sorted.groupby(group_cols):
-        # CORRECTION ICI : On extrait ag et art directement depuis le groupe
+        # CORRECTION DU BUG : Extraction robuste de ag et art
         if len(group_cols) == 2:
             ag = group[group_cols[0]].iloc[0]
             art = group[group_cols[1]].iloc[0]
@@ -304,7 +310,7 @@ def color_cells(val):
         return ''
 
 # ==============================================================================
-# INTERFACE STREAMLIT
+# INTERFACE STREAMLIT (AMÉLIORÉE)
 # ==============================================================================
 col_info, col_app = st.columns([1, 3])
 
@@ -390,7 +396,14 @@ with col_app:
         with st.sidebar.expander("🛠️ Options de Calcul", expanded=False):
             niveau_agregation = st.radio("Niveau d'agrégation", options=["Par Agence & Article", "Par Article (Global)"], index=0)
             methode_coef = st.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
-            unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL"], index=0)
+            
+            # AMÉLIORATION UI : Ajout d'une infobulle pour l'unité
+            unite_affichage = st.sidebar.radio(
+                "Unité d'affichage", 
+                options=["Cols", "HL"], 
+                index=0,
+                help="Cols = Bouteilles (ex: 1 HL = 50 cols pour du 200cl). Choisissez HL pour comparer avec vos anciens modèles Excel."
+            )
 
         # --- VÉRIFICATION INTÉGRITÉ ---
         annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(df_perimetre, annee_min_histo, annee_max_histo)
@@ -445,7 +458,7 @@ with col_app:
                     except AttributeError:
                         styled_df = pivot_indices.style.applymap(color_cells).format("{:.1f}")
                     st.dataframe(styled_df, use_container_width=True, height=400)
-                    st.markdown(get_csv_download_link(pivot_indices, "indices.csv"), unsafe_allow_html=True)
+                    bouton_telechargement(pivot_indices, "indices.csv")
 
             with tab_momentum:
                 with st.container(border=True):
@@ -465,7 +478,7 @@ with col_app:
                             },
                             use_container_width=True, height=400
                         )
-                        st.markdown(get_csv_download_link(df_momentum, "momentum.csv"), unsafe_allow_html=True)
+                        bouton_telechargement(df_momentum, "momentum.csv")
                     else:
                         st.dataframe(
                             df_momentum[["agence", "article", "Mois M-1", "SARR M-1", "Mois M-2", "SARR M-2", "Momentum_HL", "Base_HL"]],
@@ -477,7 +490,7 @@ with col_app:
                             },
                             use_container_width=True, height=400
                         )
-                        st.markdown(get_csv_download_link(df_momentum, "momentum.csv"), unsafe_allow_html=True)
+                        bouton_telechargement(df_momentum, "momentum.csv")
 
             with tab_prev:
                 with st.container(border=True):
@@ -494,7 +507,7 @@ with col_app:
                     pivot_prev.columns = [MOIS_NOMS[c-1] for c in pivot_prev.columns]
                     pivot_prev['Total Année'] = pivot_prev.sum(axis=1)
                     st.dataframe(pivot_prev.style.format("{:,.2f}", na_rep="-"), use_container_width=True)
-                    st.markdown(get_csv_download_link(pivot_prev, "previsions_tcd.csv"), unsafe_allow_html=True)
+                    bouton_telechargement(pivot_prev, "previsions_tcd.csv")
 
                     st.markdown("### 📅 Détail Ligne par Ligne")
                     st.dataframe(
@@ -508,4 +521,4 @@ with col_app:
                         },
                         use_container_width=True, height=400
                     )
-                    st.markdown(get_csv_download_link(df_previsions, "previsions_detail.csv"), unsafe_allow_html=True)
+                    bouton_telechargement(df_previsions, "previsions_detail.csv")

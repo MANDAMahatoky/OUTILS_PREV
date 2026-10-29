@@ -109,7 +109,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi = df_ref.merge(df, on="cle_article", how="left")
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
-    df_enrichi["hl"] = df_enrichi["hl"].fillna(0.0)
+    
+    # On stocke le volume brut (qui est en Cols)
+    df_enrichi["hl_brut"] = df_enrichi["hl"].fillna(0.0)
+    
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     df_enrichi["article"] = df_enrichi["article_original_x"]
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
@@ -128,7 +131,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     ]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
-    return df_enrichi[["annee", "mois", "segment", "produit", "region", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
+    return df_enrichi[["annee", "mois", "segment", "produit", "region", "agence", "hl_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
 # VÉRIFICATION DE L'INTÉGRALITÉ DE L'HISTORIQUE
@@ -331,7 +334,7 @@ col_info, col_app = st.columns([1, 3])
 
 with col_info:
     st.markdown("### 📖 Guide Méthodologique")
-    st.info("⚙️ **Tous les calculs (SARR, Momentum, Base) sont réalisés en Hectolitres (HL).**")
+    st.info("⚙️ **Les volumes du fichier source (Cols) sont automatiquement convertis en HL pour les calculs.**")
     with st.expander("1. Indices de Saisonnalité", expanded=True):
         st.markdown("🟩 **Vert (> 1.0)** : Mois Fort\n🟥 **Rouge (< 1.0)** : Mois Faible")
     with st.expander("2. SARR & Momentum", expanded=True):
@@ -408,33 +411,21 @@ with col_app:
             annee_cible = st.number_input("Année Cible (Prévisions)", min_value=annee_cloture, max_value=2035, value=2027)
             
         with st.sidebar.expander("🛠️ Options de Calcul", expanded=True):
-            
-            # FICHIER SOURCE EN COLS PAR DÉFAUT
-            unite_source = st.radio(
-                "Unité du fichier source (DATA_BRUT)", 
-                options=["Cols", "HL"], 
-                index=0, # Index 0 = Cols par défaut
-                help="Si votre fichier brut est en bouteilles (Cols), sélectionnez 'Cols'. Le script le convertira en HL pour les calculs."
-            )
-
             niveau_agregation = st.radio("Niveau d'agrégation", options=["Par Agence & Article", "Par Article (Global)"], index=0)
             methode_coef = st.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
             
-            # AFFICHAGE EN HL PAR DÉFAUT
+            # HL EN VALEUR PAR DÉFAUT POUR L'AFFICHAGE
             unite_affichage = st.radio(
                 "Unité d'affichage", 
                 options=["HL", "Cols"], 
-                index=0, # Index 0 = HL par défaut
+                index=0,
                 help="Les calculs sont natifs en HL. 'Cols' convertit l'affichage final."
             )
 
-        # --- SAUVEGARDE DU VOLUME BRUT POUR LE DIAGNOSTIC ---
-        df_perimetre["hl_brut"] = df_perimetre["hl"]
-
-        # --- CONVERSION EN HL SI LE FICHIER SOURCE EST EN COLS ---
-        if unite_source == "Cols":
-            # Formule : HL = Cols / (10000 / contenance_cl)
-            df_perimetre["hl"] = df_perimetre["hl"] / (10000 / df_perimetre["contenance_cl"].replace(0, 100))
+        # --- CONVERSION FORCÉE EN HL ---
+        # Le fichier source est considéré comme étant en Cols.
+        # Formule : HL = Cols / (10000 / contenance_cl)
+        df_perimetre["hl"] = df_perimetre["hl_brut"] / (10000 / df_perimetre["contenance_cl"].replace(0, 100))
 
         # VÉRIFICATION
         annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(df_perimetre, annee_min_histo, annee_max_histo)
@@ -566,10 +557,10 @@ with col_app:
 
             with tab_diag:
                 with st.container(border=True):
-                    st.subheader("🩺 Diagnostic de la donnée brute")
-                    st.warning("⚠️ Vérifiez la correspondance exacte entre le volume brut du fichier et le volume converti (utilisé pour les calculs).")
+                    st.subheader("🩺 Inspection des Données")
+                    st.warning("⚠️ Le fichier source est considéré comme étant en **Cols (Bouteilles)**. Il est automatiquement converti en **HL** pour les calculs.")
                     
-                    # Regroupement mensuel pour voir les volumes exacts
+                    # Regroupement mensuel pour voir les volumes bruts et convertis
                     df_diag = df_hist.groupby(['annee', 'mois', 'agence', 'article'])[['hl_brut', 'hl']].sum().reset_index()
                     df_diag = df_diag[(df_diag['hl_brut'] > 0) | (df_diag['hl'] > 0)].sort_values(['annee', 'mois', 'agence', 'article'])
                     
@@ -580,9 +571,9 @@ with col_app:
                     st.dataframe(
                         df_diag.style.format({"hl_brut": "{:,.2f}", "hl": "{:,.2f}"}),
                         column_config={
-                            "hl_brut": st.column_config.NumberColumn(f"Volume Brut Fichier ({unite_source})", format="%.2f"),
+                            "hl_brut": st.column_config.NumberColumn("Volume Brut Fichier (Cols)", format="%.2f"),
                             "hl": st.column_config.NumberColumn("Volume Converti (HL)", format="%.2f")
                         },
                         use_container_width=True, height=400
                     )
-                    st.info(f"💡 **Astuce :** Si les chiffres dans la colonne 'Volume Brut' correspondent à votre fichier Excel d'origine, mais que la colonne 'Volume Converti' est plus petite, c'est que la conversion fonctionne parfaitement (1 HL = 50 bouteilles de 200cl).")
+                    st.info("💡 **Astuce :** La colonne 'Volume Brut' correspond à ce qu'il y a dans votre fichier Excel `DATA_BRUT.xlsx`. La colonne 'Volume Converti' est celle utilisée pour calculer les prévisions (ex: pour du 200cl, 1 HL = 50 cols).")

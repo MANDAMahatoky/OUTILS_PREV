@@ -4,9 +4,10 @@ import numpy as np
 import re
 import io
 import unicodedata
+import base64
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
-st.title("Moteur de Prévision : Étapes 4 et 5")
+st.title("Moteur de Prévision : Étapes 4 et 5.1")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -24,6 +25,11 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
+
+def get_csv_download_link(df, filename):
+    csv = df.to_csv(index=True).encode('utf-8')
+    b64 = base64.b64encode(csv).decode()
+    return f'<a href="data:file/csv;base64,{b64}" download="{filename}">📥 Télécharger en CSV</a>'
 
 # ==============================================================================
 # ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
@@ -88,36 +94,31 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ==============================================================================
 # VÉRIFICATION DE L'INTÉGRALITÉ DE L'HISTORIQUE
 # ==============================================================================
-def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, annee_max: int, niveau_agregation: str):
-    # On vérifie si le jeu de données filtré possède bien les 12 mois pour chaque année
+def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, annee_max: int):
     annees_presentes = df_perimetre[(df_perimetre["annee"] >= annee_min) & (df_perimetre["annee"] <= annee_max)]
     annees_uniques = sorted(annees_presentes["annee"].unique())
     
-    # Années complètement absentes de la sélection
     annees_manquantes = [a for a in range(annee_min, annee_max + 1) if a not in annees_uniques]
     
-    # Années présentes mais avec moins de 12 mois distincts dans TOUT le jeu de données
     mois_par_annee = annees_presentes.groupby('annee')['mois'].nunique()
     annees_incompletes = mois_par_annee[mois_par_annee < 12].index.tolist()
-    
-    # Années parfaitement complètes (pour la proposition)
     annees_completes = mois_par_annee[mois_par_annee == 12].index.tolist()
     
     return annees_manquantes, annees_incompletes, annees_completes
 
 # ==============================================================================
-# ÉTAPE 4 & 5 : CALCULS (INDICES, SARR, MOMENTUM, CAGR, PREVISIONS)
+# ÉTAPE 4 & 5.1 : CALCULS
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions...")
+@st.cache_data(show_spinner="Calcul des indices et du Momentum...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_min_histo: int, annee_max_histo: int, 
-                    methode_coef: str, niveau_agregation: str, use_cagr: bool, annee_cible: int):
+                    methode_coef: str, niveau_agregation: str):
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return None, None, None, None
+    if df_realise.empty: return None, None, None
 
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
-    if df_hist.empty: return None, None, None, None
+    if df_hist.empty: return None, None, None
 
     if niveau_agregation == "Par Agence & Article":
         group_cols = ['agence', 'article']
@@ -162,10 +163,18 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
             ag = "Global"
             art = group[group_cols[0]].iloc[0]
 
-        sarr_m1 = group[group['rang'] == 1]['SARR_HL'].values[0] if len(group[group['rang'] == 1]) > 0 else 0
-        sarr_m2 = group[group['rang'] == 2]['SARR_HL'].values[0] if len(group[group['rang'] == 2]) > 0 else 0
-        sarr_m3 = group[group['rang'] == 3]['SARR_HL'].values[0] if len(group[group['rang'] == 3]) > 0 else 0
-        sarr_m = group[group['rang'] == 0]['SARR_HL'].values[0] if len(group[group['rang'] == 0]) > 0 else 0
+        row_m = group[group['rang'] == 0]
+        row_m1 = group[group['rang'] == 1]
+        row_m2 = group[group['rang'] == 2]
+        row_m3 = group[group['rang'] == 3]
+
+        sarr_m = row_m['SARR_HL'].values[0] if not row_m.empty else 0
+        sarr_m1 = row_m1['SARR_HL'].values[0] if not row_m1.empty else 0
+        sarr_m2 = row_m2['SARR_HL'].values[0] if not row_m2.empty else 0
+        sarr_m3 = row_m3['SARR_HL'].values[0] if not row_m3.empty else 0
+        
+        date_m1 = f"{MOIS_NOMS[int(row_m1['mois'].values[0])-1]}-{str(int(row_m1['annee'].values[0]))[-2:]}" if not row_m1.empty else "-"
+        date_m2 = f"{MOIS_NOMS[int(row_m2['mois'].values[0])-1]}-{str(int(row_m2['annee'].values[0]))[-2:]}" if not row_m2.empty else "-"
         
         momentum = sarr_m1 - sarr_m2
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
@@ -173,82 +182,32 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         
         resultats_momentum.append({
             "agence": ag, "article": art, 
-            "SARR M-1": sarr_m1, "SARR M-2": sarr_m2, "SARR M-3": sarr_m3, "SARR M": sarr_m,
-            "Momentum_HL": momentum, "Base_HL": base
+            "Mois M-1": date_m1, "SARR M-1": sarr_m1,
+            "Mois M-2": date_m2, "SARR M-2": sarr_m2,
+            "Momentum_HL": momentum, 
+            "Base_HL": base
         })
         
     df_momentum = pd.DataFrame(resultats_momentum)
-
-    # --- CALCUL DU CAGR ET DES PRÉVISIONS ---
-    resultats_previsions = []
-    
-    for _, row in df_momentum.iterrows():
-        ag, art = row['agence'], row['article']
-        base, momentum = row['Base_HL'], row['Momentum_HL']
-        
-        # Calcul du CAGR
-        if use_cagr:
-            if niveau_agregation == "Par Agence & Article":
-                hist_group = vols_annuels.loc[(ag, art)]
-            else:
-                hist_group = vols_annuels.loc[art]
-                
-            vol_debut = hist_group.get(annee_min_histo, 0)
-            vol_fin = hist_group.get(annee_max_histo, 0)
-            nb_ans = annee_max_histo - annee_min_histo
-            
-            if nb_ans > 0 and vol_debut > 0 and vol_fin > 0:
-                cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1
-            else:
-                cagr_val = 0.0
-        else:
-            cagr_val = 0.0
-            
-        for y in range(annee_cloture, annee_cible + 1):
-            multiplicateur = (1 + cagr_val) ** (y - annee_cloture)
-            
-            for m in range(1, 13):
-                if y == annee_cloture and m <= mois_cutoff: continue
-                
-                if niveau_agregation == "Par Agence & Article":
-                    coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
-                else:
-                    coef_data = table_indices[(table_indices['article'] == art) & (table_indices['mois'] == m)]
-                
-                coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
-                
-                prev_hl = ((coef * base) + momentum) * multiplicateur
-                prev_hl = max(0.0, prev_hl)
-                
-                resultats_previsions.append({
-                    "annee": y, "mois": m, "agence": ag, "article": art,
-                    "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
-                    "Indice": coef, "Base": base, "Momentum": momentum,
-                    "CAGR": cagr_val * 100,
-                    "Prevision_HL": prev_hl
-                })
-
-    df_previsions = pd.DataFrame(resultats_previsions)
-    return table_indices, df_sarr, df_momentum, df_previsions
+    return table_indices, df_sarr, df_momentum
 
 # ==============================================================================
-# INTERFACE STREAMLIT : MISE EN PAGE AVEC PANNEAU DROIT
+# INTERFACE STREAMLIT
 # ==============================================================================
-col_app, col_info = st.columns([3, 1])
+col_app, col_info = st.columns([3.5, 1])
 
 with col_info:
-    st.markdown("### 📖 Méthodes de calcul")
-    st.info("Calculs dynamiques, sans modification manuelle.")
+    st.markdown("### 📖 Guide d'utilisation")
+    st.info("Cet outil calcule les indices de saisonnalité et le momentum pour lisser les ventes (SARR).")
     
-    st.markdown("**1. Indices**")
-    st.markdown("`Ventes du mois / Moyenne globale` sur l'intervalle sélectionné.")
+    st.markdown("**1. Filtres & Période**")
+    st.markdown("Sélectionnez vos articles et l'intervalle d'années complètes (12 mois). Si une année est vide, le calcul s'arrête.")
     
-    st.markdown("**2. SARR & Momentum**")
-    st.markdown("`SARR = Volume / Indice`. \n\n`Momentum = SARR M-1 - SARR M-2`.")
+    st.markdown("**2. Indices (Coefs)**")
+    st.markdown("Le ratio entre les ventes d'un mois et la moyenne globale. La heatmap montre les saisons fortes (rouge) et faibles (bleu).")
     
-    st.markdown("**3. Prévisions (CAGR)**")
-    st.markdown("`(Indice * Base + Momentum) * (1 + CAGR)^n`.")
-    st.caption("Le CAGR lisse la croissance entre l'année min et max de ton historique.")
+    st.markdown("**3. SARR & Momentum**")
+    st.markdown("Le SARR est le volume désaisonnalisé (`Volume / Coef`). Le Momentum est la différence de SARR entre les deux derniers mois (`M-1 - M-2`).")
 
 with col_app:
     col1, col2 = st.columns(2)
@@ -260,7 +219,12 @@ with col_app:
     if fichier_ventes is not None and fichier_ref is not None:
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-        st.sidebar.header("🔍 Filtres")
+        # Initialisation pour récupérer les vraies bornes de l'historique
+        annee_min_reelle = int(df_enrichi["annee"].min()) if not df_enrichi.empty else 2020
+        annee_max_reelle = int(df_enrichi["annee"].max()) if not df_enrichi.empty else 2026
+
+        st.sidebar.header("🔍 1. Périmètre")
+        # Filtres vides par défaut (Tous)
         segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
         sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
         
@@ -278,88 +242,95 @@ with col_app:
         if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
         st.sidebar.markdown("---")
-        st.sidebar.header("⚙️ Cutoff & Options")
+        st.sidebar.header("⚙️ 2. Cutoff & Options")
         annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
         mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=7, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
-        annee_cible = st.sidebar.number_input("Année Cible (Prévisions)", min_value=annee_cloture, max_value=2035, value=annee_cloture+1)
         
         st.sidebar.markdown("---")
-        st.sidebar.header("📅 Intervalle Historique")
-        annee_min_histo = st.sidebar.number_input("Année Min (Début)", min_value=2015, max_value=annee_cloture-1, value=annee_cloture-2)
-        annee_max_histo = st.sidebar.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=annee_cloture-1, value=annee_cloture-1)
+        st.sidebar.header("📅 3. Intervalle Historique")
+        st.sidebar.caption("Par défaut, tout l'historique est sélectionné.")
+        
+        # PAR DÉFAUT : De l'année min du fichier à l'année_cloture - 1
+        annee_min_defaut = annee_min_reelle
+        annee_max_defaut = min(annee_cloture - 1, annee_max_reelle)
+
+        annee_min_histo = st.sidebar.number_input("Année Min (Début)", min_value=2015, max_value=annee_cloture-1, value=annee_min_defaut)
+        annee_max_histo = st.sidebar.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=annee_cloture-1, value=annee_max_defaut)
         
         st.sidebar.markdown("---")
-        niveau_agregation = st.sidebar.radio("Niveau de calcul", options=["Par Agence & Article", "Par Article (Global)"], index=0)
-        methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
-        use_cagr = st.sidebar.checkbox("Activer le CAGR pour la projection", value=True)
+        niveau_agregation = st.sidebar.radio("Niveau d'agrégation", options=["Par Article (Global)", "Par Agence & Article"], index=0, help="Par défaut, calcule les coefficients pour l'article entier.")
+        methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0, help="Ratio des Sommes = (Somme Mois) / (Moyenne Globale).")
         unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
-        annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(
-            df_perimetre, annee_min_histo, annee_max_histo, niveau_agregation
-        )
+        # Vérification
+        annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(df_perimetre, annee_min_histo, annee_max_histo)
 
         if annees_manquantes or annees_incompletes:
             st.error("🚨 **Calcul interrompu : Données historiques incomplètes.**")
             if annees_manquantes:
-                st.warning(f"Les années suivantes n'existent pas du tout dans les données : **{', '.join(map(str, annees_manquantes))}**.")
+                st.warning(f"Les années suivantes n'existent pas du tout : **{', '.join(map(str, annees_manquantes))}**.")
             if annees_incompletes:
-                st.warning(f"Les années suivantes sont incomplètes (moins de 12 mois de données) : **{', '.join(map(str, annees_incompletes))}**.")
+                st.warning(f"Les années suivantes sont incomplètes (moins de 12 mois) : **{', '.join(map(str, annees_incompletes))}**.")
             
             if annees_completes:
-                st.info(f"💡 **Proposition :** Modifiez l'intervalle historique. Les données complètes sont disponibles pour : **{', '.join(map(str, annees_completes))}**. Essayez de sélectionner l'année min à **{annees_completes[0]}** et l'année max à **{annees_completes[-1]}**.")
-            
+                st.info(f"💡 **Proposition :** Modifiez l'intervalle. Les données complètes sont disponibles pour : **{', '.join(map(str, annees_completes))}**. Essayez l'année min **{annees_completes[0]}** et l'année max **{annees_completes[-1]}**.")
             st.stop()
 
-        table_indices, df_sarr, df_momentum, df_previsions = calculer_modele(
-            df_perimetre, annee_cloture, mois_cutoff, annee_min_histo, annee_max_histo, 
-            methode_coef, niveau_agregation, use_cagr, annee_cible
+        # Calculs
+        table_indices, df_sarr, df_momentum = calculer_modele(
+            df_perimetre, annee_cloture, mois_cutoff, annee_min_histo, annee_max_histo, methode_coef, niveau_agregation
         )
         
-        if df_previsions is None:
+        if table_indices is None:
             st.error("⚠️ Impossible de calculer le modèle.")
         else:
-            st.success(f"✅ Modèle calculé avec succès (CAGR {'Activé' if use_cagr else 'Désactivé'}).")
+            st.success(f"✅ Modèle calculé avec succès.")
             
-            tab_indices, tab_momentum, tab_prev = st.tabs(["📊 4. Indices", "📈 5.1 Momentum", "🚀 5.2 Prévisions"])
+            tab_indices, tab_momentum = st.tabs(["📊 4. Indices de Saisonnalité", "📈 5.1 Momentum & Base"])
 
             with tab_indices:
-                st.subheader("Table des Indices Saisonniers")
+                st.subheader("Table des Indices")
                 if niveau_agregation == "Par Agence & Article":
                     pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
                 else:
                     pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
                     
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-                st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
+                
+                st.dataframe(
+                    pivot_indices.style.background_gradient(cmap='coolwarm', axis=1).format("{:.2f}"), 
+                    use_container_width=True
+                )
+                st.markdown(get_csv_download_link(pivot_indices, "indices.csv"), unsafe_allow_html=True)
 
             with tab_momentum:
-                st.subheader("Calcul du Momentum & Base")
-                st.dataframe(df_momentum.style.format({"SARR M-1": "{:.2f}", "SARR M-2": "{:.2f}", "SARR M-3": "{:.2f}", "SARR M": "{:.2f}", "Momentum_HL": "{:.2f}", "Base_HL": "{:.2f}"}), use_container_width=True)
-
-            with tab_prev:
-                st.subheader("Prévisions Finales avec CAGR")
+                st.subheader("Calcul du Momentum et de la Base")
+                st.write("Le Momentum est la différence entre le SARR du mois M-1 et du mois M-2.")
                 
                 if unite_affichage == "Cols":
-                    df_previsions["Prevision_Aff"] = df_previsions["Prevision_HL"] * 100
-                    col_aff = "Prevision_Aff"
+                    df_momentum["Momentum_Aff"] = df_momentum["Momentum_HL"] * 100
+                    df_momentum["Base_Aff"] = df_momentum["Base_HL"] * 100
+                    
+                    st.dataframe(
+                        df_momentum[["agence", "article", "Mois M-1", "SARR M-1", "Mois M-2", "SARR M-2", "Momentum_Aff", "Base_Aff"]],
+                        column_config={
+                            "SARR M-1": st.column_config.NumberColumn("SARR M-1 (HL)", format="%.2f"),
+                            "SARR M-2": st.column_config.NumberColumn("SARR M-2 (HL)", format="%.2f"),
+                            "Momentum_Aff": st.column_config.NumberColumn("Momentum (Cols)", format="%.2f"),
+                            "Base_Aff": st.column_config.NumberColumn("Base (Cols)", format="%.2f"),
+                        },
+                        use_container_width=True
+                    )
+                    st.markdown(get_csv_download_link(df_momentum, "momentum.csv"), unsafe_allow_html=True)
                 else:
-                    col_aff = "Prevision_HL"
-
-                pivot_prev = df_previsions.pivot_table(
-                    index=['annee', 'agence', 'article'], columns='mois', values=col_aff, aggfunc='sum'
-                )
-                pivot_prev.columns = [MOIS_NOMS[c-1] for c in pivot_prev.columns]
-                pivot_prev['Total Année'] = pivot_prev.sum(axis=1)
-                st.dataframe(pivot_prev.style.format("{:,.2f}", na_rep="-"), use_container_width=True)
-
-                st.dataframe(
-                    df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base", "Momentum", "CAGR", col_aff]].sort_values(["annee", "mois", "agence", "article"]),
-                    column_config={
-                        "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
-                        "Base": st.column_config.NumberColumn("Base (HL)", format="%.0f"),
-                        "Momentum": st.column_config.NumberColumn("Momentum (HL)", format="%.0f"),
-                        "CAGR": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
-                        col_aff: st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
-                    },
-                    use_container_width=True, height=400
-                )
+                    st.dataframe(
+                        df_momentum[["agence", "article", "Mois M-1", "SARR M-1", "Mois M-2", "SARR M-2", "Momentum_HL", "Base_HL"]],
+                        column_config={
+                            "SARR M-1": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
+                            "SARR M-2": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
+                            "Momentum_HL": st.column_config.NumberColumn("Momentum", format="%.2f"),
+                            "Base_HL": st.column_config.NumberColumn("Base", format="%.2f"),
+                        },
+                        use_container_width=True
+                    )
+                    st.markdown(get_csv_download_link(df_momentum, "momentum.csv"), unsafe_allow_html=True)

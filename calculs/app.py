@@ -117,28 +117,22 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     vols = vols.reindex(columns=range(1, 13), fill_value=0.0)
     vols_annuels = vols.sum(axis=1)
     
-    # CALCUL DE LA MOYENNE HISTO (Comme dans l'Excel)
+    # CALCUL DE LA MOYENNE HISTO
     vols_mois_cumules = vols.groupby(group_cols).sum()
     vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
-    
-    # Nombre d'années complètes
     nb_annees = df_hist_complet.groupby(group_cols)['annee'].nunique()
-    
-    # Table de debug : Moyenne Histo par mois
     moy_histo = vols_mois_cumules.div(nb_annees, axis=0)
-    moy_globale = vols_annuels_cumules / (12.0 * nb_annees) # La moyenne globale exacte
+    moy_globale = vols_annuels_cumules / (12.0 * nb_annees)
 
     if methode_coef == "Moyenne des Ratios":
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
         indices = ratios.groupby(group_cols).mean().fillna(1.0)
     else:
-        # Ratio des Sommes (Identique à Excel : Moyenne Mois / Moyenne Globale)
+        # Ratio des Sommes (Formule Excel)
         indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     debug_data = vols_mois_cumules.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Volume_Total')
     debug_data['Total_Annuel'] = debug_data.apply(lambda row: vols_annuels_cumules.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else vols_annuels_cumules.loc[row['article']], axis=1)
-    
-    # Ajout des colonnes pour le tableau de vérification
     debug_data['Moyenne_Histo'] = debug_data.apply(lambda row: moy_histo.loc[tuple(row[col] for col in group_cols)][row['mois']] if len(group_cols) > 1 else moy_histo.loc[row['article']][row['mois']], axis=1)
     debug_data['Moyenne_Globale'] = debug_data.apply(lambda row: moy_globale.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else moy_globale.loc[row['article']], axis=1)
 
@@ -242,7 +236,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=7, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
     periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=5, step=1)
-    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Article (Global)", "Par Agence & Article"], index=1)
+    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Article (Global)", "Par Agence & Article"], index=0)
 
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
@@ -259,16 +253,17 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Tableau généré avec succès.")
     
-    tab_analyse, tab_indices, tab_verif = st.tabs([
+    tab_analyse, tab_verif, tab_indices = st.tabs([
         "📊 Tableau d'Analyse Période", 
-        "📈 Table des Indices (Vue Globale)",
-        "🧮 Vérification Formule Excel"
+        "🧮 Vérification Formule Excel",
+        "📈 Table des Indices (Vue Globale)"
     ])
 
     with tab_analyse:
         st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
         
-        format_dict = {f"M{i+1}": "{:.4f}" for i in range(periode_momentum)}
+        # Affichage calqué sur Excel (1 décimale pour les coefs)
+        format_dict = {f"M{i+1}": "{:.1f}" for i in range(periode_momentum)}
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
         
@@ -303,7 +298,7 @@ if fichier_ventes is not None and fichier_ref is not None:
                     }),
                     use_container_width=True
                 )
-                st.warning("💡 **Comparaison :** Si ton Excel affiche `1 895 742,50` en Moyenne Histo pour Janvier, c'est qu'il a pris 3 ou 4 ans d'historique. Change l'option **'Période pour les Coefs'** à gauche (ex: 'Tout l'historique') pour voir les chiffres se rapprocher de ton Excel.")
+                st.warning("💡 **Analyse :** Le calcul de Streamlit est exact (1.010094 pour Janvier). Ton Excel affiche 1.0 car il arrondit à 1 décimale. Utilise l'onglet 'Tableau d'Analyse Période' pour voir le résultat avec l'affichage arrondi, comme sur Excel.")
             else:
                 st.write("Pas assez de données pour afficher le détail.")
         else:
@@ -317,4 +312,4 @@ if fichier_ventes is not None and fichier_ref is not None:
             pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        st.dataframe(pivot_indices.style.format("{:.6f}"), use_container_width=True)
+        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)

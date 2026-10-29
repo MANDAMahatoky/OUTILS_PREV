@@ -192,6 +192,20 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     return table_indices, df_sarr, df_momentum
 
 # ==============================================================================
+# FONCTION DE COLORATION SANS MATPLOTLIB
+# ==============================================================================
+def color_cells(val):
+    try:
+        val = float(val)
+        if val > 1.15: return 'background-color: #e74c3c; color: white;' # Rouge
+        elif val > 1.05: return 'background-color: #f1c40f; color: black;' # Jaune
+        elif val < 0.85: return 'background-color: #3498db; color: white;' # Bleu
+        elif val < 0.95: return 'background-color: #85c1e9; color: black;' # Bleu clair
+        else: return ''
+    except:
+        return ''
+
+# ==============================================================================
 # INTERFACE STREAMLIT
 # ==============================================================================
 col_app, col_info = st.columns([3.5, 1])
@@ -297,10 +311,13 @@ with col_app:
                     
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                 
-                st.dataframe(
-                    pivot_indices.style.background_gradient(cmap='coolwarm', axis=1).format("{:.2f}"), 
-                    use_container_width=True
-                )
+                # Utilisation de applymap (ou map selon la version de pandas) pour éviter matplotlib
+                try:
+                    styled_df = pivot_indices.style.map(color_cells).format("{:.2f}")
+                except AttributeError:
+                    styled_df = pivot_indices.style.applymap(color_cells).format("{:.2f}")
+                    
+                st.dataframe(styled_df, use_container_width=True)
                 st.markdown(get_csv_download_link(pivot_indices, "indices.csv"), unsafe_allow_html=True)
 
             with tab_momentum:

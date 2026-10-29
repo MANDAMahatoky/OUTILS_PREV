@@ -192,16 +192,17 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     return table_indices, df_sarr, df_momentum
 
 # ==============================================================================
-# FONCTION DE COLORATION SANS MATPLOTLIB
+# FONCTION DE COLORATION (ROUGE < 1, VERT > 1)
 # ==============================================================================
 def color_cells(val):
     try:
         val = float(val)
-        if val > 1.15: return 'background-color: #e74c3c; color: white;' # Rouge
-        elif val > 1.05: return 'background-color: #f1c40f; color: black;' # Jaune
-        elif val < 0.85: return 'background-color: #3498db; color: white;' # Bleu
-        elif val < 0.95: return 'background-color: #85c1e9; color: black;' # Bleu clair
-        else: return ''
+        if val < 0.999:
+            return 'background-color: #f8d7da; color: #721c24;' # Rouge clair (Mois faible)
+        elif val > 1.001:
+            return 'background-color: #d4edda; color: #155724;' # Vert clair (Mois fort)
+        else:
+            return '' # 1.0 = Neutre
     except:
         return ''
 
@@ -214,14 +215,13 @@ with col_info:
     st.markdown("### 📖 Guide d'utilisation")
     st.info("Cet outil calcule les indices de saisonnalité et le momentum pour lisser les ventes (SARR).")
     
-    st.markdown("**1. Filtres & Période**")
-    st.markdown("Sélectionnez vos articles et l'intervalle d'années complètes (12 mois). Si une année est vide, le calcul s'arrête.")
+    st.markdown("**1. Indices (Coefs)**")
+    st.markdown("Le ratio entre les ventes d'un mois et la moyenne globale.")
+    st.markdown("🟩 > 1.0 : **Mois Fort** (Ventes supérieures à la moyenne)")
+    st.markdown("🟥 < 1.0 : **Mois Faible** (Ventes inférieures à la moyenne)")
     
-    st.markdown("**2. Indices (Coefs)**")
-    st.markdown("Le ratio entre les ventes d'un mois et la moyenne globale. La heatmap montre les saisons fortes (rouge) et faibles (bleu).")
-    
-    st.markdown("**3. SARR & Momentum**")
-    st.markdown("Le SARR est le volume désaisonnalisé (`Volume / Coef`). Le Momentum est la différence de SARR entre les deux derniers mois (`M-1 - M-2`).")
+    st.markdown("**2. SARR & Momentum**")
+    st.markdown("`SARR = Volume / Indice`. Le Momentum est la différence de SARR entre les deux derniers mois (`M-1 - M-2`).")
 
 with col_app:
     col1, col2 = st.columns(2)
@@ -262,18 +262,16 @@ with col_app:
         
         st.sidebar.markdown("---")
         st.sidebar.header("📅 3. Intervalle Historique")
-        st.sidebar.caption("Par défaut, tout l'historique est sélectionné.")
         
-        # PAR DÉFAUT : De l'année min du fichier à l'année_cloture - 1
-        annee_min_defaut = annee_min_reelle
-        annee_max_defaut = min(annee_cloture - 1, annee_max_reelle)
-
-        annee_min_histo = st.sidebar.number_input("Année Min (Début)", min_value=2015, max_value=annee_cloture-1, value=annee_min_defaut)
-        annee_max_histo = st.sidebar.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=annee_cloture-1, value=annee_max_defaut)
+        # Mise en évidence des années détectées
+        st.sidebar.success(f"📊 Années détectées : **{annee_min_reelle}** à **{annee_max_reelle}**")
+        
+        annee_min_histo = st.sidebar.number_input("Année Min (Début)", min_value=2015, max_value=annee_cloture-1, value=annee_min_reelle)
+        annee_max_histo = st.sidebar.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=annee_cloture-1, value=min(annee_cloture - 1, annee_max_reelle))
         
         st.sidebar.markdown("---")
-        niveau_agregation = st.sidebar.radio("Niveau d'agrégation", options=["Par Article (Global)", "Par Agence & Article"], index=0, help="Par défaut, calcule les coefficients pour l'article entier.")
-        methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0, help="Ratio des Sommes = (Somme Mois) / (Moyenne Globale).")
+        niveau_agregation = st.sidebar.radio("Niveau d'agrégation", options=["Par Article (Global)", "Par Agence & Article"], index=0)
+        methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
         unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
 
         # Vérification
@@ -298,7 +296,7 @@ with col_app:
         if table_indices is None:
             st.error("⚠️ Impossible de calculer le modèle.")
         else:
-            st.success(f"✅ Modèle calculé avec succès.")
+            st.success(f"✅ Modèle calculé avec succès sur l'intervalle {annee_min_histo} - {annee_max_histo}.")
             
             tab_indices, tab_momentum = st.tabs(["📊 4. Indices de Saisonnalité", "📈 5.1 Momentum & Base"])
 
@@ -311,7 +309,7 @@ with col_app:
                     
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                 
-                # Utilisation de applymap (ou map selon la version de pandas) pour éviter matplotlib
+                # Application des couleurs sans matplotlib
                 try:
                     styled_df = pivot_indices.style.map(color_cells).format("{:.2f}")
                 except AttributeError:

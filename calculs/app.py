@@ -28,7 +28,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 Moteur de Prévision S&OP")
-st.markdown("**Étapes 1 à 5.2 : Chargement, Indices, Momentum, Base et Prévisions (CAGR)**")
+st.markdown("**Étapes 1 à 5.2 : Indices, Momentum, Base et Prévisions (CAGR)**")
 st.divider()
 
 # ==============================================================================
@@ -73,7 +73,6 @@ def get_csv_download_link(df, filename):
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement et traitement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
-    # Référentiel
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     df_ref = df_ref.rename(columns={
@@ -88,7 +87,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["article_original"]).reset_index(drop=True)
 
-    # Ventes
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
     
@@ -121,7 +119,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     
-    # Segmentation
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
         df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
@@ -201,6 +198,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     resultats_momentum = []
     
     for keys, group in df_sarr_sorted.groupby(group_cols):
+        # CORRECTION DE L'ERREUR ICI
         if isinstance(keys, tuple):
             ag, art = keys
         else:
@@ -232,8 +230,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
             "Mois M-2": date_m2, "SARR M-2": sarr_m2,
             "Momentum_HL": momentum, 
             "Base_HL": base,
-            "Multiplicateur": multiplicateur,
-            "Contenance": contenance
+            "Multiplicateur": multiplicateur
         })
         
     df_momentum = pd.DataFrame(resultats_momentum)

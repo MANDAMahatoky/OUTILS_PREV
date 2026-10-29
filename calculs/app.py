@@ -89,7 +89,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     
-    # CORRECTION ICI : On ne supprime que les doublons EXACTS, pas ceux qui partagent la même clé normalisée
     df_ref = df_ref.drop_duplicates().reset_index(drop=True)
 
     flux_ventes = io.BytesIO(ventes_bytes)
@@ -123,7 +122,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["article"] = df_enrichi["article_original_x"]
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     
-    # AJOUT DE LA REGION VIA LE MAPPING EXACT
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     
     conditions = [
@@ -164,10 +162,10 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return None, None, None
+    if df_realise.empty: return None, None, None, None
 
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
-    if df_hist.empty: return None, None, None
+    if df_hist.empty: return None, None, None, None
 
     if niveau_agregation == "Par Agence & Article":
         group_cols = ['agence', 'article']
@@ -236,7 +234,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         })
         
     df_momentum = pd.DataFrame(resultats_momentum)
-    return table_indices, df_sarr, df_momentum
+    return table_indices, df_sarr, df_momentum, df_hist
 
 # ==============================================================================
 # FONCTION DE COLORATION
@@ -364,24 +362,24 @@ with col_app:
             st.stop()
 
         # CALCULS
-        table_indices, df_sarr, df_momentum = calculer_modele(
+        table_indices, df_sarr, df_momentum, df_hist = calculer_modele(
             df_perimetre, annee_cloture, mois_cutoff, annee_min_histo, annee_max_histo, methode_coef, niveau_agregation
         )
         
         if table_indices is None:
             st.error("⚠️ Impossible de calculer le modèle.")
         else:
-            # --- KPIs GLOBAUX ---
+            # --- KPIs GLOBAUX (Calculés sur l'historique sélectionné) ---
             with st.container(border=True):
                 kpi1, kpi2, kpi3 = st.columns(3)
-                vol_total = df_sarr["hl"].sum()
-                kpi1.metric("Volume Total (HL)", f"{vol_total:,.0f}")
+                vol_total = df_hist["hl"].sum() # Utilisation de df_hist
+                kpi1.metric(f"Volume Histo {annee_min_histo}-{annee_max_histo} (HL)", f"{vol_total:,.0f}")
                 
-                nb_articles_filtres = df_sarr['article'].nunique()
+                nb_articles_filtres = df_hist['article'].nunique()
                 nb_articles_total = df_enrichi['article'].nunique()
-                kpi2.metric("Nb Articles", f"{nb_articles_filtres} / {nb_articles_total}")
+                kpi2.metric("Nb Articles Histo", f"{nb_articles_filtres} / {nb_articles_total}")
                 
-                kpi3.metric("Nb Agences", f"{df_sarr[df_sarr['agence'] != 'Aucune vente']['agence'].nunique()}")
+                kpi3.metric("Nb Agences Histo", f"{df_hist[df_hist['agence'] != 'Aucune vente']['agence'].nunique()}")
             
             st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo}.")
             

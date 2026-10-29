@@ -4,10 +4,9 @@ import numpy as np
 import re
 import io
 import unicodedata
-import math
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
-st.title("Moteur de Prévision : Comparateur des 3 Calculs")
+st.title("Moteur de Prévision : Étapes 4 et 5.1")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -87,13 +86,13 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES
+# ÉTAPE 4 & 5.1 : CALCULS
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices...")
-def calculer_indices(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
+@st.cache_data(show_spinner="Calcul des indices et du Momentum...")
+def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return pd.DataFrame(), pd.DataFrame()
+    if df_realise.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     df_hist = df_realise[df_realise["annee"] < annee_cloture].copy()
     if df_hist.empty: df_hist = df_realise.copy()
@@ -131,114 +130,141 @@ def calculer_indices(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff
         indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
-    table_indices['Indice_Arrondi'] = table_indices['Indice'].apply(lambda x: math.floor(x * 10 + 0.5) / 10)
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
+    df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
+
+    # --- ÉTAPE 5.1 : MOMENTUM ---
+    df_sarr_sorted = df_sarr.sort_values(group_cols + ['annee', 'mois']).copy()
+    df_sarr_sorted['rang'] = df_sarr_sorted.groupby(group_cols).cumcount(ascending=False)
     
-    return table_indices, df_sarr
+    resultats_momentum = []
+    for (ag, art), group in df_sarr_sorted.groupby(group_cols):
+        ligne_m1 = group[group['rang'] == 1]
+        ligne_m2 = group[group['rang'] == 2]
+        
+        if not ligne_m1.empty and not ligne_m2.empty:
+            hl_m1 = ligne_m1['hl'].values[0]
+            coef_m1 = ligne_m1['Indice'].values[0]
+            sarr_m1 = ligne_m1['SARR_HL'].values[0]
+            
+            hl_m2 = ligne_m2['hl'].values[0]
+            coef_m2 = ligne_m2['Indice'].values[0]
+            sarr_m2 = ligne_m2['SARR_HL'].values[0]
+        else:
+            hl_m1 = coef_m1 = sarr_m1 = 0
+            hl_m2 = coef_m2 = sarr_m2 = 0
+            
+        momentum = sarr_m1 - sarr_m2
+        
+        resultats_momentum.append({
+            "agence": ag, "article": art, 
+            "Vente M-1 (HL)": hl_m1,
+            "Coef M-1": coef_m1,
+            "SARR M-1 (HL)": sarr_m1, 
+            "Vente M-2 (HL)": hl_m2,
+            "Coef M-2": coef_m2,
+            "SARR M-2 (HL)": sarr_m2, 
+            "Momentum_HL": momentum
+        })
+        
+    df_momentum = pd.DataFrame(resultats_momentum)
+    return table_indices, df_sarr, df_momentum
 
 # ==============================================================================
-# INTERFACE STREAMLIT
+# INTERFACE STREAMLIT : MISE EN PAGE AVEC PANNEAU DROIT
 # ==============================================================================
-col1, col2 = st.columns(2)
-with col1:
-    fichier_ventes = st.file_uploader("1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
-with col2:
-    fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"])
+col_app, col_info = st.columns([3, 1])
 
-if fichier_ventes is not None and fichier_ref is not None:
-    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
-
-    st.sidebar.header("🔍 Filtres")
-    segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
-    sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
+with col_info:
+    st.markdown("### 📖 Méthodes de calcul")
+    st.info("Les calculs sont effectués **dynamiquement** à partir des données brutes, sans aucune modification manuelle.")
     
-    df_temp = df_enrichi.copy()
-    if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
-    articles_dispo = sorted(df_temp["article"].unique())
-    sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
+    st.markdown("**1. Indices (Coefficients)**")
+    st.markdown("Formule : `Ventes du mois / Moyenne globale`.")
+    st.caption("Calculé uniquement sur les années complètes (12 mois). L'option 'Moyenne des Ratios' fait la moyenne des pourcentages, tandis que 'Ratio des Sommes' divise la somme des ventes du mois par la moyenne générale.")
     
-    agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
-    sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
-
-    df_perimetre = df_enrichi.copy()
-    if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
-    if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
-    if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
-
-    st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ Cutoff & Options")
-    annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
+    st.markdown("**2. SARR (Ventes lissées)**")
+    st.markdown("Formule : `Volume du mois / Indice`.")
+    st.caption("Permet de retirer l'effet de la saisonnalité pour voir la tendance réelle.")
     
-    mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=7, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
-    
-    periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=5, step=1)
-    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Article (Global)", "Par Agence & Article"], index=0)
+    st.markdown("**3. Momentum**")
+    st.markdown("Formule : `SARR (M-1) - SARR (M-2)`.")
+    st.caption("C'est la variation entre les deux derniers mois connus avant le Cutoff.")
 
-    fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
-    methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
+with col_app:
+    col1, col2 = st.columns(2)
+    with col1:
+        fichier_ventes = st.file_uploader("1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
+    with col2:
+        fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"])
 
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL"], index=0)
+    if fichier_ventes is not None and fichier_ref is not None:
+        df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    table_indices, df_sarr = calculer_indices(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef, niveau_agregation)
-    
-    if df_sarr.empty:
-        st.warning("⚠️ Impossible de calculer le SARR.")
-        st.stop()
-
-    st.success(f"✅ Tableau généré avec succès.")
-    
-    st.markdown("---")
-    st.subheader("🔍 Comparatif des 3 Calculs (sans aucune modification)")
-    st.write("Ce tableau affiche les trois façons de calculer le SARR. Le calcul Excel est basé sur les coefficients exacts de ta capture d'écran.")
-    
-    if not df_sarr.empty:
-        df_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois'], ascending=[True, True, False, False]).head(periode_momentum)
+        st.sidebar.header("🔍 Filtres")
+        segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
+        sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
         
-        # Valeurs exactes extraites de ta capture Excel
-        excel_coefs = [1.0086, 0.7690, 0.7699, 0.8553, 0.9993]
+        df_temp = df_enrichi.copy()
+        if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
+        articles_dispo = sorted(df_temp["article"].unique())
+        sel_articles = st.sidebar.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
         
-        comp_data = []
-        for i, (_, row) in enumerate(df_sorted.iterrows()):
-            vol = row['hl'] * 100 # En Cols
-            coef_python = row['Indice']
-            coef_arrondi = row['Indice_Arrondi']
-            
-            # 1. Calcul Exact (Python)
-            sarr_python = vol / coef_python if coef_python > 0 else 0
-            
-            # 2. Calcul Excel (Basé sur les coefficients exacts de l'Excel)
-            coef_excel = excel_coefs[i] if i < len(excel_coefs) else 0
-            sarr_excel = vol / coef_excel if coef_excel > 0 else 0
-            
-            # 3. Calcul Arrondi
-            sarr_arrondi = vol / coef_arrondi if coef_arrondi > 0 else 0
-            
-            comp_data.append({
-                "Mois": f"{MOIS_NOMS[row['mois']-1]}-{str(row['annee'])[-2:]}",
-                "Volume (Cols)": vol,
-                "1. Calcul Exact (Python)": sarr_python,
-                "2. Calcul Excel (Réel)": sarr_excel,
-                "3. Calcul Arrondi (Faux)": sarr_arrondi,
-                "Coef Exact (Python)": coef_python,
-                "Coef Excel": coef_excel,
-                "Coef Arrondi": coef_arrondi,
-            })
-            
-        st.dataframe(
-            pd.DataFrame(comp_data).style.format({
-                "Volume (Cols)": "{:,.0f}",
-                "1. Calcul Exact (Python)": "{:,.1f}",
-                "2. Calcul Excel (Réel)": "{:,.1f}",
-                "3. Calcul Arrondi (Faux)": "{:,.1f}",
-                "Coef Exact (Python)": "{:.4f}",
-                "Coef Excel": "{:.4f}",
-                "Coef Arrondi": "{:.1f}",
-            }),
-            use_container_width=True
-        )
+        agences_dispo = sorted([a for a in df_enrichi["agence"].unique() if a != "Aucune vente"])
+        sel_agences = st.sidebar.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
+
+        df_perimetre = df_enrichi.copy()
+        if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
+        if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
+        if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
+
+        st.sidebar.markdown("---")
+        st.sidebar.header("⚙️ Cutoff & Options")
+        annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
+        mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=7, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
         
-        st.info("💡 **Analyse :** Regarde la colonne `2. Calcul Excel`. Elle utilise les coefficients exacts de ton Excel. Tu verras qu'elle s'approche à 99% de la colonne `1. Calcul Exact`. La colonne `3. Calcul Arrondi` est fausse car elle utilise le coef arrondi.")
-    else:
-        st.write("Sélectionne un article pour voir la comparaison.")
+        niveau_agregation = st.sidebar.radio("Niveau de calcul", options=["Par Agence & Article", "Par Article (Global)"], index=1)
+        fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
+        methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
+        unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
+
+        table_indices, df_sarr, df_momentum = calculer_modele(df_perimetre, annee_cloture, mois_cutoff, fenetre_histo, methode_coef, niveau_agregation)
+        
+        if df_sarr.empty:
+            st.warning("⚠️ Impossible de calculer le modèle.")
+        else:
+            st.success(f"✅ Modèle calculé avec succès.")
+            
+            tab_indices, tab_momentum = st.tabs(["📊 4. Indices (Coefs)", "📈 5.1 Momentum"])
+
+            with tab_indices:
+                st.subheader("Table des Indices Saisonniers")
+                pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+                pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
+                st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
+
+            with tab_momentum:
+                st.subheader("Calcul du Momentum")
+                if unite_affichage == "Cols":
+                    df_momentum["Momentum_Aff"] = df_momentum["Momentum_HL"] * 100
+                    st.dataframe(
+                        df_momentum[["agence", "article", "SARR M-1 (HL)", "SARR M-2 (HL)", "Momentum_Aff"]],
+                        column_config={
+                            "SARR M-1 (HL)": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
+                            "SARR M-2 (HL)": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
+                            "Momentum_Aff": st.column_config.NumberColumn("Momentum (Cols)", format="%.2f"),
+                        },
+                        use_container_width=True
+                    )
+                else:
+                    st.dataframe(
+                        df_momentum[["agence", "article", "SARR M-1 (HL)", "SARR M-2 (HL)", "Momentum_HL"]],
+                        column_config={
+                            "SARR M-1 (HL)": st.column_config.NumberColumn("SARR M-1", format="%.2f"),
+                            "SARR M-2 (HL)": st.column_config.NumberColumn("SARR M-2", format="%.2f"),
+                            "Momentum_HL": st.column_config.NumberColumn("Momentum", format="%.2f"),
+                        },
+                        use_container_width=True
+                    )

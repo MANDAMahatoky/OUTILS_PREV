@@ -86,7 +86,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR (SANS ARRONDI)
+# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices et du SARR...")
 def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
@@ -117,16 +117,30 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     vols = vols.reindex(columns=range(1, 13), fill_value=0.0)
     vols_annuels = vols.sum(axis=1)
     
+    # CALCUL DE LA MOYENNE HISTO (Comme dans l'Excel)
+    vols_mois_cumules = vols.groupby(group_cols).sum()
+    vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
+    
+    # Nombre d'années complètes
+    nb_annees = df_hist_complet.groupby(group_cols)['annee'].nunique()
+    
+    # Table de debug : Moyenne Histo par mois
+    moy_histo = vols_mois_cumules.div(nb_annees, axis=0)
+    moy_globale = vols_annuels_cumules / (12.0 * nb_annees) # La moyenne globale exacte
+
     if methode_coef == "Moyenne des Ratios":
         ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
         indices = ratios.groupby(group_cols).mean().fillna(1.0)
     else:
-        vols_mois_cumules = vols.groupby(group_cols).sum()
-        vols_annuels_cumules = vols_annuels.groupby(group_cols).sum()
-        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+        # Ratio des Sommes (Identique à Excel : Moyenne Mois / Moyenne Globale)
+        indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     debug_data = vols_mois_cumules.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Volume_Total')
     debug_data['Total_Annuel'] = debug_data.apply(lambda row: vols_annuels_cumules.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else vols_annuels_cumules.loc[row['article']], axis=1)
+    
+    # Ajout des colonnes pour le tableau de vérification
+    debug_data['Moyenne_Histo'] = debug_data.apply(lambda row: moy_histo.loc[tuple(row[col] for col in group_cols)][row['mois']] if len(group_cols) > 1 else moy_histo.loc[row['article']][row['mois']], axis=1)
+    debug_data['Moyenne_Globale'] = debug_data.apply(lambda row: moy_globale.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else moy_globale.loc[row['article']], axis=1)
 
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
 
@@ -227,8 +241,8 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=7, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
     
-    periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=3, step=1)
-    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Article (Global)", "Par Agence & Article"], index=0)
+    periode_momentum = st.sidebar.slider("Période Momentum (Nombre de mois)", min_value=3, max_value=12, value=5, step=1)
+    niveau_agregation = st.sidebar.radio("Niveau de calcul des indices", options=["Par Article (Global)", "Par Agence & Article"], index=1)
 
     fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
@@ -245,12 +259,15 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Tableau généré avec succès.")
     
-    tab_analyse, tab_indices = st.tabs(["📊 Tableau d'Analyse Période", "📈 Table des Indices"])
+    tab_analyse, tab_indices, tab_verif = st.tabs([
+        "📊 Tableau d'Analyse Période", 
+        "📈 Table des Indices (Vue Globale)",
+        "🧮 Vérification Formule Excel"
+    ])
 
     with tab_analyse:
         st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
         
-        # AFFICHAGE AVEC PRÉCISION MAXIMALE
         format_dict = {f"M{i+1}": "{:.4f}" for i in range(periode_momentum)}
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
@@ -261,32 +278,36 @@ if fichier_ventes is not None and fichier_ref is not None:
             height=400
         )
 
-        # --- RAYON X ---
-        st.markdown("---")
-        with st.expander("🔍 VOIR LE DÉTAIL DU CALCUL (Preuve Mathématique)", expanded=True):
-            st.write("Voici les volumes de ventes exacts que Streamlit utilise pour calculer la moyenne, filtrés selon tes critères.")
-            
-            if len(sel_articles) > 0:
-                if niveau_agregation == "Par Agence & Article" and len(sel_agences) > 0:
-                    dbg = debug_data[(debug_data['agence'] == sel_agences[0]) & (debug_data['article'] == sel_articles[0])].copy()
-                else:
-                    dbg = debug_data[debug_data['article'] == sel_articles[0]].copy()
-
-                if not dbg.empty:
-                    dbg['mois'] = dbg['mois'].map(lambda x: MOIS_NOMS[x-1])
-                    total_global = dbg['Total_Annuel'].values[0]
-                    
-                    col1, col2 = st.columns(2)
-                    col1.metric("Total des ventes sur la période", f"{total_global:,.2f} HL")
-                    col2.metric("Moyenne mensuelle mathématique", f"{total_global / 12:,.2f} HL")
-                    
-                    st.dataframe(dbg[['article'] + (['agence'] if niveau_agregation == "Par Agence & Article" else []) + ["mois", "Volume_Total"]].style.format({"Volume_Total": "{:,.2f}"}), use_container_width=True)
-                    
-                    st.info("💡 **La preuve par les chiffres :** L'indice d'un mois est calculé ainsi : `Volume de ce mois / Moyenne mensuelle`. Si ton Excel affiche `1.0` pour Août, c'est que le Volume d'Août dans ton Excel était exactement égal à la moyenne. Avec les données actuelles de `DATA_BRUT.xlsx`, le calcul donne le chiffre exact affiché ci-dessus.")
-                else:
-                    st.write("Pas assez de données pour afficher le détail.")
+    with tab_verif:
+        st.subheader("Vérification : Moyenne Histo / Moyenne Globale")
+        st.write("Ce tableau reproduit exactement les colonnes D et E de ton fichier Excel : `Moyenne_Histo (Mois) / Moyenne_Globale`.")
+        
+        if len(sel_articles) > 0:
+            if niveau_agregation == "Par Agence & Article" and len(sel_agences) > 0:
+                dbg = debug_data[(debug_data['agence'] == sel_agences[0]) & (debug_data['article'] == sel_articles[0])].copy()
             else:
-                st.write("Sélectionne un article en haut à gauche pour voir le détail des volumes.")
+                dbg = debug_data[debug_data['article'] == sel_articles[0]].copy()
+
+            if not dbg.empty:
+                dbg['mois'] = dbg['mois'].map(lambda x: MOIS_NOMS[x-1])
+                moy_globale = dbg['Moyenne_Globale'].values[0]
+                
+                st.info(f"**Moyenne Globale de l'article = {moy_globale:,.2f} HL**")
+                
+                dbg['Indice_Calculé'] = dbg['Moyenne_Histo'] / moy_globale
+                
+                st.dataframe(
+                    dbg[['article'] + (['agence'] if niveau_agregation == "Par Agence & Article" else []) + ["mois", "Moyenne_Histo", "Indice_Calculé"]].style.format({
+                        "Moyenne_Histo": "{:,.2f}",
+                        "Indice_Calculé": "{:.6f}"
+                    }),
+                    use_container_width=True
+                )
+                st.warning("💡 **Comparaison :** Si ton Excel affiche `1 895 742,50` en Moyenne Histo pour Janvier, c'est qu'il a pris 3 ou 4 ans d'historique. Change l'option **'Période pour les Coefs'** à gauche (ex: 'Tout l'historique') pour voir les chiffres se rapprocher de ton Excel.")
+            else:
+                st.write("Pas assez de données pour afficher le détail.")
+        else:
+            st.write("Sélectionne un article pour voir le détail.")
 
     with tab_indices:
         st.subheader("Table des Indices (Coefficients)")
@@ -296,5 +317,4 @@ if fichier_ventes is not None and fichier_ref is not None:
             pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        # Affichage EXACT avec 6 décimales
         st.dataframe(pivot_indices.style.format("{:.6f}"), use_container_width=True)

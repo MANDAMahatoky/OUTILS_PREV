@@ -88,7 +88,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
-    df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
+    
+    # CORRECTION ICI : On ne supprime que les doublons EXACTS, pas ceux qui partagent la même clé normalisée
+    df_ref = df_ref.drop_duplicates().reset_index(drop=True)
 
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
@@ -295,17 +297,17 @@ with col_app:
         sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
         if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
         
-        # Positionnement (Réintégré)
+        # Positionnement
         positions_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
         sel_positions = st.sidebar.multiselect("🎯 Positionnement", options=positions_dispo, placeholder="Tous")
         if sel_positions: df_temp = df_temp[df_temp["positionnement"].isin(sel_positions)]
         
-        # Occasion (Réintégré)
+        # Occasion
         occasions_dispo = sorted([o for o in df_temp["occasion"].unique() if pd.notna(o)])
         sel_occasions = st.sidebar.multiselect("🥂 Occasion", options=occasions_dispo, placeholder="Toutes")
         if sel_occasions: df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)]
 
-        # Contenance (Ajouté)
+        # Contenance
         contenances_dispo = sorted([c for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
         sel_contenances = st.sidebar.multiselect("🧴 Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
         if sel_contenances: df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)]
@@ -374,7 +376,11 @@ with col_app:
                 kpi1, kpi2, kpi3 = st.columns(3)
                 vol_total = df_sarr["hl"].sum()
                 kpi1.metric("Volume Total (HL)", f"{vol_total:,.0f}")
-                kpi2.metric("Nb Articles", f"{df_sarr['article'].nunique()}")
+                
+                nb_articles_filtres = df_sarr['article'].nunique()
+                nb_articles_total = df_enrichi['article'].nunique()
+                kpi2.metric("Nb Articles", f"{nb_articles_filtres} / {nb_articles_total}")
+                
                 kpi3.metric("Nb Agences", f"{df_sarr[df_sarr['agence'] != 'Aucune vente']['agence'].nunique()}")
             
             st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo}.")

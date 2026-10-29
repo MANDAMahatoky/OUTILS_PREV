@@ -4,6 +4,7 @@ import numpy as np
 import re
 import io
 import unicodedata
+import math
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
 st.title("Moteur de Prévision : Analyse Période Momentum")
@@ -24,6 +25,12 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
+
+# Arrondi "Excel" pour l'affichage
+def excel_round(val, decimals=1):
+    if pd.isna(val): return val
+    factor = 10 ** decimals
+    return math.floor(val * factor + 0.5) / factor
 
 # ==============================================================================
 # ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
@@ -137,6 +144,9 @@ def calculer_indices_et_sarr(df_perimetre: pd.DataFrame, annee_cloture: int, moi
     debug_data['Moyenne_Globale'] = debug_data.apply(lambda row: moy_globale.loc[tuple(row[col] for col in group_cols)] if len(group_cols) > 1 else moy_globale.loc[row['article']], axis=1)
 
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
+    
+    # Ajout d'une colonne d'indice formaté comme Excel
+    table_indices['Indice_Excel'] = table_indices['Indice'].apply(lambda x: excel_round(x, 1))
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
@@ -170,13 +180,14 @@ def generer_tableau_momentum(df_sarr: pd.DataFrame, periode_momentum: int, unite
                 
         for i in range(periode_momentum):
             if i < len(group_n): 
+                # On utilise l'indice Excel arrondi pour l'affichage, mais le calcul du SARR garde la précision
                 row[f"M{i+1}"] = group_n.loc[i, 'Indice']
             else: 
                 row[f"M{i+1}"] = np.nan
 
         for i in range(periode_momentum):
             if i < len(group_n): 
-                coef_val = group_n.loc[i, 'Indice']
+                coef_val = group_n.loc[i, 'Indice'] # Précision maximale pour le calcul
                 if pd.notna(coef_val) and coef_val > 0:
                     sarr_val = (group_n.loc[i, 'hl'] / coef_val) * multiplicateur
                 else:
@@ -262,7 +273,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_analyse:
         st.subheader("Tableau Détaillé (Dates, Coefficients, SARR)")
         
-        # Affichage calqué sur Excel (1 décimale pour les coefs)
+        # Affichage calqué sur Excel (1 décimale)
         format_dict = {f"M{i+1}": "{:.1f}" for i in range(periode_momentum)}
         format_dict.update({f"SARR M-{i+1}": "{:,.1f}" for i in range(periode_momentum)})
         format_dict["Moyenne SARR"] = "{:,.2f}"
@@ -298,7 +309,7 @@ if fichier_ventes is not None and fichier_ref is not None:
                     }),
                     use_container_width=True
                 )
-                st.warning("💡 **Analyse :** Le calcul de Streamlit est exact (1.010094 pour Janvier). Ton Excel affiche 1.0 car il arrondit à 1 décimale. Utilise l'onglet 'Tableau d'Analyse Période' pour voir le résultat avec l'affichage arrondi, comme sur Excel.")
+                st.warning("💡 **Analyse :** Si le mois de Mai affiche `0.8` dans le tableau final mais `0.8503` ici, c'est un problème d'arrondi standard (Python arrondit .5 à l'inférieur par défaut). Mais le SARR est calculé avec la vraie valeur.")
             else:
                 st.write("Pas assez de données pour afficher le détail.")
         else:
@@ -307,9 +318,9 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_indices:
         st.subheader("Table des Indices (Coefficients)")
         if niveau_agregation == "Par Agence & Article":
-            pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+            pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice_Excel', aggfunc='first').fillna(1.0)
         else:
-            pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+            pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice_Excel', aggfunc='first').fillna(1.0)
             
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)

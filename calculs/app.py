@@ -148,7 +148,8 @@ def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, an
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_min_histo: int, annee_max_histo: int, 
-                    methode_coef: str, niveau_agregation: str, annee_cible: int):
+                    methode_coef: str, niveau_agregation: str, annee_cible: int, 
+                    use_rounded_coef: bool, forced_cagr: float, forced_base: float):
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
@@ -181,6 +182,10 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
+    
+    # Option : Utiliser les coefficients arrondis pour le SARR
+    if use_rounded_coef:
+        table_indices['Indice'] = table_indices['Indice'].round(1)
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
@@ -219,15 +224,21 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         date_m2 = f"{MOIS_NOMS[int(row_m2['mois'].values[0])-1]}-{str(int(row_m2['annee'].values[0]))[-2:]}" if not row_m2.empty else "-"
         
         momentum = sarr_m1 - sarr_m2
+        
         moy_3_mois = np.mean([sarr_m1, sarr_m2, sarr_m3])
-        base = max(sarr_m, moy_3_mois)
+        base_calc = max(sarr_m, moy_3_mois)
+        
+        # Option : Forcer la Base
+        base_final = forced_base if forced_base > 0 else base_calc
         
         resultats_momentum.append({
             "agence": ag, "article": art, 
             "Mois M-1": date_m1, "SARR M-1": sarr_m1,
             "Mois M-2": date_m2, "SARR M-2": sarr_m2,
+            "SARR M": sarr_m,
+            "Moyenne M1-M2-M3": moy_3_mois,
             "Momentum_HL": momentum, 
-            "Base_HL": base,
+            "Base_HL": base_final,
             "Multiplicateur": multiplicateur
         })
 
@@ -277,9 +288,12 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
             cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1
         else:
             cagr_val = 0.0
+            
+        # Option : Forcer le CAGR
+        cagr_final = forced_cagr / 100.0 if forced_cagr != 0 else cagr_val
 
         for y in range(annee_cloture, annee_cible + 1):
-            multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
+            multiplicateur_cagr = (1 + cagr_final) ** (y - annee_cloture)
             
             for m in range(1, 13):
                 if y == annee_cloture and m <= mois_cutoff: continue
@@ -299,7 +313,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
                     "annee": y, "mois": m, "agence": ag, "article": art,
                     "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Indice": coef, "Base": base, "Momentum": momentum,
-                    "CAGR (%)": cagr_val * 100,
+                    "CAGR (%)": cagr_final * 100,
                     "Prevision_HL": prev_hl,
                     "Prevision_Cols": prev_cols
                 })
@@ -411,6 +425,12 @@ with col_app:
             methode_coef = st.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
             unite_affichage = st.radio("Unité d'affichage", options=["Cols", "HL"], index=0)
 
+        with st.sidebar.expander("🔧 Réplique Excel (Optionnel)", expanded=False):
+            st.write("Permet de forcer les paramètres si Excel utilise des chiffres figés.")
+            use_rounded_coef = st.checkbox("Utiliser les coefficients arrondis (1 décimale)", value=False, help="Excel arrondit parfois l'affichage mais utilise la valeur exacte. Cochez ceci si vos SARR ne collent pas.")
+            forced_cagr = st.number_input("Forcer le CAGR (%) (0 = auto)", min_value=-100.0, max_value=200.0, value=0.0, step=0.1)
+            forced_base = st.number_input("Forcer la Base (HL) (0 = auto)", min_value=0.0, max_value=100000.0, value=0.0, step=10.0)
+
         # VÉRIFICATION
         annees_manquantes, annees_incompletes, annees_completes = verifier_integrite_historique(df_perimetre, annee_min_histo, annee_max_histo)
 
@@ -427,7 +447,8 @@ with col_app:
 
         # CALCULS
         table_indices, df_sarr, df_momentum, df_hist, df_previsions, df_vue_excel, df_audit = calculer_modele(
-            df_perimetre, annee_cloture, mois_cutoff, annee_min_histo, annee_max_histo, methode_coef, niveau_agregation, annee_cible
+            df_perimetre, annee_cloture, mois_cutoff, annee_min_histo, annee_max_histo, methode_coef, niveau_agregation, annee_cible,
+            use_rounded_coef, forced_cagr, forced_base
         )
         
         if table_indices is None:
@@ -462,7 +483,6 @@ with col_app:
                     pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                     
                     try:
-                        # FORMATAGE A 1 DECIMALE POUR MATCHER EXCEL
                         styled_df = pivot_indices.style.map(color_cells).format("{:.1f}")
                     except AttributeError:
                         styled_df = pivot_indices.style.applymap(color_cells).format("{:.1f}")

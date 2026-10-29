@@ -7,7 +7,7 @@ import unicodedata
 import math
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
-st.title("Moteur de Prévision : Vrai Calcul vs Calcul Arrondi (Excel)")
+st.title("Moteur de Prévision : Calcul Exact vs Calcul Arrondi")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -93,7 +93,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPE 4 : CALCUL DES INDICES ET DU SARR
+# ÉTAPE 4 : CALCUL DES INDICES
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices...")
 def calculer_indices(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, fenetre_histo: str, methode_coef: str, niveau_agregation: str):
@@ -137,6 +137,8 @@ def calculer_indices(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff
         indices = moy_histo.div(moy_globale, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
+    
+    # On ajoute la colonne avec l'arrondi Excel (ex: 0.855 -> 0.9)
     table_indices['Indice_Excel'] = table_indices['Indice'].apply(lambda x: excel_round(x, 1))
 
     df_sarr = df_realise.merge(table_indices, on=group_cols + ['mois'], how='left')
@@ -171,16 +173,18 @@ def generer_tableau_comparatif(df_sarr: pd.DataFrame, periode_momentum: int, uni
                 coef_arrondi = group_n.loc[i, 'Indice_Excel']
                 
                 row[f"Vol_M{i+1}"] = vol
-                row[f"Coef_M{i+1}"] = coef_arrondi
+                row[f"Coef_Exact_M{i+1}"] = coef_exact
+                row[f"Coef_Affiché_M{i+1}"] = coef_arrondi
                 
-                # 1. Calcul VRAI (Mathématique)
+                # 1. Calcul VRAI (Mathématique) - Ce que Streamlit fait
                 row[f"SARR_Vrai_M{i+1}"] = vol / coef_exact if pd.notna(coef_exact) and coef_exact > 0 else np.nan
-                # 2. Calcul FAUX (Excel avec arrondi)
+                # 2. Calcul FAUX (Ce que donnerait la division par l'arrondi)
                 row[f"SARR_Faux_M{i+1}"] = vol / coef_arrondi if pd.notna(coef_arrondi) and coef_arrondi > 0 else np.nan
             else:
                 row[f"M-{i+1}"] = "-"
                 row[f"Vol_M{i+1}"] = np.nan
-                row[f"Coef_M{i+1}"] = np.nan
+                row[f"Coef_Exact_M{i+1}"] = np.nan
+                row[f"Coef_Affiché_M{i+1}"] = np.nan
                 row[f"SARR_Vrai_M{i+1}"] = np.nan
                 row[f"SARR_Faux_M{i+1}"] = np.nan
 
@@ -241,11 +245,11 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Tableau généré avec succès.")
     
-    tab_comparaison, tab_indices = st.tabs(["⚖️ Comparaison (Vrai vs Excel)", "📈 Table Indices"])
+    tab_comparaison, tab_indices = st.tabs(["⚖️ Comparaison (Vrai vs Arrondi)", "📈 Table Indices"])
 
     with tab_comparaison:
-        st.subheader("Pourquoi Excel se trompe (parfois)")
-        st.write("Ce tableau montre le calcul exact et le calcul avec l'arrondi. Tu peux voir que même en arrondissant, on ne retrouve pas l'Excel car les données historiques diffèrent.")
+        st.subheader("Preuve Mathématique : L'impact de l'arrondi")
+        st.write("Ce tableau te montre exactement ce qu'il se passe si on utilise l'arrondi (0.9 au lieu de 0.855) pour faire le calcul.")
         
         if not df_analyse.empty:
             row = df_analyse.iloc[0]
@@ -254,29 +258,32 @@ if fichier_ventes is not None and fichier_ref is not None:
             for i in range(periode_momentum):
                 date_m = row.get(f"M-{i+1}", "-")
                 vol = row.get(f"Vol_M{i+1}", np.nan)
-                coef = row.get(f"Coef_M{i+1}", np.nan)
+                coef_ex = row.get(f"Coef_Exact_M{i+1}", np.nan)
+                coef_ar = row.get(f"Coef_Affiché_M{i+1}", np.nan)
                 sarr_vrai = row.get(f"SARR_Vrai_M{i+1}", np.nan)
                 sarr_faux = row.get(f"SARR_Faux_M{i+1}", np.nan)
                 
                 comp_data.append({
                     "Mois": f"M-{i+1} ({date_m})",
-                    "Volume": vol,
-                    "Coef Arrondi": coef,
-                    "SARR Vrai (Coef Exact)": sarr_vrai,
-                    "SARR Excel (Coef Arrondi)": sarr_faux,
+                    "Volume (Cols)": vol,
+                    "Coef Exact (Python)": coef_ex,
+                    "Coef Arrondi (Excel)": coef_ar,
+                    "SARR Exact (Volume / Coef Exact)": sarr_vrai,
+                    "SARR Faux (Volume / Coef Arrondi)": sarr_faux,
                 })
                 
             st.dataframe(
                 pd.DataFrame(comp_data).style.format({
-                    "Volume": "{:,.0f}",
-                    "Coef Arrondi": "{:.1f}",
-                    "SARR Vrai (Coef Exact)": "{:,.1f}",
-                    "SARR Excel (Coef Arrondi)": "{:,.1f}",
+                    "Volume (Cols)": "{:,.0f}",
+                    "Coef Exact (Python)": "{:.6f}",
+                    "Coef Arrondi (Excel)": "{:.1f}",
+                    "SARR Exact (Volume / Coef Exact)": "{:,.1f}",
+                    "SARR Faux (Volume / Coef Arrondi)": "{:,.1f}",
                 }),
                 use_container_width=True
             )
             
-            st.warning("💡 **Explication :** Ton Excel calcule avec le coef exact (`0.855` par exemple) mais affiche `0.9`. Si on force l'arrondi (`0.9`), on obtient une autre valeur (SARR Excel). Mais cette valeur est encore différente de ton Excel car ton Excel utilise un historique de données différent de Streamlit.")
+            st.error("⚠️ **Observation cruciale :** Regarde bien le SARR Faux ! Par exemple pour Août, si on divise `511 201` par `1.0` (l'arrondi), on obtient `511 201`. Or, ton Excel affiche `506 829,3`. C'est la preuve absolue que **ton Excel n'utilise pas l'arrondi pour calculer**, il utilise le chiffre exact (`1.0086`), mais il l'affiche arrondi à `1.0`.")
         else:
             st.write("Sélectionne un article pour voir la comparaison.")
 

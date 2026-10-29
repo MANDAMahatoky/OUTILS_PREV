@@ -91,7 +91,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
-    df_ref = df_ref.drop_duplicates(subset=["article_original"]).reset_index(drop=True)
+    
+    # CORRECTION : Suppression des doublons sur la clé normalisée
+    df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
@@ -155,9 +157,9 @@ def verifier_integrite_historique(df_perimetre: pd.DataFrame, annee_min: int, an
     return annees_manquantes, annees_incompletes, annees_completes
 
 # ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS PURS
+# ÉTAPES 4, 5.1 & 5.2 : CALCULS PURS (NATIVEMENT EN HL)
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions...")
+@st.cache_data(show_spinner="Calcul des indices, du Momentum et des Prévisions en HL...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff: int, annee_min_histo: int, annee_max_histo: int, 
                     methode_coef: str, niveau_agregation: str, annee_cible: int):
     
@@ -197,14 +199,13 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # --- ÉTAPE 5.1 : MOMENTUM & BASE ---
+    # --- ÉTAPE 5.1 : MOMENTUM & BASE (en HL) ---
     df_sarr_sorted = df_sarr.sort_values(group_cols + ['annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(group_cols).cumcount(ascending=False)
     
     resultats_momentum = []
     
     for _, group in df_sarr_sorted.groupby(group_cols):
-        # CORRECTION DU BUG : Extraction robuste de ag et art
         if len(group_cols) == 2:
             ag = group[group_cols[0]].iloc[0]
             art = group[group_cols[1]].iloc[0]
@@ -243,7 +244,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR ---
+    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR (en HL) ---
     resultats_previsions = []
     
     for _, row in df_momentum.iterrows():
@@ -279,15 +280,18 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
                 
                 prev_hl = ((coef * base) + momentum) * multiplicateur_cagr
                 prev_hl = max(0.0, prev_hl)
-                prev_cols = prev_hl * multiplicateur
                 
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art,
                     "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
-                    "Indice": coef, "Base": base, "Momentum": momentum,
+                    "Indice": coef, 
+                    "Base_HL": base, 
+                    "Base_Cols": base * multiplicateur,
+                    "Momentum_HL": momentum,
+                    "Momentum_Cols": momentum * multiplicateur,
                     "CAGR (%)": cagr_val * 100,
                     "Prevision_HL": prev_hl,
-                    "Prevision_Cols": prev_cols
+                    "Prevision_Cols": prev_hl * multiplicateur
                 })
 
     df_previsions = pd.DataFrame(resultats_previsions)
@@ -316,7 +320,7 @@ col_info, col_app = st.columns([1, 3])
 
 with col_info:
     st.markdown("### 📖 Guide")
-    st.info("Calculs purs et transparents.")
+    st.info("⚙️ **Note :** Tous les calculs de base (SARR, Momentum, Base, Prévisions) sont effectués en **HL (Hectolitres)**.")
     with st.expander("1. Indices", expanded=True):
         st.markdown("🟩 **Vert (> 1.0)** : Mois Fort\n🟥 **Rouge (< 1.0)** : Mois Faible")
     with st.expander("2. SARR & Momentum", expanded=True):
@@ -397,12 +401,12 @@ with col_app:
             niveau_agregation = st.radio("Niveau d'agrégation", options=["Par Agence & Article", "Par Article (Global)"], index=0)
             methode_coef = st.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
             
-            # AMÉLIORATION UI : Ajout d'une infobulle pour l'unité
+            # AMÉLIORATION : HL par défaut
             unite_affichage = st.sidebar.radio(
                 "Unité d'affichage", 
-                options=["Cols", "HL"], 
-                index=0,
-                help="Cols = Bouteilles (ex: 1 HL = 50 cols pour du 200cl). Choisissez HL pour comparer avec vos anciens modèles Excel."
+                options=["HL", "Cols"], 
+                index=0, 
+                help="HL = Hectolitres (Unité de calcul par défaut). Cols = Bouteilles (1 HL = 50 cols pour du 200cl)."
             )
 
         # --- VÉRIFICATION INTÉGRITÉ ---
@@ -495,10 +499,16 @@ with col_app:
             with tab_prev:
                 with st.container(border=True):
                     st.subheader(f"Prévisions Finales avec CAGR jusqu'en {annee_cible}")
+                    
+                    # Définition des colonnes dynamiques selon l'unité
                     if unite_affichage == "Cols":
                         col_aff = "Prevision_Cols"
+                        col_base = "Base_Cols"
+                        col_mom = "Momentum_Cols"
                     else:
                         col_aff = "Prevision_HL"
+                        col_base = "Base_HL"
+                        col_mom = "Momentum_HL"
 
                     st.markdown("### 📊 TCD des Prévisions Mensuelles")
                     pivot_prev = df_previsions.pivot_table(
@@ -509,13 +519,13 @@ with col_app:
                     st.dataframe(pivot_prev.style.format("{:,.2f}", na_rep="-"), use_container_width=True)
                     bouton_telechargement(pivot_prev, "previsions_tcd.csv")
 
-                    st.markdown("### 📅 Détail Ligne par Ligne")
+                    st.markdown(f"### 📅 Détail Ligne par Ligne ({unite_affichage})")
                     st.dataframe(
-                        df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base", "Momentum", "CAGR (%)", col_aff]].sort_values(["annee", "mois", "agence", "article"]),
+                        df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", col_base, col_mom, "CAGR (%)", col_aff]].sort_values(["annee", "mois", "agence", "article"]),
                         column_config={
                             "Indice": st.column_config.NumberColumn("Indice", format="%.2f"),
-                            "Base": st.column_config.NumberColumn("Base (HL)", format="%.0f"),
-                            "Momentum": st.column_config.NumberColumn("Momentum (HL)", format="%.0f"),
+                            col_base: st.column_config.NumberColumn(f"Base ({unite_affichage})", format="%.2f"),
+                            col_mom: st.column_config.NumberColumn(f"Momentum ({unite_affichage})", format="%.2f"),
                             "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
                             col_aff: st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
                         },

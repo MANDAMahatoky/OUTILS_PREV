@@ -140,7 +140,14 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(group_cols).cumcount(ascending=False)
     
     resultats_momentum = []
-    for (ag, art), group in df_sarr_sorted.groupby(group_cols):
+    
+    # CORRECTION DU BUG ICI : On s'adapte au nombre de colonnes de regroupement
+    for keys, group in df_sarr_sorted.groupby(group_cols):
+        if isinstance(keys, tuple):
+            ag, art = keys
+        else:
+            ag, art = "Global", keys
+
         ligne_m1 = group[group['rang'] == 1]
         ligne_m2 = group[group['rang'] == 2]
         
@@ -225,7 +232,7 @@ with col_app:
         annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
         mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=7, format_func=lambda m: f"{m} - {['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'][m-1]}")
         
-        niveau_agregation = st.sidebar.radio("Niveau de calcul", options=["Par Agence & Article", "Par Article (Global)"], index=1)
+        niveau_agregation = st.sidebar.radio("Niveau de calcul", options=["Par Agence & Article", "Par Article (Global)"], index=0)
         fenetre_histo = st.sidebar.radio("Période pour les Coefs", options=["2 dernières années", "3 dernières années", "Tout l'historique"], index=0)
         methode_coef = st.sidebar.radio("Méthode de calcul", options=["Ratio des Sommes", "Moyenne des Ratios"], index=0)
         unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)

@@ -8,13 +8,6 @@ import base64
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide", initial_sidebar_state="expanded")
 
-# --- LOGO (Optionnel) ---
-try:
-    st.logo("logo.png", size="large")
-except Exception:
-    pass
-
-# Style CSS personnalisé
 st.markdown("""
 <style>
     .block-container { padding-top: 2rem; }
@@ -219,6 +212,9 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
         sarr_m2 = row_m2['SARR_HL'].values[0] if not row_m2.empty else 0
         sarr_m3 = row_m3['SARR_HL'].values[0] if not row_m3.empty else 0
         
+        contenance = group['contenance_cl'].iloc[0] if 'contenance_cl' in group.columns else 100.0
+        multiplicateur = 10000 / contenance
+        
         date_m1 = f"{MOIS_NOMS[int(row_m1['mois'].values[0])-1]}-{str(int(row_m1['annee'].values[0]))[-2:]}" if not row_m1.empty else "-"
         date_m2 = f"{MOIS_NOMS[int(row_m2['mois'].values[0])-1]}-{str(int(row_m2['annee'].values[0]))[-2:]}" if not row_m2.empty else "-"
         
@@ -231,7 +227,8 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
             "Mois M-1": date_m1, "SARR M-1": sarr_m1,
             "Mois M-2": date_m2, "SARR M-2": sarr_m2,
             "Momentum_HL": momentum, 
-            "Base_HL": base
+            "Base_HL": base,
+            "Multiplicateur": multiplicateur
         })
 
         if not row_m1.empty and not row_m2.empty:
@@ -266,6 +263,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
     for _, row in df_momentum.iterrows():
         ag, art = row['agence'], row['article']
         base, momentum = row['Base_HL'], row['Momentum_HL']
+        multiplicateur = row['Multiplicateur']
         
         art_hist = df_hist[df_hist['article'] == art]
         if len(group_cols) == 2:
@@ -281,7 +279,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
             cagr_val = 0.0
 
         for y in range(annee_cloture, annee_cible + 1):
-            multiplicateur = (1 + cagr_val) ** (y - annee_cloture)
+            multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
             
             for m in range(1, 13):
                 if y == annee_cloture and m <= mois_cutoff: continue
@@ -293,15 +291,17 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_cloture: int, mois_cutoff:
                 
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
-                prev_hl = ((coef * base) + momentum) * multiplicateur
+                prev_hl = ((coef * base) + momentum) * multiplicateur_cagr
                 prev_hl = max(0.0, prev_hl)
+                prev_cols = prev_hl * multiplicateur
                 
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art,
                     "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Indice": coef, "Base": base, "Momentum": momentum,
                     "CAGR (%)": cagr_val * 100,
-                    "Prevision_HL": prev_hl
+                    "Prevision_HL": prev_hl,
+                    "Prevision_Cols": prev_cols
                 })
 
     df_previsions = pd.DataFrame(resultats_previsions)
@@ -396,13 +396,11 @@ with col_app:
         
         with st.sidebar.expander("📅 Intervalle Historique", expanded=True):
             st.success(f"Données détectées : **{annee_min_reelle}** à **{annee_max_reelle}**")
-            # Valeurs par défaut : 2024 - 2025 pour matcher l'Excel
             annee_min_histo = st.number_input("Année Min (Début)", min_value=2015, max_value=2030, value=2024)
             annee_max_histo = st.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=2030, value=2025)
             
         with st.sidebar.expander("🎯 Cutoff & Cible", expanded=True):
             annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-            # Valeur par défaut : Octobre (10) pour matcher l'Excel (M-1 = Sept)
             mois_cutoff = st.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
             
             st.markdown("---")
@@ -464,17 +462,20 @@ with col_app:
                     pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                     
                     try:
-                        styled_df = pivot_indices.style.map(color_cells).format("{:.2f}")
+                        # FORMATAGE A 1 DECIMALE POUR MATCHER EXCEL
+                        styled_df = pivot_indices.style.map(color_cells).format("{:.1f}")
                     except AttributeError:
-                        styled_df = pivot_indices.style.applymap(color_cells).format("{:.2f}")
+                        styled_df = pivot_indices.style.applymap(color_cells).format("{:.1f}")
                     st.dataframe(styled_df, use_container_width=True, height=400)
 
             with tab_momentum:
                 with st.container(border=True):
                     st.subheader("Calcul du Momentum et de la Base")
+                    
                     if unite_affichage == "Cols":
-                        df_momentum["Momentum_Aff"] = df_momentum["Momentum_HL"] * 100
-                        df_momentum["Base_Aff"] = df_momentum["Base_HL"] * 100
+                        df_momentum["Momentum_Aff"] = df_momentum["Momentum_HL"] * df_momentum["Multiplicateur"]
+                        df_momentum["Base_Aff"] = df_momentum["Base_HL"] * df_momentum["Multiplicateur"]
+                        
                         st.dataframe(
                             df_momentum[["agence", "article", "Mois M-1", "SARR M-1", "Mois M-2", "SARR M-2", "Momentum_Aff", "Base_Aff"]],
                             column_config={
@@ -501,8 +502,7 @@ with col_app:
                 with st.container(border=True):
                     st.subheader(f"Prévisions Finales avec CAGR jusqu'en {annee_cible}")
                     if unite_affichage == "Cols":
-                        df_previsions["Prevision_Aff"] = df_previsions["Prevision_HL"] * 100
-                        col_aff = "Prevision_Aff"
+                        col_aff = "Prevision_Cols"
                     else:
                         col_aff = "Prevision_HL"
 
@@ -529,9 +529,10 @@ with col_app:
                 st.subheader("Validation : Historique Décalé (M-1 à M-12)")
                 if unite_affichage == "Cols":
                     df_vue_aff = df_vue_excel.copy()
+                    contenance_map = df_enrichi.drop_duplicates(subset=['article']).set_index('article')['contenance_cl'].to_dict()
                     for i in range(1, 13):
-                        df_vue_aff[f"M-{i} (Vol)"] = df_vue_aff[f"M-{i} (Vol)"] * 100
-                        df_vue_aff[f"M-{i} (SARR)"] = df_vue_aff[f"M-{i} (SARR)"] * 100
+                        df_vue_aff[f"M-{i} (Vol)"] = df_vue_aff.apply(lambda row: row[f"M-{i} (Vol)"] * (10000 / contenance_map.get(row['article'], 100)), axis=1)
+                        df_vue_aff[f"M-{i} (SARR)"] = df_vue_aff.apply(lambda row: row[f"M-{i} (SARR)"] * (10000 / contenance_map.get(row['article'], 100)), axis=1)
                 else:
                     df_vue_aff = df_vue_excel.copy()
 

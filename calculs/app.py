@@ -26,10 +26,10 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (DONNÉES SOURCES EN HL)
 # ==============================================================================
-@st.cache_data(show_spinner="Chargement des données et conversion...")
-def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, unite_source: str) -> pd.DataFrame:
+@st.cache_data(show_spinner="Chargement des données...")
+def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     
@@ -78,11 +78,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, unite_source: str
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
-    # --- CONVERSION SELON L'UNITÉ SOURCE ---
-    if unite_source == "HL":
-        df_enrichi["hl"] = df_enrichi["volume_brut"]
-    else:
-        df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000)
+    # On stocke le volume en HL (qui est la base de calcul)
+    df_enrichi["hl"] = df_enrichi["volume_brut"]
     
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
@@ -100,9 +97,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, unite_source: str
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS
+# ÉTAPES 4, 5.1 & 5.2 : CALCULS (NATIVEMENT EN HL)
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices, SARR, Momentum et Prévisions...")
+@st.cache_data(show_spinner="Calcul des indices, SARR, Momentum et Prévisions en HL...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, methode_coef: str):
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
@@ -119,7 +116,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     
     if df_hist_complet.empty: return None, None, None, None, None
 
-    # --- ÉTAPE 4 : INDICES & SARR ---
+    # --- ÉTAPE 4 : INDICES & SARR (en HL) ---
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols_annuels = vols.sum(axis=1)
     
@@ -137,7 +134,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # --- ÉTAPE 5.1 : MOMENTUM & BASE ---
+    # --- ÉTAPE 5.1 : MOMENTUM & BASE (en HL) ---
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -165,7 +162,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR ---
+    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR (en HL et conversion finale en Cols) ---
     resultats_previsions = []
     
     for _, row in df_momentum.iterrows():
@@ -184,6 +181,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                 coef = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]['Indice'].values[0]
                 prev_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                 
+                # On stocke les 2 pour l'affichage final
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Indice": coef, "Base_HL": base, "Momentum_HL": momentum,
@@ -206,17 +204,7 @@ with col2:
 
 if fichier_ventes is not None and fichier_ref is not None:
     
-    st.sidebar.markdown("---")
-    st.sidebar.header("📏 Unité de la Base")
-    # HL PAR DÉFAUT COMME CONFIRMÉ
-    unite_source = st.sidebar.radio(
-        "Unité du fichier DATA_BRUT", 
-        options=["HL", "Cols"], 
-        index=0, 
-        help="Vos volumes sont en HL. Le script fera la conversion en Cols uniquement pour l'affichage si besoin."
-    )
-    
-    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue(), unite_source)
+    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
     st.sidebar.header("🔍 Filtres")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
@@ -255,7 +243,9 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.header("🛠️ Options d'Affichage")
     nb_mois_vue = st.sidebar.slider("Nombre de mois à afficher (Vue Excel)", min_value=3, max_value=12, value=5)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0) 
+    
+    # Unité d'affichage (Calculs toujours en HL, conversion uniquement pour l'écran)
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0, help="Les calculs sont en HL. Choisir 'Cols' convertit juste l'affichage final.")
 
     # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_hist, df_previsions = calculer_modele(
@@ -266,7 +256,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
         st.stop()
 
-    st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo}.")
+    st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo} (Base de calcul en HL).")
     
     # ONGLETS
     tab_indices, tab_sarr, tab_audit_sarr, tab_vue_excel, tab_prev, tab_diag = st.tabs([
@@ -301,7 +291,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_audit_sarr:
-        st.subheader("🔎 Audit du calcul du SARR (Valeurs exactes non arrondies)")
+        st.subheader("🔎 Audit du calcul du SARR (Valeurs exactes non arrondies en HL)")
         st.info("Si votre Excel affiche le même Volume et le même Coef mais un SARR différent, c'est que Excel utilise un Coef arrondi (ex: 0.8) au lieu du Coef exact (ex: 0.784523). Voici la preuve mathématique.")
         
         df_audit = df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR_HL"]].copy()
@@ -381,20 +371,19 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_diag:
-        st.subheader("🩺 Diagnostic : Volumes Bruts vs Convertis")
+        st.subheader("🩺 Diagnostic : Volumes Historiques (en HL)")
         
-        df_diag = df_perimetre.groupby(['annee', 'mois', 'agence', 'article', 'contenance_cl'])[['volume_brut', 'hl']].sum().reset_index()
-        df_diag = df_diag[(df_diag['volume_brut'] > 0) | (df_diag['hl'] > 0)].sort_values(['annee', 'mois', 'agence', 'article'])
+        df_diag = df_perimetre.groupby(['annee', 'mois', 'agence', 'article', 'contenance_cl'])[['hl']].sum().reset_index()
+        df_diag = df_diag[df_diag['hl'] > 0].sort_values(['annee', 'mois', 'agence', 'article'])
         
         if sel_articles: df_diag = df_diag[df_diag["article"].isin(sel_articles)]
         if sel_agences: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
         
         st.dataframe(
-            df_diag.style.format({"volume_brut": "{:,.2f}", "hl": "{:,.2f}", "contenance_cl": "{:,.0f}"}),
+            df_diag.style.format({"hl": "{:,.4f}", "contenance_cl": "{:,.0f}"}),
             column_config={
                 "contenance_cl": st.column_config.NumberColumn("Contenance (cl)"),
-                "volume_brut": st.column_config.NumberColumn(f"Volume Fichier ({unite_source})"),
-                "hl": st.column_config.NumberColumn("Volume Converti (HL)")
+                "hl": st.column_config.NumberColumn("Volume Source (HL)")
             },
             use_container_width=True
         )

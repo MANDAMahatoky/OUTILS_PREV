@@ -26,10 +26,10 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (AVEC PARAMÈTRE D'UNITÉ)
 # ==============================================================================
-@st.cache_data(show_spinner="Chargement des données et conversion (Cols -> HL)...")
-def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
+@st.cache_data(show_spinner="Chargement des données et conversion...")
+def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, unite_source: str) -> pd.DataFrame:
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     
@@ -78,8 +78,11 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
-    # Conversion de base en HL
-    df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000)
+    # --- CONVERSION SELON L'UNITÉ SOURCE ---
+    if unite_source == "HL":
+        df_enrichi["hl"] = df_enrichi["volume_brut"] # Le volume est déjà en HL
+    else:
+        df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000) # Conversion Cols -> HL
     
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
@@ -133,7 +136,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
-    df_sarr['SARR_Cols'] = df_sarr['volume_brut'] / df_sarr['Indice'].replace(0, 1.0)
 
     # --- ÉTAPE 5.1 : MOMENTUM & BASE ---
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
@@ -182,17 +184,11 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                 coef = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]['Indice'].values[0]
                 prev_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                 
-                # Calcul des prévisions dans toutes les unités
-                prev_cols = prev_hl * (10000 / contenance)
-                prev_cl = prev_hl * 10000
-                
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Indice": coef, "Base_HL": base, "Momentum_HL": momentum,
-                    "CAGR (%)": cagr_val * 100, 
-                    "Prevision_HL": prev_hl, 
-                    "Prevision_Cols": prev_cols,
-                    "Prevision_Cl": prev_cl
+                    "CAGR (%)": cagr_val * 100, "Prevision_HL": prev_hl, 
+                    "Prevision_Cols": prev_hl * (10000 / contenance)
                 })
 
     df_previsions = pd.DataFrame(resultats_previsions)
@@ -208,7 +204,11 @@ with col2:
     fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"])
 
 if fichier_ventes is not None and fichier_ref is not None:
-    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
+    
+    # --- AJOUT DU CHOIX DE L'UNITÉ SOURCE ---
+    unite_source = st.sidebar.radio("Unité du fichier source (DATA_BRUT)", options=["HL", "Cols"], index=0, help="Si votre fichier source est en HL, choisissez HL. S'il est en bouteilles, choisissez Cols.")
+    
+    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue(), unite_source)
 
     # --- FILTRES ---
     st.sidebar.header("🔍 Filtres")
@@ -249,8 +249,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.header("🛠️ Options d'Affichage")
     nb_mois_vue = st.sidebar.slider("Nombre de mois à afficher (Vue Excel)", min_value=3, max_value=12, value=5)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    # AJOUT DE L'OPTION CL
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL", "Cl"], index=0) 
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL"], index=0) 
 
     # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_hist, df_previsions = calculer_modele(
@@ -270,16 +269,11 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     # --- CONVERSION POUR L'AFFICHAGE ---
     if unite_affichage == "Cols":
+        df_sarr["SARR_Cols"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
+        df_sarr["Vol_Cols"] = df_sarr["hl"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
         col_sarr_aff = "SARR_Cols"
-        col_vol_aff = "volume_brut"
+        col_vol_aff = "Vol_Cols"
         col_prev_aff = "Prevision_Cols"
-    elif unite_affichage == "Cl":
-        # SARR en CL = SARR_HL * 10000
-        df_sarr["SARR_Cl"] = df_sarr["SARR_HL"] * 10000
-        df_sarr["volume_cl"] = df_sarr["hl"] * 10000
-        col_sarr_aff = "SARR_Cl"
-        col_vol_aff = "volume_cl"
-        col_prev_aff = "Prevision_Cl"
     else:
         col_sarr_aff = "SARR_HL"
         col_vol_aff = "hl"
@@ -289,8 +283,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.subheader("Table des Indices de Saisonnalité")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        
-        # Formatage à 1 décimale pour être 100% identique à l'Excel
         st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
 
     with tab_sarr:
@@ -309,7 +301,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.subheader("🔍 Vue Décalée (Format Excel)")
         st.info("Ce tableau reproduit exactement la structure de votre fichier Excel avec les colonnes M-1, M-2, etc.")
         
-        # Préparation des données
         df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
         df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
         
@@ -331,13 +322,11 @@ if fichier_ventes is not None and fichier_ref is not None:
                     row[f"M-{i+1} (Coef)"] = 0
                     row[f"SARR M-{i+1}"] = 0
                     
-            # Moyenne SARR sur la période affichée
             row[f"Moyenne SARR ({unite_affichage})"] = np.mean(sarr_vals_pour_moyenne) if sarr_vals_pour_moyenne else 0
             vue_excel_data.append(row)
             
         df_vue_excel = pd.DataFrame(vue_excel_data)
         
-        # Affichage avec configuration des colonnes
         st.dataframe(
             df_vue_excel,
             column_config={
@@ -381,10 +370,10 @@ if fichier_ventes is not None and fichier_ref is not None:
         if sel_agences: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
         
         st.dataframe(
-            df_diag.style.format({"volume_brut": "{:,.0f}", "hl": "{:,.2f}", "contenance_cl": "{:,.0f}"}),
+            df_diag.style.format({"volume_brut": "{:,.2f}", "hl": "{:,.2f}", "contenance_cl": "{:,.0f}"}),
             column_config={
                 "contenance_cl": st.column_config.NumberColumn("Contenance (cl)"),
-                "volume_brut": st.column_config.NumberColumn("Volume Fichier (Cols)"),
+                "volume_brut": st.column_config.NumberColumn(f"Volume Fichier ({unite_source})"),
                 "hl": st.column_config.NumberColumn("Volume Converti (HL)")
             },
             use_container_width=True

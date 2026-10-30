@@ -26,7 +26,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (AVEC CONVERSION COLS -> HL)
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données et conversion (Cols -> HL)...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
@@ -78,7 +78,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
-    # Conversion Cols -> HL
+    # --- CONVERSION : HL = Cols * (Contenance_cl / 10000) ---
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000)
     
     conditions = [

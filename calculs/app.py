@@ -26,7 +26,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (AVEC PARAMÈTRE D'UNITÉ)
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données et conversion...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, unite_source: str) -> pd.DataFrame:
@@ -80,9 +80,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, unite_source: str
     
     # --- CONVERSION SELON L'UNITÉ SOURCE ---
     if unite_source == "HL":
-        df_enrichi["hl"] = df_enrichi["volume_brut"] # Le volume est déjà en HL
+        df_enrichi["hl"] = df_enrichi["volume_brut"]
     else:
-        df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000) # Conversion Cols -> HL
+        df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000)
     
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
@@ -187,7 +187,8 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Indice": coef, "Base_HL": base, "Momentum_HL": momentum,
-                    "CAGR (%)": cagr_val * 100, "Prevision_HL": prev_hl, 
+                    "CAGR (%)": cagr_val * 100, 
+                    "Prevision_HL": prev_hl, 
                     "Prevision_Cols": prev_hl * (10000 / contenance)
                 })
 
@@ -205,12 +206,18 @@ with col2:
 
 if fichier_ventes is not None and fichier_ref is not None:
     
-    # --- AJOUT DU CHOIX DE L'UNITÉ SOURCE ---
-    unite_source = st.sidebar.radio("Unité du fichier source (DATA_BRUT)", options=["HL", "Cols"], index=0, help="Si votre fichier source est en HL, choisissez HL. S'il est en bouteilles, choisissez Cols.")
+    st.sidebar.markdown("---")
+    st.sidebar.header("📏 Unité de la Base")
+    # HL PAR DÉFAUT COMME CONFIRMÉ
+    unite_source = st.sidebar.radio(
+        "Unité du fichier DATA_BRUT", 
+        options=["HL", "Cols"], 
+        index=0, 
+        help="Vos volumes sont en HL. Le script fera la conversion en Cols uniquement pour l'affichage si besoin."
+    )
     
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue(), unite_source)
 
-    # --- FILTRES ---
     st.sidebar.header("🔍 Filtres")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
@@ -228,7 +235,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # --- CUTOFF & OPTIONS ---
     st.sidebar.markdown("---")
     st.sidebar.header("📅 Intervalle Historique")
     annee_min_reelle = int(df_perimetre["annee"].min()) if not df_perimetre.empty else 2020
@@ -249,7 +255,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.header("🛠️ Options d'Affichage")
     nb_mois_vue = st.sidebar.slider("Nombre de mois à afficher (Vue Excel)", min_value=3, max_value=12, value=5)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL"], index=0) 
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0) 
 
     # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_hist, df_previsions = calculer_modele(
@@ -262,21 +268,18 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo}.")
     
-    # Onglets
-    tab_indices, tab_sarr, tab_vue_excel, tab_prev, tab_diag = st.tabs([
-        "📊 Indices", "📈 SARR Global", "🔍 Vue Excel Décalée", "🚀 5.2 Prévisions", "🩺 Diagnostic Données"
+    # ONGLETS
+    tab_indices, tab_sarr, tab_audit_sarr, tab_vue_excel, tab_prev, tab_diag = st.tabs([
+        "📊 Indices", "📈 SARR Global", "🔎 Audit SARR (Décimales)", "🔍 Vue Excel Décalée", "🚀 5.2 Prévisions", "🩺 Diagnostic Données"
     ])
 
-    # --- CONVERSION POUR L'AFFICHAGE ---
     if unite_affichage == "Cols":
-        df_sarr["SARR_Cols"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
-        df_sarr["Vol_Cols"] = df_sarr["hl"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
-        col_sarr_aff = "SARR_Cols"
-        col_vol_aff = "Vol_Cols"
+        df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
+        df_sarr["Vol_Aff"] = df_sarr["hl"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
         col_prev_aff = "Prevision_Cols"
     else:
-        col_sarr_aff = "SARR_HL"
-        col_vol_aff = "hl"
+        df_sarr["SARR_Aff"] = df_sarr["SARR_HL"]
+        df_sarr["Vol_Aff"] = df_sarr["hl"]
         col_prev_aff = "Prevision_HL"
 
     with tab_indices:
@@ -288,11 +291,28 @@ if fichier_ventes is not None and fichier_ref is not None:
     with tab_sarr:
         st.subheader(f"Table du SARR Global (en {unite_affichage})")
         st.dataframe(
-            df_sarr[["annee", "mois", "agence", "article", col_vol_aff, "Indice", col_sarr_aff]].sort_values(["annee", "mois", "agence", "article"]),
+            df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
-                col_vol_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
+                "Vol_Aff": st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
                 "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
-                col_sarr_aff: st.column_config.NumberColumn(f"SARR ({unite_affichage})", format="%.2f")
+                "SARR_Aff": st.column_config.NumberColumn(f"SARR ({unite_affichage})", format="%.2f")
+            },
+            use_container_width=True, height=400
+        )
+
+    with tab_audit_sarr:
+        st.subheader("🔎 Audit du calcul du SARR (Valeurs exactes non arrondies)")
+        st.info("Si votre Excel affiche le même Volume et le même Coef mais un SARR différent, c'est que Excel utilise un Coef arrondi (ex: 0.8) au lieu du Coef exact (ex: 0.784523). Voici la preuve mathématique.")
+        
+        df_audit = df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR_HL"]].copy()
+        df_audit.columns = ["Année", "Mois", "Agence", "Article", "Volume exact (HL)", "Coef EXACT (non arrondi)", "SARR exact (HL)"]
+        
+        st.dataframe(
+            df_audit.sort_values(["Année", "Mois", "Agence", "Article"]),
+            column_config={
+                "Volume exact (HL)": st.column_config.NumberColumn("Volume exact (HL)", format="%.4f"),
+                "Coef EXACT (non arrondi)": st.column_config.NumberColumn("Coef EXACT (non arrondi)", format="%.6f"),
+                "SARR exact (HL)": st.column_config.NumberColumn("SARR exact (HL)", format="%.4f"),
             },
             use_container_width=True, height=400
         )
@@ -314,7 +334,7 @@ if fichier_ventes is not None and fichier_ref is not None:
                 if not r.empty:
                     row[f"M-{i+1} (Date)"] = f"{MOIS_NOMS[int(r['mois'].values[0])-1]}-{str(int(r['annee'].values[0]))[-2:]}"
                     row[f"M-{i+1} (Coef)"] = r['Indice'].values[0]
-                    val_sarr = r[col_sarr_aff].values[0]
+                    val_sarr = r['SARR_Aff'].values[0]
                     row[f"SARR M-{i+1}"] = val_sarr
                     sarr_vals_pour_moyenne.append(val_sarr)
                 else:

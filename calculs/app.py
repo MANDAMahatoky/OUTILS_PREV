@@ -22,42 +22,35 @@ def normaliser_mois(valeur) -> int:
 
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
-    # Vérifie si la première colonne contient des années
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (DONNÉES SOURCES EN HL)
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
-    # 1. Lecture du Référentiel
     flux_ref = io.BytesIO(ref_bytes)
     df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
     
-    # Renommage des colonnes pour correspondre à notre logique
     df_ref = df_ref.rename(columns={
         "Article": "article_original", "Positionnement": "positionnement", 
         "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"
     })
     
-    # Sécurité si une colonne manque (ex: erreur VLOOKUP dans le fichier Excel)
     for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
         if col not in df_ref.columns: 
             df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
             
     df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
-    # Création d'une clé de jointure (minuscules, sans espaces ni caractères spéciaux)
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
-    # 2. Lecture des Ventes
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
     
     if detecter_format_pivote(df_raw):
-        # Mapping des colonnes selon la capture d'écran (0 à 6)
         rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"])}
         df = df_raw.rename(columns=rename).copy()
         
@@ -65,7 +58,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
         df["mois"] = df["mois"].apply(normaliser_mois)
         df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
         
-        # Filtrage des lignes de totaux
         masque_total = (
             df["segment"].astype(str).str.contains("total", case=False, na=False) | 
             df["produit"].astype(str).str.contains("total", case=False, na=False) |
@@ -75,7 +67,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
         )
         df = df[~masque_total].copy()
         
-        # Extraction du nom de l'article : on supprime le préfixe "101-" par exemple
         df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
         df["agence"] = df["agence"].astype(str).str.strip()
         df["annee"] = df["annee"].fillna(2026).astype(int)
@@ -84,26 +75,20 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     else:
         return pd.DataFrame()
 
-    # 3. Jointure
     df_enrichi = df_ref.merge(df, on="cle_article", how="left")
     
-    # Nettoyage post-jointure
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
-    
-    # Gestion de l'article (priorité au référentiel _x)
     df_enrichi["article"] = df_enrichi["article_original_x"]
     
-    # Sécurité sur les contenances
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
     # BASE DE CALCUL : HL
     df_enrichi["hl"] = df_enrichi["volume_brut"]
     
-    # Attribution dynamique des segments (si le fichier source n'en a pas)
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
         df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
@@ -115,17 +100,15 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
         df_enrichi["article"].str.contains("negoce", case=False, na=False)
     ]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
-    
-    # On garde le segment d'origine s'il existe, sinon on applique la règle
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
     
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS (NATIVEMENT EN HL)
+# ÉTAPES 4, 5.1 & 5.2 : CALCULS
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des indices, SARR, Momentum et Prévisions en HL...")
-def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, methode_coef: str):
+@st.cache_data(show_spinner="Calcul des prévisions...")
+def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, methode_coef: str, activer_momentum: bool):
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
@@ -141,7 +124,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     
     if df_hist_complet.empty: return None, None, None, None, None
 
-    # --- ÉTAPE 4 : INDICES & SARR (en HL) ---
+    # ÉTAPE 4 : INDICES & SARR
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols = vols.reindex(columns=range(1, 13), fill_value=0.0) 
     vols_annuels = vols.sum(axis=1)
@@ -161,7 +144,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # --- ÉTAPE 5.1 : MOMENTUM & BASE (en HL) ---
+    # ÉTAPE 5.1 : MOMENTUM & BASE
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -178,7 +161,10 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         sarr_m3 = get_val(3, 'SARR_HL')
         
         var1, var2, var3 = sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3
-        momentum = np.mean([var1, var2, var3])
+        
+        # Si l'option Momentum est décochée, on le met à 0
+        momentum = np.mean([var1, var2, var3]) if activer_momentum else 0.0
+        
         base = max(sarr_m, np.mean([sarr_m1, sarr_m2, sarr_m3]))
         
         info_art = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)].iloc[0]
@@ -190,7 +176,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR ---
+    # ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR
     resultats_previsions = []
     
     for _, row in df_momentum.iterrows():
@@ -200,8 +186,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         vol_debut = art_hist[art_hist['annee'] == annee_min_histo]['hl'].sum()
         vol_fin = art_hist[art_hist['annee'] == annee_max_histo]['hl'].sum()
         nb_ans = annee_max_histo - annee_min_histo
-        
-        # Calcul du CAGR
         cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1 if nb_ans > 0 and vol_debut > 0 and vol_fin > 0 else 0.0
 
         for y in range(annee_cloture, annee_cible + 1):
@@ -239,10 +223,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    if df_enrichi.empty:
-        st.error("⚠️ Erreur de lecture des fichiers. Vérifiez le format de vos fichiers.")
-        st.stop()
-
     st.sidebar.header("🔍 Filtres")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
@@ -266,8 +246,10 @@ if fichier_ventes is not None and fichier_ref is not None:
     annee_max_reelle = int(df_perimetre["annee"].max()) if not df_perimetre.empty else 2026
     
     st.sidebar.success(f"Données détectées : **{annee_min_reelle}** à **{annee_max_reelle}**")
+    
+    # CORRECTION ICI : On met 2024 et 2026 par défaut
     annee_min_histo = st.sidebar.number_input("Année Min (Début)", min_value=2015, max_value=2030, value=2024)
-    annee_max_histo = st.sidebar.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=2030, value=2025)
+    annee_max_histo = st.sidebar.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=2030, value=2026)
     
     st.sidebar.header("⚙️ Cutoff & Cible")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
@@ -280,18 +262,21 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.header("🛠️ Options d'Affichage")
     nb_mois_vue = st.sidebar.slider("Nombre de mois à afficher (Vue Excel)", min_value=3, max_value=12, value=5)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0, help="Les calculs sont en HL. Choisir 'Cols' convertit juste l'affichage final.")
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
+    
+    # NOUVELLE OPTION ICI :
+    activer_momentum = st.sidebar.checkbox("Activer le Momentum (Tendance)", value=False, help="Si coché, applique la tendance des 3 derniers mois. Décochez pour correspondre à Excel si votre formule n'utilise pas la tendance.")
 
     # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_hist, df_previsions = calculer_modele(
-        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible, methode_coef
+        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible, methode_coef, activer_momentum
     )
 
     if table_indices is None:
-        st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients. Vérifiez vos dates historiques.")
+        st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
         st.stop()
 
-    st.success(f"✅ Modèle calculé sur l'intervalle {annee_min_histo} - {annee_max_histo} (Base de calcul en HL).")
+    st.success(f"✅ Modèle calculé (Momentum {'Activé' if activer_momentum else 'Désactivé'}).")
     
     # ONGLETS
     tab_indices, tab_sarr, tab_audit_sarr, tab_vue_excel, tab_prev, tab_diag = st.tabs([
@@ -327,8 +312,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_audit_sarr:
         st.subheader("🔎 Audit du calcul du SARR (Valeurs exactes non arrondies en HL)")
-        st.info("Prouve mathématiquement l'écart avec Excel si vous utilisez des coefficients arrondis.")
-        
         df_audit = df_sarr[["annee", "mois", "agence", "article", "hl", "Indice", "SARR_HL"]].copy()
         df_audit.columns = ["Année", "Mois", "Agence", "Article", "Volume exact (HL)", "Coef EXACT (non arrondi)", "SARR exact (HL)"]
         
@@ -344,8 +327,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_vue_excel:
         st.subheader("🔍 Vue Décalée (Format Excel)")
-        st.info("Reproduit exactement la structure de votre fichier Excel avec les colonnes M-1, M-2, etc.")
-        
         df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
         df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
         
@@ -375,7 +356,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.dataframe(
             df_vue_excel,
             column_config={
-                **{f"M-{i+1} (Coef)": st.column_config.NumberColumn(f"M-{i+1} (Coef)", format="%.1f") for i in range(nb_mois_vue)},
+                **{f"M-{i+1} (Coef)": st.column_config.NumberColumn(f"M-{i+1} (Coef)", format="%.2f") for i in range(nb_mois_vue)},
                 **{f"SARR M-{i+1}": st.column_config.NumberColumn(f"SARR M-{i+1} ({unite_affichage})", format="%.2f") for i in range(nb_mois_vue)},
                 f"Moyenne SARR ({unite_affichage})": st.column_config.NumberColumn(f"Moyenne SARR ({unite_affichage})", format="%.2f")
             },
@@ -407,22 +388,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
     with tab_diag:
         st.subheader("🩺 Diagnostic : Volumes Historiques (en HL)")
-        
         df_diag = df_perimetre.groupby(['annee', 'mois', 'agence', 'article', 'contenance_cl'])[['hl']].sum().reset_index()
         df_diag = df_diag[df_diag['hl'] > 0].sort_values(['annee', 'mois', 'agence', 'article'])
-        
-        if sel_articles: df_diag = df_diag[df_diag["article"].isin(sel_articles)]
-        if sel_agences: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
-        
-        st.dataframe(
-            df_diag,
-            column_config={
-                "annee": st.column_config.NumberColumn("Année"),
-                "mois": st.column_config.NumberColumn("Mois"),
-                "agence": st.column_config.TextColumn("Agence"),
-                "article": st.column_config.TextColumn("Article"),
-                "contenance_cl": st.column_config.NumberColumn("Contenance (cl)", format="%d"),
-                "hl": st.column_config.NumberColumn("Volume Source (HL)", format="%.4f")
-            },
-            use_container_width=True
-        )
+        st.dataframe(df_diag, use_container_width=True)

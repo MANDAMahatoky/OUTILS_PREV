@@ -144,9 +144,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     
     for (ag, art), group in df_derniers.groupby(['agence', 'article']):
         def get_val(rang, col): return group[group['rang'] == rang][col].values[0] if len(group[group['rang'] == rang]) > 0 else 0
-        def get_date(rang): 
-            r = group[group['rang'] == rang]
-            return f"{MOIS_NOMS[int(r['mois'].values[0])-1]}-{str(int(r['annee'].values[0]))[-2:]}" if not r.empty else "-"
 
         sarr_m = get_val(0, 'SARR_HL')
         sarr_m1 = get_val(1, 'SARR_HL')
@@ -272,7 +269,9 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.subheader("Table des Indices de Saisonnalité")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
+        
+        # Formatage à 1 décimale pour être 100% identique à l'Excel
+        st.dataframe(pivot_indices.style.format("{:.1f}"), use_container_width=True)
 
     with tab_sarr:
         st.subheader(f"Table du SARR Global (en {unite_affichage})")
@@ -290,7 +289,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.subheader("🔍 Vue Décalée (Format Excel)")
         st.info("Ce tableau reproduit exactement la structure de votre fichier Excel avec les colonnes M-1, M-2, etc.")
         
-        # Préparation des données pour la vue Excel
+        # Préparation des données
         df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
         df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
         
@@ -312,18 +311,19 @@ if fichier_ventes is not None and fichier_ref is not None:
                     row[f"M-{i+1} (Coef)"] = 0
                     row[f"SARR M-{i+1}"] = 0
                     
-            # Moyenne SARR (basé sur les 3 derniers mois pour le Momentum/Base)
-            row["Moyenne SARR (3 mois)"] = np.mean([row.get(f"SARR M-{i+1}", 0) for i in range(3)])
+            # Moyenne SARR sur la période affichée
+            row[f"Moyenne SARR ({unite_affichage})"] = np.mean(sarr_vals_pour_moyenne) if sarr_vals_pour_moyenne else 0
             vue_excel_data.append(row)
             
         df_vue_excel = pd.DataFrame(vue_excel_data)
         
-        # Affichage
+        # Affichage avec configuration des colonnes
         st.dataframe(
             df_vue_excel,
             column_config={
+                **{f"M-{i+1} (Coef)": st.column_config.NumberColumn(f"M-{i+1} (Coef)", format="%.1f") for i in range(nb_mois_vue)},
                 **{f"SARR M-{i+1}": st.column_config.NumberColumn(f"SARR M-{i+1} ({unite_affichage})", format="%.2f") for i in range(nb_mois_vue)},
-                "Moyenne SARR (3 mois)": st.column_config.NumberColumn(f"Moyenne SARR ({unite_affichage})", format="%.2f")
+                f"Moyenne SARR ({unite_affichage})": st.column_config.NumberColumn(f"Moyenne SARR ({unite_affichage})", format="%.2f")
             },
             use_container_width=True
         )
@@ -342,7 +342,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.dataframe(
             df_previsions[["annee", "mois", "Date", "agence", "article", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", col_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
-                "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
+                "Indice": st.column_config.NumberColumn("Coef", format="%.1f"),
                 "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
                 "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
                 "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),

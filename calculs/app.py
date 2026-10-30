@@ -26,7 +26,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (AVEC CONVERSION COLS -> HL)
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données et conversion (Cols -> HL)...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
@@ -78,7 +78,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
-    # --- CONVERSION : HL = Cols * (Contenance_cl / 10000) ---
+    # Conversion de base en HL
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000)
     
     conditions = [
@@ -182,10 +182,17 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                 coef = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]['Indice'].values[0]
                 prev_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                 
+                # Calcul des prévisions dans toutes les unités
+                prev_cols = prev_hl * (10000 / contenance)
+                prev_cl = prev_hl * 10000
+                
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Indice": coef, "Base_HL": base, "Momentum_HL": momentum,
-                    "CAGR (%)": cagr_val * 100, "Prevision_HL": prev_hl, "Prevision_Cols": prev_hl * (10000 / contenance)
+                    "CAGR (%)": cagr_val * 100, 
+                    "Prevision_HL": prev_hl, 
+                    "Prevision_Cols": prev_cols,
+                    "Prevision_Cl": prev_cl
                 })
 
     df_previsions = pd.DataFrame(resultats_previsions)
@@ -242,7 +249,8 @@ if fichier_ventes is not None and fichier_ref is not None:
     st.sidebar.header("🛠️ Options d'Affichage")
     nb_mois_vue = st.sidebar.slider("Nombre de mois à afficher (Vue Excel)", min_value=3, max_value=12, value=5)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL"], index=0) 
+    # AJOUT DE L'OPTION CL
+    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["Cols", "HL", "Cl"], index=0) 
 
     # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_hist, df_previsions = calculer_modele(
@@ -261,9 +269,21 @@ if fichier_ventes is not None and fichier_ref is not None:
     ])
 
     # --- CONVERSION POUR L'AFFICHAGE ---
-    col_sarr_aff = "SARR_Cols" if unite_affichage == "Cols" else "SARR_HL"
-    col_vol_aff = "volume_brut" if unite_affichage == "Cols" else "hl"
-    col_prev_aff = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
+    if unite_affichage == "Cols":
+        col_sarr_aff = "SARR_Cols"
+        col_vol_aff = "volume_brut"
+        col_prev_aff = "Prevision_Cols"
+    elif unite_affichage == "Cl":
+        # SARR en CL = SARR_HL * 10000
+        df_sarr["SARR_Cl"] = df_sarr["SARR_HL"] * 10000
+        df_sarr["volume_cl"] = df_sarr["hl"] * 10000
+        col_sarr_aff = "SARR_Cl"
+        col_vol_aff = "volume_cl"
+        col_prev_aff = "Prevision_Cl"
+    else:
+        col_sarr_aff = "SARR_HL"
+        col_vol_aff = "hl"
+        col_prev_aff = "Prevision_HL"
 
     with tab_indices:
         st.subheader("Table des Indices de Saisonnalité")

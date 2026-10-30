@@ -26,7 +26,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT (DONNÉES SOURCES EN HL)
+# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
@@ -78,7 +78,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
-    # On stocke le volume en HL (qui est la base de calcul)
+    # Calculs natifs en HL
     df_enrichi["hl"] = df_enrichi["volume_brut"]
     
     conditions = [
@@ -97,7 +97,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS (NATIVEMENT EN HL)
+# ÉTAPES 4, 5.1 & 5.2 : CALCULS
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des indices, SARR, Momentum et Prévisions en HL...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, methode_coef: str):
@@ -118,6 +118,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
 
     # --- ÉTAPE 4 : INDICES & SARR (en HL) ---
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
+    vols = vols.reindex(columns=range(1, 13), fill_value=0.0) # Sécurité : force les colonnes 1 à 12
     vols_annuels = vols.sum(axis=1)
     
     if methode_coef == "Moyenne des Ratios":
@@ -129,6 +130,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
+    table_indices['mois'] = table_indices['mois'].astype(int) # Sécurité sur le type
 
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
@@ -162,7 +164,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR (en HL et conversion finale en Cols) ---
+    # --- ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR ---
     resultats_previsions = []
     
     for _, row in df_momentum.iterrows():
@@ -178,10 +180,13 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
             multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
             for m in range(1, 13):
                 if y == annee_cloture and m <= mois_cutoff: continue
-                coef = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]['Indice'].values[0]
+                
+                # CORRECTION DE L'ERREUR INDEXERROR ICI
+                coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
+                coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+                
                 prev_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                 
-                # On stocke les 2 pour l'affichage final
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Indice": coef, "Base_HL": base, "Momentum_HL": momentum,
@@ -244,7 +249,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     nb_mois_vue = st.sidebar.slider("Nombre de mois à afficher (Vue Excel)", min_value=3, max_value=12, value=5)
     methode_coef = st.sidebar.radio("Méthode de calcul", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
     
-    # Unité d'affichage (Calculs toujours en HL, conversion uniquement pour l'écran)
+    # Choix de l'affichage : HL par défaut
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0, help="Les calculs sont en HL. Choisir 'Cols' convertit juste l'affichage final.")
 
     # --- CALCULS ---

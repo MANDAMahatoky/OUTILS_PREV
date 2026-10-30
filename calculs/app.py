@@ -181,7 +181,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
             for m in range(1, 13):
                 if y == annee_cloture and m <= mois_cutoff: continue
                 
-                # CORRECTION DE L'ERREUR INDEXERROR ICI
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
@@ -384,11 +383,16 @@ if fichier_ventes is not None and fichier_ref is not None:
         if sel_articles: df_diag = df_diag[df_diag["article"].isin(sel_articles)]
         if sel_agences: df_diag = df_diag[df_diag["agence"].isin(sel_agences)]
         
+        # CORRECTION : On utilise uniquement column_config pour le formatage
         st.dataframe(
-            df_diag.style.format({"hl": "{:,.4f}", "contenance_cl": "{:,.0f}"}),
+            df_diag,
             column_config={
-                "contenance_cl": st.column_config.NumberColumn("Contenance (cl)"),
-                "hl": st.column_config.NumberColumn("Volume Source (HL)")
+                "annee": st.column_config.NumberColumn("Année"),
+                "mois": st.column_config.NumberColumn("Mois"),
+                "agence": st.column_config.TextColumn("Agence"),
+                "article": st.column_config.TextColumn("Article"),
+                "contenance_cl": st.column_config.NumberColumn("Contenance (cl)", format="%d"),
+                "hl": st.column_config.NumberColumn("Volume Source (HL)", format="%.4f")
             },
             use_container_width=True
         )

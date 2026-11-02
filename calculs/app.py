@@ -241,18 +241,18 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     for _, row in df_momentum.iterrows():
         ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
         
-        art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
-        if not art_hist_complet.empty:
-            a_deb, a_fin = art_hist_complet['annee'].min(), art_hist_complet['annee'].max()
-            v_deb = art_hist_complet[art_hist_complet['annee'] == a_deb]['hl'].sum()
-            v_fin = art_hist_complet[art_hist_complet['annee'] == a_fin]['hl'].sum()
-            nb_ans = a_fin - a_deb
-            cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
-        else:
-            cagr_val = 0.0
+        # Calcul du CAGR SEULEMENT si l'année cible est supérieure à l'année de clôture
+        cagr_val = 0.0
+        if annee_cible > annee_cloture:
+            art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
+            if not art_hist_complet.empty:
+                a_deb, a_fin = art_hist_complet['annee'].min(), art_hist_complet['annee'].max()
+                v_deb = art_hist_complet[art_hist_complet['annee'] == a_deb]['hl'].sum()
+                v_fin = art_hist_complet[art_hist_complet['annee'] == a_fin]['hl'].sum()
+                nb_ans = a_fin - a_deb
+                cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
 
         for y in range(annee_cloture, annee_cible + 1):
-            # Si on est sur l'année de clôture, le multiplicateur est 1 (donc pas de CAGR appliqué)
             multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
             for m in range(1, 13):
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
@@ -266,12 +266,18 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
                     val_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                     
                 val_cols = val_hl * (10000 / contenance)
-                resultats_previsions.append({
+                
+                res_dict = {
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Statut": statut, "Indice": coef, "Base_HL": base, "Momentum_HL": momentum, 
-                    "CAGR (%)": cagr_val * 100, 
                     "Volume_HL": val_hl, "Volume_Cols": val_cols
-                })
+                }
+                
+                # On ajoute le CAGR dans le dictionnaire UNIQUEMENT si on projette dans le futur
+                if annee_cible > annee_cloture:
+                    res_dict["CAGR (%)"] = cagr_val * 100
+                    
+                resultats_previsions.append(res_dict)
                 
     return table_indices, df_sarr, df_momentum, pd.DataFrame(resultats_previsions), df_realise
 
@@ -350,14 +356,14 @@ if fichier_ventes is not None:
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
     if annee_cible == annee_cloture:
-        # Si on est sur l'année de clôture, on cache le CAGR et on affiche l'atterrissage en pleine largeur
+        # Mode Atterrissage uniquement (PAS de CAGR)
         st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
             <div class="kpi-header"><span>Atterrissage {annee_cible} (Réalisé + Prévisions)</span> <span class="kpi-icon">🎯</span></div>
             <div class="kpi-value">{atterrissage_cible:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} (Projection finale)</div>
         </div>""", unsafe_allow_html=True)
     else:
-        # Si on est sur une année future, on affiche les deux KPI
+        # Mode Projection Future (Atterrissage + CAGR)
         cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
         kpi1, kpi2 = st.columns(2)
         with kpi1:

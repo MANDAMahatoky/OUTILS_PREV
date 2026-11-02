@@ -5,12 +5,15 @@ import re
 import io
 import unicodedata
 import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
 # CONFIGURATION ET DESIGN (FOND BLANC PUR + BRANDING STAR)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐")
+st.cache_data.clear()
 
 LOGO_PATH = Path(__file__).parent / "LOGO_STAR.png"
 
@@ -138,7 +141,6 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-@st.cache_data(show_spinner="Chargement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.DataFrame:
     if ref_bytes is not None:
         df_ref = pd.read_excel(io.BytesIO(ref_bytes), sheet_name="Ref actif")
@@ -189,7 +191,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # ==============================================================================
 # CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
-@st.cache_data(show_spinner="Calcul des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
@@ -241,7 +242,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     for _, row in df_momentum.iterrows():
         ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
         
-        # Calcul du CAGR SEULEMENT si l'année cible est supérieure à l'année de clôture
         cagr_val = 0.0
         if annee_cible > annee_cloture:
             art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
@@ -256,24 +256,25 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
             multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
             for m in range(1, 13):
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
-                coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
+                coef_rounded = round(coef_data['Indice'].values[0], 2) if not coef_data.empty else 1.0
+                base_rounded = round(base, 2)
+                momentum_rounded = round(momentum, 2)
                 
                 if y == annee_cloture and m <= mois_cutoff:
                     statut = "Réalisé"
                     val_hl = dict_realises.get((y, m, ag, art), 0.0)
                 else:
                     statut = "Prévision"
-                    val_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
+                    val_hl = max(0.0, ((coef_rounded * base_rounded) + momentum_rounded) * multiplicateur_cagr)
                     
                 val_cols = val_hl * (10000 / contenance)
                 
                 res_dict = {
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
-                    "Statut": statut, "Indice": coef, "Base_HL": base, "Momentum_HL": momentum, 
+                    "Statut": statut, "Indice": coef_rounded, "Base_HL": base_rounded, "Momentum_HL": momentum_rounded, 
                     "Volume_HL": val_hl, "Volume_Cols": val_cols
                 }
                 
-                # On ajoute le CAGR dans le dictionnaire UNIQUEMENT si on projette dans le futur
                 if annee_cible > annee_cloture:
                     res_dict["CAGR (%)"] = cagr_val * 100
                     
@@ -325,11 +326,11 @@ if fichier_ventes is not None:
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2024)
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2025)
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
+        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2026)
 
         st.markdown("##### ⚙️ Affichage")
-        unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=0)
+        unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)
 
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
@@ -356,14 +357,12 @@ if fichier_ventes is not None:
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
     if annee_cible == annee_cloture:
-        # Mode Atterrissage uniquement (PAS de CAGR)
         st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
             <div class="kpi-header"><span>Atterrissage {annee_cible} (Réalisé + Prévisions)</span> <span class="kpi-icon">🎯</span></div>
             <div class="kpi-value">{atterrissage_cible:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} (Projection finale)</div>
         </div>""", unsafe_allow_html=True)
     else:
-        # Mode Projection Future (Atterrissage + CAGR)
         cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
         kpi1, kpi2 = st.columns(2)
         with kpi1:
@@ -409,39 +408,122 @@ if fichier_ventes is not None:
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
         
-        with st.expander("5.1 Table du Momentum et de la Base"):
-            st.dataframe(
-                df_momentum,
-                column_config={
-                    "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
-                    "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
-                },
-                use_container_width=True, hide_index=True
-            )
-            
-        st.markdown("#### 5.2 Résultat Final")
-        pivot_mensuel = df_previsions.pivot_table(
-            index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
-        ).fillna(0)
-        pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
-        pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
-        st.dataframe(pivot_mensuel, use_container_width=True)
-        
-        with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
-            cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]
-            
-            # On n'affiche pas la colonne CAGR si on est sur l'année de clôture
-            if annee_cible > annee_cloture:
-                cols_to_show.insert(-1, "CAGR (%)")
+        # CHOIX DU MODE D'AFFICHAGE
+        mode_affichage = st.radio("Choisir le mode d'affichage :", ["📊 Tableau", "📈 Graphiques Data Analyst"], horizontal=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if mode_affichage == "📊 Tableau":
+            with st.expander("5.1 Table du Momentum et de la Base"):
+                st.dataframe(
+                    df_momentum,
+                    column_config={
+                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
+                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
+                    },
+                    use_container_width=True, hide_index=True
+                )
                 
-            st.dataframe(
-                df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
-                column_config={
-                    "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
-                    "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
-                    "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
-                    "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
-                    col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
-                },
-                use_container_width=True, hide_index=True, height=400
+            st.markdown("#### 5.2 Résultat Final")
+            pivot_mensuel = df_previsions.pivot_table(
+                index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
+            ).fillna(0)
+            pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
+            pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
+            st.dataframe(pivot_mensuel, use_container_width=True)
+            
+            with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
+                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]
+                
+                if annee_cible > annee_cloture:
+                    cols_to_show.insert(-1, "CAGR (%)")
+                    
+                st.dataframe(
+                    df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
+                    column_config={
+                        "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
+                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
+                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
+                        "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
+                        col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
+                    },
+                    use_container_width=True, hide_index=True, height=400
+                )
+
+        else:
+            # MODE GRAPHIQUES DATA ANALYST
+            st.markdown("#### 📊 Analyse Visuelle des Prévisions")
+            
+            # Préparation des données pour Plotly
+            df_graph = df_previsions.copy()
+            df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
+            df_graph['Date'] = pd.to_datetime(df_graph['Date_Str'])
+            
+            df_grouped = df_graph.groupby(['Date', 'Statut'])[col_prev_aff].sum().reset_index()
+
+            # --- GRAPHIQUE 1 : COURBE DE TENDANCE ---
+            fig1 = go.Figure()
+            
+            df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
+            df_prev = df_grouped[df_grouped['Statut'] == 'Prévision']
+            
+            if not df_real.empty:
+                fig1.add_trace(go.Scatter(x=df_real['Date'], y=df_real[col_prev_aff], mode='lines+markers', name='Réalisé', line=dict(color='#009640', width=3)))
+            if not df_prev.empty:
+                fig1.add_trace(go.Scatter(x=df_prev['Date'], y=df_prev[col_prev_aff], mode='lines+markers', name='Prévision', line=dict(color='#E30613', width=3, dash='dash')))
+
+            fig1.update_layout(
+                title=dict(text="Évolution des Volumes (Réalisé vs Prévisions)", font=dict(size=18, color="#111827")),
+                xaxis_title="Mois",
+                yaxis_title=f"Volume ({unite_affichage})",
+                hovermode="x unified",
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                margin=dict(l=40, r=40, t=60, b=40)
             )
+            fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+            fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+            
+            st.plotly_chart(fig1, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("#### 🔍 Analyse de la Saisonnalité et des Produits")
+
+            col_g1, col_g2 = st.columns(2)
+
+            with col_g1:
+                # --- GRAPHIQUE 2 : PROFIL DE SAISONNALITÉ ---
+                # On prend la moyenne des indices par mois
+                df_saison = table_indices.groupby('mois')['Indice'].mean().reset_index()
+                df_saison['Mois_Nom'] = df_saison['mois'].apply(lambda m: MOIS_NOMS[m-1])
+                
+                # Couleurs : Vert si < 1, Rouge si > 1
+                colors = ['#009640' if val < 1 else '#E30613' for val in df_saison['Indice']]
+                
+                fig2 = go.Figure(data=[go.Bar(x=df_saison['Mois_Nom'], y=df_saison['Indice'], marker_color=colors)])
+                fig2.update_layout(
+                    title=dict(text="Profil de Saisonnalité (Indice Moyen)", font=dict(size=16, color="#111827")),
+                    xaxis_title="Mois",
+                    yaxis_title="Indice (Base 1.0)",
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    margin=dict(l=20, r=20, t=50, b=20)
+                )
+                fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+                st.plotly_chart(fig2, use_container_width=True)
+
+            with col_g2:
+                # --- GRAPHIQUE 3 : TOP ARTICLES ---
+                df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
+                
+                fig3 = go.Figure(data=[go.Bar(x=df_top[col_prev_aff], y=df_top['article'], orientation='h', marker_color='#E30613')])
+                fig3.update_layout(
+                    title=dict(text="Top 10 Articles (Volume Total Projeté)", font=dict(size=16, color="#111827")),
+                    xaxis_title=f"Volume ({unite_affichage})",
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    margin=dict(l=20, r=20, t=50, b=20)
+                )
+                fig3.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+                st.plotly_chart(fig3, use_container_width=True)
+                

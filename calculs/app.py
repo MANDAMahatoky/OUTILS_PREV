@@ -4,11 +4,14 @@ import numpy as np
 import re
 import io
 import unicodedata
+from pathlib import Path
 
 # ==============================================================================
 # CONFIGURATION ET DESIGN (BRAND STAR MADAGASCAR : ROUGE, VERT, ÉTOILES)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐")
+
+LOGO_PATH = Path(__file__).parent / "LOGO_STAR.png"
 
 st.markdown("""
 <style>
@@ -56,15 +59,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# En-tête de l'application
-st.markdown("""
-    <div style='text-align: center; margin-bottom: 30px;'>
-        <h1 style='font-size: 2.8rem; margin-bottom: 0;'>⭐ PREVISIONS STAR MADAGASCAR ⭐</h1>
-        <p style='color: #4B5563; font-size: 1.2rem; font-weight: 500; margin-top: 5px;'>
-            Moteur de prévision S&OP - Étape 5 : Dynamique
-        </p>
-    </div>
-""", unsafe_allow_html=True)
+# En-tête de l'application (logo en haut à gauche + titre)
+col_logo, col_titre = st.columns([1, 5], vertical_alignment="center")
+
+with col_logo:
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=140)
+
+with col_titre:
+    st.markdown("""
+        <div style='text-align: left; margin-bottom: 10px;'>
+            <h1 style='font-size: 2.8rem; margin-bottom: 0;'>⭐ PREVISIONS STAR MADAGASCAR ⭐</h1>
+            <p style='color: #4B5563; font-size: 1.2rem; font-weight: 500; margin-top: 5px;'>
+                Moteur de prévision S&OP - Étape 5 : Dynamique
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ==============================================================================
 # RÉFÉRENTIEL ET MAPPING (DONNÉES INTÉGRÉES)

@@ -447,9 +447,8 @@ if fichier_ventes is not None:
         df_atterrissage_sku['Total'] = df_atterrissage_sku['Réalisé'] + df_atterrissage_sku['Prévision']
         df_atterrissage_sku = df_atterrissage_sku.sort_values('Total', ascending=False)
         
-        # Design : mise en forme conditionnelle légère
         st.dataframe(
-            df_atterrissage_sku.style.format("{:,.2f}").background_gradient(cmap='Blues', subset=['Total']),
+            df_atterrissage_sku,
             column_config={
                 "article": "Article",
                 "Réalisé": st.column_config.NumberColumn(f"Réalisé ({unite_affichage})", format="%.2f"),
@@ -469,11 +468,7 @@ if fichier_ventes is not None:
         pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
         pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
         
-        # Mise en forme conditionnelle du tableau croisé
-        st.dataframe(
-            pivot_mensuel.style.format("{:,.0f}").background_gradient(cmap='Greens', axis=1),
-            use_container_width=True
-        )
+        st.dataframe(pivot_mensuel, use_container_width=True)
         
         with st.expander("Voir le détail mensuel complet"):
             st.dataframe(
@@ -492,7 +487,7 @@ if fichier_ventes is not None:
         st.subheader("Table des Indices de Saisonnalité")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-        st.dataframe(pivot_indices.style.format("{:.2f}").background_gradient(cmap='Oranges', axis=1), use_container_width=True)
+        st.dataframe(pivot_indices, use_container_width=True)
 
     with tab_sarr:
         st.subheader(f"Table du SARR Global (en {unite_affichage})")

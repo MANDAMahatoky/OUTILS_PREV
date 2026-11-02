@@ -22,7 +22,7 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    .stApp { background-color: #F8F9FA !important; } /* Fond très légèrement gris pour faire ressortir les cartes blanches */
+    .stApp { background-color: #F8F9FA !important; }
     [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 4px solid #E30613; }
     
     [data-testid="stHorizontalBlock"] { gap: 1rem; border: none !important; }
@@ -239,13 +239,16 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         base = max(sarr_m, np.mean([sarr_m1, sarr_m2, sarr_m3]))
         
         info_art = group.iloc[0]
-        resultats_momentum.append({"Agence": ag, "Article": art, "Base_HL": base, "Momentum_HL": momentum, "Contenance": info_art['contenance_cl']})
+        resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum, "contenance_cl": info_art['contenance_cl']}) # Correction ici (minuscules)
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # --- MODIFICATION ICI : On inclut TOUS les articles du périmètre ---
+    # On inclut TOUS les articles du périmètre
     articles_perimetre = df_perimetre[['agence', 'article']].drop_duplicates()
+    
+    # Maintenant les colonnes correspondent (agence, article)
     df_momentum_complet = pd.merge(articles_perimetre, df_momentum, on=['agence', 'article'], how='left')
+    
     df_momentum_complet['Base_HL'] = df_momentum_complet['Base_HL'].fillna(0.0)
     df_momentum_complet['Momentum_HL'] = df_momentum_complet['Momentum_HL'].fillna(0.0)
     
@@ -260,7 +263,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
 
     # On boucle sur df_momentum_complet
     for _, row in df_momentum_complet.iterrows():
-        ag, art = row['Agence'], row['Article']
+        ag, art = row['agence'], row['article'] # Correction ici (minuscules)
         base, momentum, contenance = row['Base_HL'], row['Momentum_HL'], row['contenance_cl']
         
         cagr_val = 0.0
@@ -447,7 +450,6 @@ if fichier_ventes is not None:
             pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
             pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
             
-            # On supprime les lignes où toutes les valeurs sont à 0 pour faire plus propre
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             
             st.dataframe(pivot_mensuel, use_container_width=True)

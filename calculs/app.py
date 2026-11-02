@@ -6,36 +6,36 @@ import io
 import unicodedata
 
 # ==============================================================================
-# CONFIGURATION DE LA PAGE ET DESIGN (ROUGE, VERT, BLANC)
+# CONFIGURATION DE LA PAGE ET DESIGN (DOMINANTE ROUGE)
 # ==============================================================================
-st.set_page_config(page_title="S&OP Prévisions", layout="wide", page_icon="🟢")
+st.set_page_config(page_title="S&OP Prévisions", layout="wide", page_icon="🔴")
 
 # Injection de CSS pour appliquer la charte graphique
 st.markdown("""
 <style>
-    /* Fond principal blanc */
+    /* Fond principal très clair */
     .stApp {
-        background-color: #FFFFFF;
+        background-color: #FAFAFA;
     }
     
-    /* Barre latérale : fond très clair avec bordure rouge */
+    /* Barre latérale : fond blanc avec bordure rouge épaisse */
     [data-testid="stSidebar"] {
-        background-color: #F9F9F9;
-        border-right: 3px solid #D32F2F;
+        background-color: #FFFFFF;
+        border-right: 5px solid #D32F2F;
     }
     
-    /* Titres en Vert */
+    /* Titres en Rouge (dominante) */
     h1, h2, h3, h4 {
-        color: #2E7D32 !important;
+        color: #D32F2F !important;
     }
     
-    /* Style des cartes Métriques (KPI) */
+    /* Style des cartes Métriques (KPI) - Bordure et Ombre Rouges */
     [data-testid="stMetric"] {
         background-color: #FFFFFF;
-        border: 2px solid #2E7D32;
+        border: 2px solid #D32F2F;
         padding: 15px;
         border-radius: 10px;
-        box-shadow: 3px 3px 15px rgba(0,0,0,0.1);
+        box-shadow: 3px 3px 12px rgba(211, 47, 47, 0.2);
         text-align: center;
     }
     
@@ -52,29 +52,37 @@ st.markdown("""
         font-weight: bold;
     }
     
-    /* Style des onglets */
+    /* Style des onglets : Actif = Rouge avec texte blanc */
     .stTabs [data-baseweb="tab-list"] {
         gap: 15px;
     }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
-        background-color: #F9F9F9;
-        color: #2E7D32;
+        background-color: #F0F2F6;
+        color: #D32F2F;
         border-radius: 5px 5px 0 0;
-        border-bottom: 3px solid transparent;
         padding: 10px 20px;
+        border: 1px solid #E0E0E0;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #FFFFFF;
-        color: #D32F2F !important;
-        border-bottom: 3px solid #D32F2F;
+        background-color: #D32F2F !important;
+        color: #FFFFFF !important;
+        border-bottom: 3px solid #2E7D32; /* Touche de vert */
         font-weight: bold;
+    }
+    
+    /* Boutons rouges */
+    .stButton>button {
+        background-color: #D32F2F !important;
+        color: white !important;
+        border-radius: 5px;
+        border: none;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: center; color: #2E7D32;'>📊 Moteur de Prévision S&OP</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #D32F2F; font-weight: bold;'>Planifiez vos volumes en toute sérénité (Indices, Momentum & CAGR)</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #D32F2F;'>📊 Moteur de Prévision S&OP</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #2E7D32; font-weight: bold;'>Planifiez vos volumes en toute sérénité (Indices, Momentum & CAGR)</p>", unsafe_allow_html=True)
 
 # ==============================================================================
 # RÉFÉRENTIEL INTÉGRÉ PAR DÉFAUT (Classeur2)

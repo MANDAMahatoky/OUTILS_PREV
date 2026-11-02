@@ -19,40 +19,18 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    /* --- FOND DE L'APP EN BLANC PUR --- */
-    .stApp { 
-        background-color: #FFFFFF !important; 
-    }
+    .stApp { background-color: #FFFFFF !important; }
+    [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 4px solid #E30613; }
     
-    /* Barre latérale blanche avec bordure Rouge STAR */
-    [data-testid="stSidebar"] { 
-        background-color: #FFFFFF; 
-        border-right: 4px solid #E30613; /* Rouge STAR */
-    }
+    [data-testid="stHorizontalBlock"] { gap: 1rem; border: none !important; }
+    [data-testid="column"] { border: none !important; box-shadow: none !important; }
     
-    /* --- SUPPRESSION DE TOUTES LES LIGNES VERTICALES --- */
-    [data-testid="stHorizontalBlock"] {
-        gap: 1rem;
-        border: none !important;
-    }
-    [data-testid="column"] {
-        border: none !important;
-        border-right: none !important;
-        border-left: none !important;
-        box-shadow: none !important;
-    }
-    
-    /* Titres */
     h1 { color: #E30613 !important; font-weight: 900 !important; margin-bottom: 0 !important; }
-    h2, h3 { color: #009640 !important; font-weight: 700 !important; } /* Vert STAR */
+    h2, h3 { color: #009640 !important; font-weight: 700 !important; }
     
-    /* Cartes KPI */
     .kpi-card {
-        background-color: #FFFFFF; 
-        border-radius: 8px; 
-        padding: 20px;
-        border: 1px solid #E5E7EB; 
-        border-left: 6px solid #E30613; 
+        background-color: #FFFFFF; border-radius: 8px; padding: 20px;
+        border: 1px solid #E5E7EB; border-left: 6px solid #E30613; 
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         display: flex; flex-direction: column; justify-content: space-between; height: 130px;
     }
@@ -61,7 +39,6 @@ st.markdown("""
     .kpi-value { font-size: 2.4rem; font-weight: 800; color: #111827; margin-top: 5px; }
     .kpi-footer { font-size: 0.9rem; color: #6B7280; font-weight: 500;}
     
-    /* Onglets */
     .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 45px; background-color: #F9FAFB; color: #4B5563;
@@ -72,24 +49,17 @@ st.markdown("""
         border: 1px solid #E30613 !important;
     }
     
-    /* Conteneurs de tableaux */
     div[data-testid="stDataFrame"] { 
-        background-color: #FFFFFF; 
-        padding: 15px; 
-        border-radius: 8px; 
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
+        background-color: #FFFFFF; padding: 15px; border-radius: 8px; 
+        border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
     }
 </style>
 """, unsafe_allow_html=True)
 
-# En-tête de l'application
+# En-tête
 col_logo, col_titre = st.columns([1.5, 5], gap="small", vertical_alignment="center")
-
 with col_logo:
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), use_container_width=True)
-
+    if LOGO_PATH.exists(): st.image(str(LOGO_PATH), use_container_width=True)
 with col_titre:
     st.markdown("""
         <div style='text-align: left;'>
@@ -99,7 +69,6 @@ with col_titre:
             </p>
         </div>
     """, unsafe_allow_html=True)
-
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==============================================================================
@@ -152,36 +121,17 @@ MAPPING_REGIONS = {
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
 def normaliser_mois(valeur) -> int:
-    """Fonction robuste qui gère le texte, les dates et les formats mixtes."""
     if pd.isna(valeur): return 1
-    
-    # Si c'est déjà un nombre (ex: 1 à 12)
     if isinstance(valeur, (int, float)):
-        if 1 <= valeur <= 12:
-            return int(valeur)
-        # Si c'est un timestamp Excel
-        try:
-            return pd.to_datetime(valeur, unit='D', origin='1899-12-30').month
-        except:
-            return 1
-            
-    # Si c'est une date Pandas ou Python
-    if isinstance(valeur, (pd.Timestamp, datetime.datetime, datetime.date)): 
-        return valeur.month
-    
-    # Si c'est du texte
+        if 1 <= valeur <= 12: return int(valeur)
+        try: return pd.to_datetime(valeur, unit='D', origin='1899-12-30').month
+        except: return 1
+    if isinstance(valeur, (pd.Timestamp, datetime.datetime, datetime.date)): return valeur.month
     texte = unicodedata.normalize("NFD", str(valeur)).encode("ascii", "ignore").decode("utf-8").lower().strip()
-    
-    # Dictionnaire des mois en français
     mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
-    if texte in mois_map:
-        return mois_map[texte]
-        
-    # Si c'est une date sous forme de texte (ex: "2024-01-01")
-    try:
-        return pd.to_datetime(valeur).month
-    except:
-        return 1
+    if texte in mois_map: return mois_map[texte]
+    try: return pd.to_datetime(valeur).month
+    except: return 1
 
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
@@ -217,7 +167,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
     df["agence"] = df["agence"].astype(str).str.strip()
     df["annee"] = df["annee"].fillna(2026).astype(int)
-    
     df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
 
     df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
@@ -303,6 +252,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
             cagr_val = 0.0
 
         for y in range(annee_cloture, annee_cible + 1):
+            # Si on est sur l'année de clôture, le multiplicateur est 1 (donc pas de CAGR appliqué)
             multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
             for m in range(1, 13):
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
@@ -390,21 +340,30 @@ if fichier_ventes is not None:
 
     if table_indices is None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique.")
-        st.info("💡 Vérifiez que vous avez bien sélectionné 2 années consécutives complètes (ex: 2024 et 2025) et que votre fichier contient bien 12 mois par an.")
+        st.info("💡 Vérifiez que vous avez bien sélectionné 2 années consécutives complètes (ex: 2024 et 2025) et que votre fichier contient bien 12 mois par an. Si vous avez filtré sur un article spécifique, vérifiez qu'il a bien 12 mois de données pour les années choisies.")
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
-    # --- KPI (Atterrissage Cible & CAGR) ---
+    # --- KPI DYNAMIQUES ---
     df_cible = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
-    cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
 
-    kpi1, kpi2 = st.columns(2)
-    with kpi1:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
-    with kpi2:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
+    if annee_cible == annee_cloture:
+        # Si on est sur l'année de clôture, on cache le CAGR et on affiche l'atterrissage en pleine largeur
+        st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
+            <div class="kpi-header"><span>Atterrissage {annee_cible} (Réalisé + Prévisions)</span> <span class="kpi-icon">🎯</span></div>
+            <div class="kpi-value">{atterrissage_cible:,.0f}</div>
+            <div class="kpi-footer">{unite_affichage} (Projection finale)</div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        # Si on est sur une année future, on affiche les deux KPI
+        cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
+        kpi1, kpi2 = st.columns(2)
+        with kpi1:
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
+        with kpi2:
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -463,12 +422,19 @@ if fichier_ventes is not None:
         st.dataframe(pivot_mensuel, use_container_width=True)
         
         with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
+            cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]
+            
+            # On n'affiche pas la colonne CAGR si on est sur l'année de clôture
+            if annee_cible > annee_cloture:
+                cols_to_show.insert(-1, "CAGR (%)")
+                
             st.dataframe(
-                df_previsions[["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),
+                df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
                 column_config={
                     "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
                     "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
                     "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
+                    "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
                     col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
                 },
                 use_container_width=True, hide_index=True, height=400

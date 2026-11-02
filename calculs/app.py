@@ -22,7 +22,7 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    .stApp { background-color: #FFFFFF !important; }
+    .stApp { background-color: #F8F9FA !important; } /* Fond très légèrement gris pour faire ressortir les cartes blanches */
     [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 4px solid #E30613; }
     
     [data-testid="stHorizontalBlock"] { gap: 1rem; border: none !important; }
@@ -56,6 +56,15 @@ st.markdown("""
         background-color: #FFFFFF; padding: 15px; border-radius: 8px; 
         border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
     }
+
+    /* Style des cartes de graphiques Plotly */
+    div[data-testid="stPlotlyChart"] {
+        background-color: #FFFFFF;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #E5E7EB;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,7 +84,7 @@ with col_titre:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==============================================================================
-# RÉFÉRENTIEL ET MAPPING
+# RÉFÉRENTIEL ET MAPPING (DONNÉES INTÉGRÉES)
 # ==============================================================================
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
@@ -451,15 +460,26 @@ if fichier_ventes is not None:
             
             df_grouped = df_graph.groupby(['Date', 'Statut'])[col_prev_aff].sum().reset_index()
 
+            # --- GRAPHIQUE 1 : COURBE DE TENDANCE (Style amélioré avec zone de remplissage) ---
             fig1 = go.Figure()
             
             df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
             df_prev = df_grouped[df_grouped['Statut'] == 'Prévision']
             
             if not df_real.empty:
-                fig1.add_trace(go.Scatter(x=df_real['Date'], y=df_real[col_prev_aff], mode='lines+markers', name='Réalisé', line=dict(color='#009640', width=3)))
+                fig1.add_trace(go.Scatter(
+                    x=df_real['Date'], y=df_real[col_prev_aff], 
+                    mode='lines+markers', name='Réalisé', 
+                    line=dict(color='#009640', width=3),
+                    fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)' # Remplissage vert clair
+                ))
             if not df_prev.empty:
-                fig1.add_trace(go.Scatter(x=df_prev['Date'], y=df_prev[col_prev_aff], mode='lines+markers', name='Prévision', line=dict(color='#E30613', width=3, dash='dash')))
+                fig1.add_trace(go.Scatter(
+                    x=df_prev['Date'], y=df_prev[col_prev_aff], 
+                    mode='lines+markers', name='Prévision', 
+                    line=dict(color='#E30613', width=3, dash='dash'),
+                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)' # Remplissage rouge très clair
+                ))
 
             fig1.update_layout(
                 title=dict(text="Évolution des Volumes (Réalisé vs Prévisions)", font=dict(size=18, color="#111827")),
@@ -468,10 +488,11 @@ if fichier_ventes is not None:
                 hovermode="x unified",
                 plot_bgcolor='white',
                 paper_bgcolor='white',
-                margin=dict(l=40, r=40, t=60, b=40)
+                margin=dict(l=40, r=40, t=60, b=40),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
-            fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+            fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
+            fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
             
             st.plotly_chart(fig1, use_container_width=True)
 
@@ -481,12 +502,24 @@ if fichier_ventes is not None:
             col_g1, col_g2 = st.columns(2)
 
             with col_g1:
+                # --- GRAPHIQUE 2 : PROFIL DE SAISONNALITÉ (Ajout d'une ligne de référence) ---
                 df_saison = table_indices.groupby('mois')['Indice'].mean().reset_index()
                 df_saison['Mois_Nom'] = df_saison['mois'].apply(lambda m: MOIS_NOMS[m-1])
                 
+                # Couleurs : Vert si < 1, Rouge si > 1
                 colors = ['#009640' if val < 1 else '#E30613' for val in df_saison['Indice']]
                 
-                fig2 = go.Figure(data=[go.Bar(x=df_saison['Mois_Nom'], y=df_saison['Indice'], marker_color=colors)])
+                fig2 = go.Figure(data=[go.Bar(
+                    x=df_saison['Mois_Nom'], 
+                    y=df_saison['Indice'], 
+                    marker_color=colors,
+                    text=df_saison['Indice'].round(2),
+                    textposition='auto'
+                )])
+                
+                # Ligne de référence à 1.0
+                fig2.add_hline(y=1.0, line_dash="dash", line_color="#4B5563", annotation_text="Moyenne (1.0)", annotation_position="bottom right")
+
                 fig2.update_layout(
                     title=dict(text="Profil de Saisonnalité (Indice Moyen)", font=dict(size=16, color="#111827")),
                     xaxis_title="Mois",
@@ -495,13 +528,20 @@ if fichier_ventes is not None:
                     paper_bgcolor='white',
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
-                fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+                fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
                 st.plotly_chart(fig2, use_container_width=True)
 
             with col_g2:
+                # --- GRAPHIQUE 3 : TOP ARTICLES (Dégradé de couleurs) ---
                 df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
                 
-                fig3 = go.Figure(data=[go.Bar(x=df_top[col_prev_aff], y=df_top['article'], orientation='h', marker_color='#E30613')])
+                fig3 = go.Figure(data=[go.Bar(
+                    x=df_top[col_prev_aff], 
+                    y=df_top['article'], 
+                    orientation='h', 
+                    marker=dict(color=df_top[col_prev_aff], colorscale=['#FFC0C0', '#E30613']) # Dégradé du rose au rouge STAR
+                )])
+                
                 fig3.update_layout(
                     title=dict(text="Top 10 Articles (Volume Total Projeté)", font=dict(size=16, color="#111827")),
                     xaxis_title=f"Volume ({unite_affichage})",
@@ -509,5 +549,5 @@ if fichier_ventes is not None:
                     paper_bgcolor='white',
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
-                fig3.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+                fig3.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
                 st.plotly_chart(fig3, use_container_width=True)

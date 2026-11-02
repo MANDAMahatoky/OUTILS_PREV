@@ -6,54 +6,75 @@ import io
 import unicodedata
 
 # ==============================================================================
-# CONFIGURATION DE LA PAGE ET DESIGN (CSS)
+# CONFIGURATION DE LA PAGE ET DESIGN (ROUGE, VERT, BLANC)
 # ==============================================================================
-st.set_page_config(page_title="S&OP Prévisions", layout="wide", page_icon="📊")
+st.set_page_config(page_title="S&OP Prévisions", layout="wide", page_icon="🟢")
 
-# Injection de CSS pour améliorer le design natif de Streamlit
+# Injection de CSS pour appliquer la charte graphique
 st.markdown("""
 <style>
-    /* Couleur de fond de la barre latérale */
+    /* Fond principal blanc */
+    .stApp {
+        background-color: #FFFFFF;
+    }
+    
+    /* Barre latérale : fond très clair avec bordure rouge */
     [data-testid="stSidebar"] {
-        background-color: #f4f6f9;
+        background-color: #F9F9F9;
+        border-right: 3px solid #D32F2F;
+    }
+    
+    /* Titres en Vert */
+    h1, h2, h3, h4 {
+        color: #2E7D32 !important;
     }
     
     /* Style des cartes Métriques (KPI) */
     [data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
+        background-color: #FFFFFF;
+        border: 2px solid #2E7D32;
         padding: 15px;
         border-radius: 10px;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+        box-shadow: 3px 3px 15px rgba(0,0,0,0.1);
         text-align: center;
     }
+    
+    /* Chiffres des métriques en Rouge */
     [data-testid="stMetricValue"] {
-        color: #0056b3;
-        font-size: 1.8rem !important;
+        color: #D32F2F !important;
+        font-size: 2rem !important;
+        font-weight: 900;
+    }
+    
+    /* Libellés des métriques en Vert */
+    [data-testid="stMetricLabel"] {
+        color: #2E7D32 !important;
         font-weight: bold;
     }
     
     /* Style des onglets */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 20px;
+        gap: 15px;
     }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
-        white-space: pre-wrap;
-        background-color: #f0f2f6;
+        background-color: #F9F9F9;
+        color: #2E7D32;
         border-radius: 5px 5px 0 0;
+        border-bottom: 3px solid transparent;
         padding: 10px 20px;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #ffffff;
-        border-bottom: 3px solid #0056b3;
+        background-color: #FFFFFF;
+        color: #D32F2F !important;
+        border-bottom: 3px solid #D32F2F;
         font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>📊 Moteur de Prévision S&OP</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: gray;'>Planifiez vos volumes en toute sérénité (Indices, Momentum & CAGR)</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #2E7D32;'>📊 Moteur de Prévision S&OP</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #D32F2F; font-weight: bold;'>Planifiez vos volumes en toute sérénité (Indices, Momentum & CAGR)</p>", unsafe_allow_html=True)
 
 # ==============================================================================
 # RÉFÉRENTIEL INTÉGRÉ PAR DÉFAUT (Classeur2)

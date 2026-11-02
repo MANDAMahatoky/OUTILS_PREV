@@ -116,7 +116,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
     if df_hist.empty: return None, None, None, None, None
 
-    # Filtrage des années complètes (12 mois) pour les indices
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
@@ -194,10 +193,8 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR (Intégration des réalisés pour l'année en cours)
+    # ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR
     resultats_previsions = []
-    
-    # Dictionnaire des réalisés pour y accéder rapidement
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
     for _, row in df_momentum.iterrows():
@@ -221,7 +218,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
                 
-                # SI ON EST SUR L'ANNÉE DE CLÔTURE ET QUE LE MOIS EST PASSÉ (<= cutoff)
                 if y == annee_cloture and m <= mois_cutoff:
                     statut = "Réalisé"
                     val_hl = dict_realises.get((y, m, ag, art), 0.0)
@@ -396,26 +392,49 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_prev:
-        # --- SECTION ATTERRISSAGE ---
+        # --- SECTION ATTERRISSAGE (MISE A JOUR) ---
         st.markdown(f"### 🛬 Atterrissage {annee_cloture} (Réalisé + Prévisions)")
         
         df_atterrissage = df_previsions[df_previsions['annee'] == annee_cloture]
         
-        col_at1, col_at2 = st.columns([1, 2])
+        col_at1, col_at2, col_at3 = st.columns(3)
         with col_at1:
             total_at = df_atterrissage[col_prev_aff].sum()
             st.metric(label=f"Total Global {annee_cloture}", value=f"{total_at:,.2f} {unite_affichage}")
         with col_at2:
-            df_atterrissage_sku = df_atterrissage.groupby('article')[col_prev_aff].sum().reset_index()
-            df_atterrissage_sku = df_atterrissage_sku.sort_values(col_prev_aff, ascending=False)
-            st.dataframe(
-                df_atterrissage_sku.head(10), # Top 10 des SKUs
-                column_config={
-                    "article": "Article",
-                    col_prev_aff: st.column_config.NumberColumn(f"Atterrissage ({unite_affichage})", format="%.2f")
-                },
-                use_container_width=True, height=200
-            )
+            total_realise = df_atterrissage[df_atterrissage['Statut'] == 'Réalisé'][col_prev_aff].sum()
+            st.metric(label="Déjà Réalisé (Janv - Cutoff)", value=f"{total_realise:,.2f} {unite_affichage}")
+        with col_at3:
+            total_prevision = df_atterrissage[df_atterrissage['Statut'] == 'Prévision'][col_prev_aff].sum()
+            st.metric(label="Reste à Prévoir (Post-Cutoff)", value=f"{total_prevision:,.2f} {unite_affichage}")
+
+        st.markdown("---")
+        
+        # Tableau par SKU
+        st.markdown("#### Détail de l'atterrissage par Article")
+        df_atterrissage_sku = df_atterrissage.pivot_table(
+            index='article', 
+            columns='Statut', 
+            values=col_prev_aff, 
+            aggfunc='sum'
+        ).fillna(0)
+        
+        if 'Réalisé' not in df_atterrissage_sku.columns: df_atterrissage_sku['Réalisé'] = 0
+        if 'Prévision' not in df_atterrissage_sku.columns: df_atterrissage_sku['Prévision'] = 0
+            
+        df_atterrissage_sku['Total Atterrissage'] = df_atterrissage_sku['Réalisé'] + df_atterrissage_sku['Prévision']
+        df_atterrissage_sku = df_atterrissage_sku.sort_values('Total Atterrissage', ascending=False)
+        
+        st.dataframe(
+            df_atterrissage_sku,
+            column_config={
+                "article": "Article",
+                "Réalisé": st.column_config.NumberColumn(f"Réalisé ({unite_affichage})", format="%.2f"),
+                "Prévision": st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
+                "Total Atterrissage": st.column_config.NumberColumn(f"Total ({unite_affichage})", format="%.2f")
+            },
+            use_container_width=True
+        )
 
         st.markdown("---")
         

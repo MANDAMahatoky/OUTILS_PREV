@@ -5,6 +5,8 @@ import re
 import io
 import unicodedata
 import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
@@ -324,11 +326,11 @@ if fichier_ventes is not None:
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2024)
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2025)
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}") # Mis à 8 (Sept) par défaut
+        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2026)
 
         st.markdown("##### ⚙️ Affichage")
-        unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1) # Mis à Cols par défaut vu vos captures
+        unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)
 
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
@@ -407,7 +409,7 @@ if fichier_ventes is not None:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
         
         # CHOIX DU MODE D'AFFICHAGE
-        mode_affichage = st.radio("Choisir le mode d'affichage :", ["📊 Tableau", "📈 Graphique"], horizontal=True)
+        mode_affichage = st.radio("Choisir le mode d'affichage :", ["📊 Tableau", "📈 Graphiques Data Analyst"], horizontal=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -449,32 +451,78 @@ if fichier_ventes is not None:
                 )
 
         else:
-            # MODE GRAPHIQUE
-            st.markdown("#### Évolution des Ventes (Réalisé vs Prévisions)")
+            # MODE GRAPHIQUES DATA ANALYST
+            st.markdown("#### 📊 Analyse Visuelle des Prévisions")
             
-            # Préparation des données pour le graphique
+            # Préparation des données pour Plotly
             df_graph = df_previsions.copy()
-            df_graph['Date'] = pd.to_datetime(df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str) + '-01')
+            df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
+            df_graph['Date'] = pd.to_datetime(df_graph['Date_Str'])
             
-            # On regroupe par date pour additionner les volumes (si plusieurs articles/agences sont sélectionnés)
-            df_graph_grouped = df_graph.groupby(['Date', 'Statut'])[col_prev_aff].sum().reset_index()
-            
-            # Création d'un tableau croisé pour avoir les colonnes "Réalisé" et "Prévision"
-            pivot_graph = df_graph_grouped.pivot(index='Date', columns='Statut', values=col_prev_aff).fillna(0)
-            
-            # Si l'année cible est différente de l'année de clôture, on peut avoir plusieurs années
-            # On s'assure que les colonnes existent pour éviter une erreur
-            if 'Réalisé' not in pivot_graph.columns:
-                pivot_graph['Réalisé'] = 0
-            if 'Prévision' not in pivot_graph.columns:
-                pivot_graph['Prévision'] = 0
+            df_grouped = df_graph.groupby(['Date', 'Statut'])[col_prev_aff].sum().reset_index()
 
-            # Affichage du graphique natif de Streamlit
-            st.line_chart(
-                pivot_graph[['Réalisé', 'Prévision']],
-                color=["#009640", "#E30613"], # Vert STAR et Rouge STAR
-                use_container_width=True
+            # --- GRAPHIQUE 1 : COURBE DE TENDANCE ---
+            fig1 = go.Figure()
+            
+            df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
+            df_prev = df_grouped[df_grouped['Statut'] == 'Prévision']
+            
+            if not df_real.empty:
+                fig1.add_trace(go.Scatter(x=df_real['Date'], y=df_real[col_prev_aff], mode='lines+markers', name='Réalisé', line=dict(color='#009640', width=3)))
+            if not df_prev.empty:
+                fig1.add_trace(go.Scatter(x=df_prev['Date'], y=df_prev[col_prev_aff], mode='lines+markers', name='Prévision', line=dict(color='#E30613', width=3, dash='dash')))
+
+            fig1.update_layout(
+                title=dict(text="Évolution des Volumes (Réalisé vs Prévisions)", font=dict(size=18, color="#111827")),
+                xaxis_title="Mois",
+                yaxis_title=f"Volume ({unite_affichage})",
+                hovermode="x unified",
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                margin=dict(l=40, r=40, t=60, b=40)
             )
+            fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+            fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
             
-            st.info("💡 La ligne verte représente vos ventes réelles jusqu'au cutoff. La ligne rouge représente les prévisions calculées par le modèle.")
+            st.plotly_chart(fig1, use_container_width=True)
 
+            st.markdown("---")
+            st.markdown("#### 🔍 Analyse de la Saisonnalité et des Produits")
+
+            col_g1, col_g2 = st.columns(2)
+
+            with col_g1:
+                # --- GRAPHIQUE 2 : PROFIL DE SAISONNALITÉ ---
+                # On prend la moyenne des indices par mois
+                df_saison = table_indices.groupby('mois')['Indice'].mean().reset_index()
+                df_saison['Mois_Nom'] = df_saison['mois'].apply(lambda m: MOIS_NOMS[m-1])
+                
+                # Couleurs : Vert si < 1, Rouge si > 1
+                colors = ['#009640' if val < 1 else '#E30613' for val in df_saison['Indice']]
+                
+                fig2 = go.Figure(data=[go.Bar(x=df_saison['Mois_Nom'], y=df_saison['Indice'], marker_color=colors)])
+                fig2.update_layout(
+                    title=dict(text="Profil de Saisonnalité (Indice Moyen)", font=dict(size=16, color="#111827")),
+                    xaxis_title="Mois",
+                    yaxis_title="Indice (Base 1.0)",
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    margin=dict(l=20, r=20, t=50, b=20)
+                )
+                fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+                st.plotly_chart(fig2, use_container_width=True)
+
+            with col_g2:
+                # --- GRAPHIQUE 3 : TOP ARTICLES ---
+                df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
+                
+                fig3 = go.Figure(data=[go.Bar(x=df_top[col_prev_aff], y=df_top['article'], orientation='h', marker_color='#E30613')])
+                fig3.update_layout(
+                    title=dict(text="Top 10 Articles (Volume Total Projeté)", font=dict(size=16, color="#111827")),
+                    xaxis_title=f"Volume ({unite_affichage})",
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    margin=dict(l=20, r=20, t=50, b=20)
+                )
+                fig3.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+                st.plotly_chart(fig3, use_container_width=True)

@@ -29,9 +29,15 @@ st.markdown("""
         border-right: 4px solid #E30613; /* Rouge STAR */
     }
     
-    /* SUPPRESSION DES LIGNES VERTICALES SUR LES COLONNES */
+    /* --- SUPPRESSION DE TOUTES LES LIGNES VERTICALES SUR LES COLONNES --- */
+    [data-testid="stHorizontalBlock"] {
+        gap: 1rem;
+        border: none !important;
+    }
     [data-testid="column"] {
         border: none !important;
+        border-right: none !important;
+        border-left: none !important;
         box-shadow: none !important;
     }
     
@@ -355,16 +361,16 @@ if fichier_ventes is not None:
 
     with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        st.dataframe(df_enrichi, use_container_width=True)
+        st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
     with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
-        st.dataframe(df_perimetre, use_container_width=True)
+        st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
-            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True)
+            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True, hide_index=True)
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
@@ -379,7 +385,7 @@ if fichier_ventes is not None:
         with c_sarr:
             st.markdown("**Table SARR**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
-            st.dataframe(df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"]), use_container_width=True)
+            st.dataframe(df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
@@ -391,7 +397,7 @@ if fichier_ventes is not None:
                     "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
                     "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
                 },
-                use_container_width=True
+                use_container_width=True, hide_index=True
             )
             
         st.markdown("#### 5.2 Résultat Final")
@@ -411,5 +417,5 @@ if fichier_ventes is not None:
                     "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
                     col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
                 },
-                use_container_width=True, height=400
+                use_container_width=True, hide_index=True, height=400
             )

@@ -29,7 +29,7 @@ st.markdown("""
         border-right: 4px solid #E30613; /* Rouge STAR */
     }
     
-    /* --- SUPPRESSION DE TOUTES LES LIGNES VERTICALES SUR LES COLONNES --- */
+    /* --- SUPPRESSION DE TOUTES LES LIGNES VERTICALES --- */
     [data-testid="stHorizontalBlock"] {
         gap: 1rem;
         border: none !important;
@@ -45,13 +45,13 @@ st.markdown("""
     h1 { color: #E30613 !important; font-weight: 900 !important; margin-bottom: 0 !important; }
     h2, h3 { color: #009640 !important; font-weight: 700 !important; } /* Vert STAR */
     
-    /* Cartes KPI (Fond blanc, bordure grise légère pour ressortir sur le fond blanc) */
+    /* Cartes KPI */
     .kpi-card {
         background-color: #FFFFFF; 
         border-radius: 8px; 
         padding: 20px;
-        border: 1px solid #E5E7EB; /* Bordure grise */
-        border-left: 6px solid #E30613; /* Bordure gauche Rouge */
+        border: 1px solid #E5E7EB; 
+        border-left: 6px solid #E30613; 
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         display: flex; flex-direction: column; justify-content: space-between; height: 130px;
     }
@@ -60,7 +60,7 @@ st.markdown("""
     .kpi-value { font-size: 2.2rem; font-weight: 800; color: #111827; margin-top: 5px; }
     .kpi-footer { font-size: 0.85rem; color: #6B7280; }
     
-    /* Onglets (Style Pilule) */
+    /* Onglets */
     .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 45px; background-color: #F9FAFB; color: #4B5563;
@@ -71,7 +71,7 @@ st.markdown("""
         border: 1px solid #E30613 !important;
     }
     
-    /* Conteneurs de tableaux (Bordure légère pour ressortir sur blanc) */
+    /* Conteneurs de tableaux */
     div[data-testid="stDataFrame"] { 
         background-color: #FFFFFF; 
         padding: 15px; 
@@ -82,7 +82,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# En-tête de l'application (logo + titre sans ligne de séparation)
+# En-tête de l'application
 col_logo, col_titre = st.columns([1.5, 5], gap="small", vertical_alignment="center")
 
 with col_logo:
@@ -300,17 +300,40 @@ with st.expander("📁 1. Importer vos fichiers (Données Brutes)", expanded=Fal
 if fichier_ventes is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
-    # --- BARRE LATÉRALE ---
+    # --- BARRE LATÉRALE AVEC FILTRES EN CASCADE ---
     with st.sidebar:
         st.markdown("<h2 style='font-size: 1.2rem;'>⚙️ Paramètres</h2>", unsafe_allow_html=True)
         
-        st.markdown("##### 2. Périmètre")
+        st.markdown("##### 2. Périmètre (Filtres)")
+        
+        # 1. Région
         regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Aucune vente"])
         sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
-        
         df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
-        sel_articles = st.multiselect("Article", options=sorted(df_temp["article"].unique()), placeholder="Tous")
-        sel_agences = st.multiselect("Agence", options=sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"]), placeholder="Toutes")
+
+        # 2. Positionnement
+        positionnements_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
+        sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
+        df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
+
+        # 3. Contenance
+        contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
+        sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
+        df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
+
+        # 4. Segment
+        segments_dispo = sorted([s for s in df_temp["segment"].unique() if pd.notna(s)])
+        sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
+        df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
+
+        # 5. Article
+        articles_dispo = sorted(df_temp["article"].unique())
+        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
+        df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
+
+        # 6. Agence
+        agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
+        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
         st.markdown("##### 📅 Cutoff")
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2022)
@@ -322,9 +345,12 @@ if fichier_ventes is not None:
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=0)
 
-    # Application des filtres
+    # Application finale des filtres
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
+    if sel_positionnements: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positionnements)]
+    if sel_contenances: df_perimetre = df_perimetre[df_perimetre["contenance_cl"].isin(sel_contenances)]
+    if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
@@ -354,7 +380,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- ONGLETS (ÉTAPES 1 À 5) ---
+    # --- ONGLETS ---
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])

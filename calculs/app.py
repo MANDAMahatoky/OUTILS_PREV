@@ -4,6 +4,7 @@ import numpy as np
 import re
 import io
 import unicodedata
+import datetime
 from pathlib import Path
 
 # ==============================================================================
@@ -151,11 +152,36 @@ MAPPING_REGIONS = {
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
 def normaliser_mois(valeur) -> int:
+    """Fonction robuste qui gère le texte, les dates et les formats mixtes."""
     if pd.isna(valeur): return 1
-    if isinstance(valeur, (int, float)): return int(valeur)
-    mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
+    
+    # Si c'est déjà un nombre (ex: 1 à 12)
+    if isinstance(valeur, (int, float)):
+        if 1 <= valeur <= 12:
+            return int(valeur)
+        # Si c'est un timestamp Excel
+        try:
+            return pd.to_datetime(valeur, unit='D', origin='1899-12-30').month
+        except:
+            return 1
+            
+    # Si c'est une date Pandas ou Python
+    if isinstance(valeur, (pd.Timestamp, datetime.datetime, datetime.date)): 
+        return valeur.month
+    
+    # Si c'est du texte
     texte = unicodedata.normalize("NFD", str(valeur)).encode("ascii", "ignore").decode("utf-8").lower().strip()
-    return mois_map.get(texte, 1)
+    
+    # Dictionnaire des mois en français
+    mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
+    if texte in mois_map:
+        return mois_map[texte]
+        
+    # Si c'est une date sous forme de texte (ex: "2024-01-01")
+    try:
+        return pd.to_datetime(valeur).month
+    except:
+        return 1
 
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
@@ -191,13 +217,12 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
     df["agence"] = df["agence"].astype(str).str.strip()
     df["annee"] = df["annee"].fillna(2026).astype(int)
-    df["mois"] = df["mois"].fillna(1).astype(int)
+    
     df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
 
     df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"])
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
-    df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     
@@ -218,7 +243,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 @st.cache_data(show_spinner="Calcul des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
-    # Étape 3 : Réalisé
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre
@@ -268,7 +292,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     for _, row in df_momentum.iterrows():
         ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
         
-        # --- CALCUL DU CAGR (Correction ici) ---
         art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
         if not art_hist_complet.empty:
             a_deb, a_fin = art_hist_complet['annee'].min(), art_hist_complet['annee'].max()
@@ -290,14 +313,13 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
                     val_hl = dict_realises.get((y, m, ag, art), 0.0)
                 else:
                     statut = "Prévision"
-                    # Application du CAGR
                     val_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                     
                 val_cols = val_hl * (10000 / contenance)
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Statut": statut, "Indice": coef, "Base_HL": base, "Momentum_HL": momentum, 
-                    "CAGR (%)": cagr_val * 100, # Colonne ajoutée
+                    "CAGR (%)": cagr_val * 100, 
                     "Volume_HL": val_hl, "Volume_Cols": val_cols
                 })
                 
@@ -344,11 +366,11 @@ if fichier_ventes is not None:
         sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
         st.markdown("##### 📅 Cutoff")
-        annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2022)
+        annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2024)
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2025)
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
-        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2027)
+        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2026)
 
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=0)
@@ -368,11 +390,12 @@ if fichier_ventes is not None:
 
     if table_indices is None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique.")
+        st.info("💡 Vérifiez que vous avez bien sélectionné 2 années consécutives complètes (ex: 2024 et 2025) et que votre fichier contient bien 12 mois par an.")
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
-    # --- NOUVEAUX KPI (Atterrissage Cible & CAGR) ---
+    # --- KPI (Atterrissage Cible & CAGR) ---
     df_cible = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
     cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
@@ -385,7 +408,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- ONGLETS (ÉTAPES 1 À 5) ---
+    # --- ONGLETS ---
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])

@@ -4,38 +4,53 @@ import numpy as np
 import re
 import io
 import unicodedata
+import os
 
 # ==============================================================================
 # CONFIGURATION ET DESIGN (BRAND STAR MADAGASCAR)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="🔴")
 
-# Affichage du logo dans la barre latérale (nécessite Streamlit >= 1.35)
-# Si votre version est plus ancienne, cette ligne sera ignorée sans faire planter l'app.
-try:
-    st.logo("LOGO_STAR.png", size="large")
-except:
-    pass
+# --- CORRECTION DE L'ERREUR DE L'IMAGE (Recherche dans plusieurs dossiers) ---
+def trouver_logo():
+    chemins_possibles = [
+        "LOGO_STAR.png", 
+        "../LOGO_STAR.png", 
+        "../../LOGO_STAR.png"
+    ]
+    for chemin in chemins_possibles:
+        if os.path.exists(chemin):
+            return chemin
+            
+    # Recherche absolue basée sur le dossier du script
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for chemin in ["LOGO_STAR.png", "../LOGO_STAR.png"]:
+        full_path = os.path.join(base_dir, chemin)
+        if os.path.exists(full_path):
+            return full_path
+            
+    return None
+
+logo_path = trouver_logo()
+
+if logo_path:
+    try:
+        st.logo(logo_path, size="large")
+    except:
+        pass
+else:
+    st.sidebar.warning("⚠️ Logo introuvable. Vérifiez que 'LOGO_STAR.png' est bien uploadé.")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    
-    /* Fond général clair */
     .stApp { background-color: #FAFAFA; }
+    [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 5px solid #E30613; }
     
-    /* Barre latérale blanche avec bordure Rouge STAR */
-    [data-testid="stSidebar"] { 
-        background-color: #FFFFFF; 
-        border-right: 5px solid #E30613; /* Rouge STAR */
-    }
-    
-    /* Titres */
     h1 { color: #E30613 !important; font-weight: 900 !important; }
-    h2, h3 { color: #009640 !important; font-weight: 700 !important; } /* Vert STAR */
+    h2, h3 { color: #009640 !important; font-weight: 700 !important; }
     
-    /* Cartes KPI */
     .kpi-card {
         background-color: #FFFFFF; border-radius: 8px; padding: 20px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
@@ -47,8 +62,7 @@ st.markdown("""
     .kpi-value { font-size: 2.2rem; font-weight: 800; color: #111827; margin-top: 5px; }
     .kpi-footer { font-size: 0.85rem; color: #6B7280; }
     
-    /* Onglets */
-    .stTabs [data-baseweb="tab-list"] { gap: 15px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; }
     .stTabs [data-baseweb="tab"] {
         height: 45px; background-color: #F3F4F6; color: #4B5563;
         border-radius: 8px; padding: 10px 20px; font-weight: 600; border: 1px solid #E5E7EB;
@@ -57,22 +71,24 @@ st.markdown("""
         background-color: #E30613 !important; color: #FFFFFF !important;
         border: 1px solid #E30613 !important;
     }
-    
     div[data-testid="stDataFrame"] { background-color: #FFFFFF; padding: 10px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 </style>
 """, unsafe_allow_html=True)
 
-# En-tête avec le Logo centré
+# En-tête
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    # Affiche le logo (ajustez la largeur 'width' selon la taille de votre image)
-    st.image("LOGO_STAR.png", use_column_width=True)
+    if logo_path:
+        try:
+            st.image(logo_path, use_column_width=True)
+        except:
+            pass
 
 st.markdown("""
     <div style='text-align: center; margin-bottom: 30px; margin-top: -10px;'>
         <h1 style='font-size: 2.2rem; margin-bottom: 0;'>PREVISIONS STAR MADAGASCAR</h1>
         <p style='color: #4B5563; font-size: 1.1rem; font-weight: 500; margin-top: 5px;'>
-            Moteur de prévision S&OP - Étape 5 : Dynamique
+            Moteur de prévision S&OP complet (Étapes 1 à 5)
         </p>
     </div>
 """, unsafe_allow_html=True)
@@ -192,19 +208,25 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
+def calculer_etapes(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
+    # --- ÉTAPE 3 : RÉALISÉ CUMULÉ ---
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return None, None, None, None
+    
+    # On crée aussi la table des ventes brutes pour l'affichage étape 1
+    df_ventes_brutes = df_perimetre.copy()
+
+    if df_realise.empty: return df_ventes_brutes, None, None, None, None, None
 
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
-    if df_hist.empty: return None, None, None, None
+    if df_hist.empty: return df_ventes_brutes, df_realise, None, None, None, None
 
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     df_hist_complet = df_hist.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
-    if df_hist_complet.empty: return None, None, None, None
+    if df_hist_complet.empty: return df_ventes_brutes, df_realise, None, None, None, None
 
+    # --- ÉTAPE 4 : INDICES & SARR ---
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
     vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
@@ -217,6 +239,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
+    # --- ÉTAPE 5.1 : MOMENTUM ---
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -234,6 +257,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
+    # --- ÉTAPE 5.2 : PRÉVISIONS ---
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
@@ -259,12 +283,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
                     "Volume_HL": val_hl, "Volume_Cols": val_cols
                 })
                 
-    return table_indices, df_sarr, df_momentum, pd.DataFrame(resultats_previsions)
+    return df_ventes_brutes, df_realise, table_indices, df_sarr, df_momentum, pd.DataFrame(resultats_previsions)
 
 # ==============================================================================
 # INTERFACE UTILISATEUR
 # ==============================================================================
-with st.expander("📁 1. Importer vos fichiers (Données Brutes)", expanded=False):
+with st.expander("📁 Importer vos fichiers (Données Brutes)", expanded=False):
     c1, c2 = st.columns(2)
     with c1: fichier_ventes = st.file_uploader("Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
     with c2: fichier_ref = st.file_uploader("Fichier Référentiel (Optionnel)", type=["xlsx"])
@@ -299,16 +323,18 @@ if fichier_ventes is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    table_indices, df_sarr, df_momentum, df_previsions = calculer_etape_5(
+    # Calcul global
+    df_ventes_brutes, df_realise, table_indices, df_sarr, df_momentum, df_previsions = calculer_etapes(
         df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible
     )
 
-    if table_indices is None:
+    if df_realise is None or df_previsions is None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique.")
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
+    # --- KPI ---
     total_previsions = df_previsions[df_previsions['Statut'] == 'Prévision'][col_prev_aff].sum()
     moy_momentum = df_momentum['Momentum_HL'].mean()
     moy_base = df_momentum['Base_HL'].mean()
@@ -323,10 +349,51 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    tab_prev, tab_momentum, tab_sarr = st.tabs(["🚀 5.2 Prévisions", "⚡ 5.1 Momentum", "📉 4. SARR & Indices"])
+    # --- ONGLETS (ÉTAPES 1 À 5) ---
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "1. Données Brutes", 
+        "2. Périmètre", 
+        "3. Réalisé Cumulé", 
+        "4. Indices & SARR", 
+        "5. Prévisions (Dynamique)"
+    ])
 
-    with tab_prev:
-        st.markdown("### Résultat de l'Étape 5.2 : Prévisions Finales")
+    with tab1:
+        st.markdown("### Étape 1 : Données Brutes Enrichies")
+        st.info("Voici l'ensemble des données chargées (Ventes + Référentiel fusionnés).")
+        st.dataframe(df_ventes_brutes, use_container_width=True)
+
+    with tab2:
+        st.markdown("### Étape 2 : Périmètre Filtré")
+        st.info("Ce tableau correspond aux données filtrées selon les critères de la barre latérale.")
+        st.dataframe(df_perimetre, use_container_width=True)
+
+    with tab3:
+        st.markdown("### Étape 3 : Réalisé Cumulé")
+        st.info(f"Ventes réelles jusqu'au cutoff ({MOIS_NOMS[mois_cutoff-1]} {annee_cloture}).")
+        st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True)
+
+    with tab4:
+        st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
+        st.info("Formule : Indice = (Moyenne du mois) / (Moyenne annuelle). SARR = Volume / Indice.")
+        c_idx, c_sarr = st.columns(2)
+        with c_idx:
+            st.markdown("**Indices**")
+            pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+            pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
+            st.dataframe(pivot_indices, use_container_width=True)
+        with c_sarr:
+            st.markdown("**SARR**")
+            df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
+            st.dataframe(df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"]), use_container_width=True)
+
+    with tab5:
+        st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
+        
+        with st.expander("5.1 Table du Momentum et de la Base"):
+            st.dataframe(df_momentum, column_config={"Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"), "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f")}, use_container_width=True)
+            
+        st.markdown("#### 5.2 Résultat Final")
         pivot_mensuel = df_previsions.pivot_table(
             index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
         ).fillna(0)
@@ -345,21 +412,3 @@ if fichier_ventes is not None:
                 },
                 use_container_width=True, height=400
             )
-
-    with tab_momentum:
-        st.markdown("### 5.1 Calcul du Momentum et de la Base")
-        st.info("Formule : Base = MAX(SARR M, AVERAGE(SARR M-1, M-2, M-3))")
-        st.dataframe(df_momentum, column_config={"Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"), "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f")}, use_container_width=True)
-
-    with tab_sarr:
-        st.markdown("### 4. Indices et SARR (Données d'entrée)")
-        c_idx, c_sarr = st.columns(2)
-        with c_idx:
-            st.markdown("**Indices de Saisonnalité**")
-            pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
-            pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            st.dataframe(pivot_indices, use_container_width=True)
-        with c_sarr:
-            st.markdown("**Table SARR**")
-            df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
-            st.dataframe(df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"]), use_container_width=True)

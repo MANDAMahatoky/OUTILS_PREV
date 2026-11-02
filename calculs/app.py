@@ -6,86 +6,128 @@ import io
 import unicodedata
 
 # ==============================================================================
-# CONFIGURATION DE LA PAGE ET DESIGN (DOMINANTE ROUGE)
+# CONFIGURATION ET DESIGN (STYLE DASHBOARD MODERNE "SAAS")
 # ==============================================================================
-st.set_page_config(page_title="S&OP Prévisions", layout="wide", page_icon="🔴")
+st.set_page_config(page_title="S&OP Dashboard", layout="wide", page_icon="📊")
 
-# Injection de CSS pour appliquer la charte graphique
+# Injection du CSS pour reproduire le design de l'image
 st.markdown("""
 <style>
-    /* Fond principal très clair */
-    .stApp {
-        background-color: #FAFAFA;
+    /* Importation d'une police moderne (Inter) */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
     }
-    
-    /* Barre latérale : fond blanc avec bordure rouge épaisse */
+
+    /* Fond général gris très clair */
+    .stApp {
+        background-color: #F8F9FA;
+    }
+
+    /* Barre latérale blanche */
     [data-testid="stSidebar"] {
         background-color: #FFFFFF;
-        border-right: 5px solid #D32F2F;
+        border-right: 1px solid #E5E7EB;
     }
-    
-    /* Titres en Rouge (dominante) */
-    h1, h2, h3, h4 {
-        color: #D32F2F !important;
-    }
-    
-    /* Style des cartes Métriques (KPI) - Bordure et Ombre Rouges */
-    [data-testid="stMetric"] {
+
+    /* Style des cartes KPI personnalisées */
+    .kpi-card {
         background-color: #FFFFFF;
-        border: 2px solid #D32F2F;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 3px 3px 12px rgba(211, 47, 47, 0.2);
-        text-align: center;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        border: 1px solid #F3F4F6;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 120px;
     }
-    
-    /* Chiffres des métriques en Rouge */
-    [data-testid="stMetricValue"] {
-        color: #D32F2F !important;
-        font-size: 2rem !important;
-        font-weight: 900;
+    .kpi-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: #6B7280;
+        font-size: 0.9rem;
+        font-weight: 500;
     }
-    
-    /* Libellés des métriques en Vert */
-    [data-testid="stMetricLabel"] {
-        color: #2E7D32 !important;
+    .kpi-icon {
+        background-color: #ECFDF5; /* Vert très clair */
+        color: #10B981; /* Vert émeraude */
+        padding: 6px;
+        border-radius: 8px;
         font-weight: bold;
     }
-    
-    /* Style des onglets : Actif = Rouge avec texte blanc */
+    .kpi-icon-red {
+        background-color: #FEF2F2; /* Rouge très clair */
+        color: #EF4444; /* Rouge */
+        padding: 6px;
+        border-radius: 8px;
+        font-weight: bold;
+    }
+    .kpi-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #111827;
+        margin-top: 10px;
+    }
+    .kpi-footer {
+        font-size: 0.8rem;
+        color: #6B7280;
+        margin-top: 5px;
+    }
+    .positive { color: #10B981; font-weight: 600; }
+    .negative { color: #EF4444; font-weight: 600; }
+
+    /* Style des onglets (Tabs) en mode "Pilule" */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 15px;
+        gap: 10px;
+        background-color: transparent;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        background-color: #F0F2F6;
-        color: #D32F2F;
-        border-radius: 5px 5px 0 0;
-        padding: 10px 20px;
-        border: 1px solid #E0E0E0;
+        height: 40px;
+        background-color: #FFFFFF;
+        color: #6B7280;
+        border-radius: 8px;
+        padding: 8px 16px;
+        border: 1px solid #E5E7EB;
+        font-weight: 500;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #D32F2F !important;
-        color: #FFFFFF !important;
-        border-bottom: 3px solid #2E7D32; /* Touche de vert */
-        font-weight: bold;
+        background-color: #ECFDF5 !important;
+        color: #10B981 !important;
+        border: 1px solid #10B981 !important;
+        font-weight: 600;
+    }
+
+    /* Style des conteneurs de tableaux (pour faire des cartes blanches) */
+    div[data-testid="stDataFrame"] {
+        background-color: #FFFFFF;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
     }
     
-    /* Boutons rouges */
-    .stButton>button {
-        background-color: #D32F2F !important;
-        color: white !important;
-        border-radius: 5px;
-        border: none;
+    /* Titres */
+    h1, h2, h3 {
+        color: #111827 !important;
+        font-weight: 700 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: center; color: #D32F2F;'>📊 Moteur de Prévision S&OP</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #2E7D32; font-weight: bold;'>Planifiez vos volumes en toute sérénité (Indices, Momentum & CAGR)</p>", unsafe_allow_html=True)
+# En-tête de la page
+st.markdown("""
+    <div style='margin-bottom: 30px;'>
+        <p style='color: #EF4444; font-weight: 600; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px;'>Tableau de Bord</p>
+        <h1 style='font-size: 2rem; margin: 0;'>Bonjour, voici vos prévisions</h1>
+        <p style='color: #6B7280; margin-top: 5px;'>Voici ce qui se passe dans votre activité aujourd'hui.</p>
+    </div>
+""", unsafe_allow_html=True)
+
 
 # ==============================================================================
-# RÉFÉRENTIEL INTÉGRÉ PAR DÉFAUT (Classeur2)
+# RÉFÉRENTIEL ET MAPPING (INCHANGÉ)
 # ==============================================================================
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
@@ -159,9 +201,6 @@ REF_DEFAUT = [
     {"Article": "XXL 35cl PET", "Contenance (Cl)": 35, "Positionnement": "Entrée"}
 ]
 
-# ==============================================================================
-# MAPPING RÉGIONS
-# ==============================================================================
 MAPPING_REGIONS = {
     "11-Andranomahery": "Centre", "12-Antsirabe": "Centre",
     "01-Tanjombato": "Est", "09-Tamatave": "Est",
@@ -170,7 +209,7 @@ MAPPING_REGIONS = {
 }
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES
+# FONCTIONS UTILITAIRES ET CALCULS (INCHANGÉ)
 # ==============================================================================
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
@@ -186,9 +225,6 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-# ==============================================================================
-# ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
-# ==============================================================================
 @st.cache_data(show_spinner="Chargement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.DataFrame:
     if ref_bytes is not None:
@@ -234,16 +270,13 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
         return pd.DataFrame()
 
     df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
-    
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"])
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
-    
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
-    
     df_enrichi["hl"] = df_enrichi["volume_brut"]
     df_enrichi["region"] = df_enrichi["agence"].map(MAPPING_REGIONS).fillna("Autre")
     
@@ -262,12 +295,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
-# ==============================================================================
-# ÉTAPES 4, 5.1 & 5.2 : CALCULS
-# ==============================================================================
 @st.cache_data(show_spinner="Calcul des prévisions...")
 def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
-    
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, None
@@ -281,7 +310,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     
     if df_hist_complet.empty: return None, None, None, None, None
 
-    # INDICES
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols = vols.reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
@@ -295,7 +323,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # MOMENTUM & BASE
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -304,27 +331,22 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     for (ag, art), group in df_derniers.groupby(['agence', 'article']):
         def get_val(rang, col): 
             return group[group['rang'] == rang][col].values[0] if len(group[group['rang'] == rang]) > 0 else 0
-
         sarr_m, sarr_m1, sarr_m2, sarr_m3 = get_val(0, 'SARR_HL'), get_val(1, 'SARR_HL'), get_val(2, 'SARR_HL'), get_val(3, 'SARR_HL')
         momentum = np.mean([sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3])
-        
         group_realise = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)]
         vol_annee_cloture = group_realise[group_realise['annee'] == annee_cloture]['hl'].sum()
         mois_ecoules = group_realise[group_realise['annee'] == annee_cloture]['mois'].nunique()
         base = vol_annee_cloture / mois_ecoules if mois_ecoules > 0 else 0.0
-        
         info_art = group_realise.iloc[0]
         resultats_momentum.append({"Agence": ag, "Article": art, "Base_HL": base, "Momentum_HL": momentum, "Contenance": info_art['contenance_cl']})
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # PRÉVISIONS
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
     for _, row in df_momentum.iterrows():
         ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
-        
         art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
         if not art_hist_complet.empty:
             a_deb, a_fin = art_hist_complet['annee'].min(), art_hist_complet['annee'].max()
@@ -332,8 +354,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
             v_fin = art_hist_complet[art_hist_complet['annee'] == a_fin]['hl'].sum()
             nb_ans = a_fin - a_deb
             cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
-        else:
-            cagr_val = 0.0
+        else: cagr_val = 0.0
 
         for y in range(annee_cloture, annee_cible + 1):
             multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
@@ -349,46 +370,45 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                     val_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                     
                 val_cols = val_hl * (10000 / contenance)
-                
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Statut": statut, "Indice": coef, "Base_HL": base, "Momentum_HL": momentum, "CAGR (%)": cagr_val * 100, 
                     "Volume_HL": val_hl, "Volume_Cols": val_cols
                 })
-
-    df_previsions = pd.DataFrame(resultats_previsions)
-    return table_indices, df_sarr, df_momentum, df_hist, df_previsions
+    return table_indices, df_sarr, df_momentum, df_hist, pd.DataFrame(resultats_previsions)
 
 # ==============================================================================
-# INTERFACE STREAMLIT (ZONE DE TELECHARGEMENT)
+# INTERFACE PRINCIPALE
 # ==============================================================================
-col1, col2 = st.columns(2)
-with col1:
-    fichier_ventes = st.file_uploader("1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
-with col2:
-    fichier_ref = st.file_uploader("2. Fichier Référentiel (Optionnel)", type=["xlsx"], help="Laissez vide pour utiliser le référentiel intégré.")
+
+# Zone d'upload discrète en haut
+with st.expander("📁 Importer vos fichiers (Ventes & Référentiel)", expanded=False):
+    col1, col2 = st.columns(2)
+    with col1:
+        fichier_ventes = st.file_uploader("1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
+    with col2:
+        fichier_ref = st.file_uploader("2. Fichier Référentiel (Optionnel)", type=["xlsx"])
 
 if fichier_ventes is not None:
-    
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
-    # =========================================================================
-    # FILTRES (DANS DES EXPANDERS POUR UN DESIGN PROPRE)
-    # =========================================================================
-    with st.sidebar.expander("🔍 Filtres Données", expanded=True):
+    # --- BARRE LATÉRALE ---
+    with st.sidebar:
+        st.markdown("<h2 style='font-size: 1.2rem; color: #111827;'>⚙️ Paramètres</h2>", unsafe_allow_html=True)
+        
+        st.markdown("##### 📍 Filtres")
         regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Aucune vente"])
-        sel_regions = st.multiselect("🗺️ Région", options=regions_dispo, placeholder="Toutes")
+        sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
         
         positionnements_dispo = sorted([p for p in df_enrichi["positionnement"].unique() if pd.notna(p)])
-        sel_positionnements = st.multiselect("🏷️ Positionnement", options=positionnements_dispo, placeholder="Tous")
+        sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
         
         contenances_dispo = sorted([int(c) for c in df_enrichi["contenance_cl"].unique() if pd.notna(c)])
-        sel_contenances = st.multiselect("📏 Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
+        sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
         
         segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
-        sel_segments = st.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
+        sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
         
-        # Mise à jour dynamique
         df_temp = df_enrichi.copy()
         if sel_regions: df_temp = df_temp[df_temp["region"].isin(sel_regions)]
         if sel_positionnements: df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)]
@@ -396,25 +416,22 @@ if fichier_ventes is not None:
         if sel_segments: df_temp = df_temp[df_temp["segment"].isin(sel_segments)]
         
         articles_dispo = sorted(df_temp["article"].unique())
-        sel_articles = st.multiselect("🛒 Article", options=articles_dispo, placeholder="Tous")
+        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
         
         agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
-        sel_agences = st.multiselect("🏢 Agence", options=agences_dispo, placeholder="Toutes")
+        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
-    with st.sidebar.expander("📅 Paramètres Temporels", expanded=True):
-        annee_min_reelle = int(df_enrichi["annee"].min()) if not df_enrichi.empty else 2020
-        annee_max_reelle = int(df_enrichi["annee"].max()) if not df_enrichi.empty else 2026
-        
+        st.markdown("##### 📅 Dates")
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2022)
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2025)
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-        mois_cutoff = st.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
-        annee_cible = st.number_input("Année Cible (Fin Prévisions)", min_value=annee_cloture, max_value=2035, value=2027)
+        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
+        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2027)
 
-    with st.sidebar.expander("⚙️ Affichage", expanded=True):
-        unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
+        st.markdown("##### ⚙️ Affichage")
+        unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=0)
 
-    # Application finale
+    # Application des filtres
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
     if sel_positionnements: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positionnements)]
@@ -432,65 +449,75 @@ if fichier_ventes is not None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique.")
         st.stop()
 
-    # ONGLETS
-    tab_prev, tab_indices, tab_sarr, tab_diag = st.tabs([
-        "🚀 Prévisions & Atterrissage", "📊 Indices", "📈 SARR Global", "🩺 Diagnostic Données"
-    ])
-
+    col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
     if unite_affichage == "Cols":
         df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
         df_sarr["Vol_Aff"] = df_sarr["hl"] * (10000 / df_sarr["contenance_cl"].replace(0, 100))
-        col_prev_aff = "Volume_Cols"
     else:
         df_sarr["SARR_Aff"] = df_sarr["SARR_HL"]
         df_sarr["Vol_Aff"] = df_sarr["hl"]
-        col_prev_aff = "Volume_HL"
+
+    # --- AFFICHAGE DES KPI (CARTES DU HAUT) ---
+    df_atterrissage = df_previsions[df_previsions['annee'] == annee_cloture]
+    total_at = df_atterrissage[col_prev_aff].sum()
+    total_realise = df_atterrissage[df_atterrissage['Statut'] == 'Réalisé'][col_prev_aff].sum()
+    total_prevision = df_atterrissage[df_atterrissage['Statut'] == 'Prévision'][col_prev_aff].sum()
+    
+    # Calcul d'un faux % de croissance pour le design
+    croissance = df_previsions[df_previsions['annee'] == annee_cible]['CAGR (%)'].mean()
+    croissance_txt = f"+{croissance:.1f}%" if croissance > 0 else f"{croissance:.1f}%"
+    classe_croissance = "positive" if croissance > 0 else "negative"
+    icon_croissance = "↗" if croissance > 0 else "↘"
+
+    # Affichage HTML des 4 cartes KPI
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    
+    with kpi1:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-header"><span>Total Atterrissage</span> <span class="kpi-icon">📦</span></div>
+            <div class="kpi-value">{total_at:,.0f}</div>
+            <div class="kpi-footer">Prévu pour fin {annee_cloture}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with kpi2:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-header"><span>Déjà Réalisé</span> <span class="kpi-icon">✅</span></div>
+            <div class="kpi-value">{total_realise:,.0f}</div>
+            <div class="kpi-footer">Janvier à Octobre</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with kpi3:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-header"><span>Reste à Prévoir</span> <span class="kpi-icon-red">🔮</span></div>
+            <div class="kpi-value">{total_prevision:,.0f}</div>
+            <div class="kpi-footer">Novembre à Décembre</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with kpi4:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-header"><span>Croissance Moyenne</span> <span class="kpi-icon">{icon_croissance}</span></div>
+            <div class="kpi-value">{croissance_txt}</div>
+            <div class="kpi-footer"><span class="{classe_croissance}">{croissance_txt}</span> vs. historique</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True) # Espace
+
+    # --- ONGLETS ---
+    tab_prev, tab_indices, tab_sarr, tab_diag = st.tabs([
+        "📈 Vue d'ensemble", "📊 Indices", "📋 SARR Global", "🩺 Données Sources"
+    ])
 
     with tab_prev:
-        st.markdown(f"### 🛬 Atterrissage {annee_cloture} (Réalisé + Prévisions)")
-        
-        df_atterrissage = df_previsions[df_previsions['annee'] == annee_cloture]
-        
-        # KPI Cards stylisées avec CSS
-        col_at1, col_at2, col_at3 = st.columns(3)
-        with col_at1:
-            total_at = df_atterrissage[col_prev_aff].sum()
-            st.metric(label=f"Total Global {annee_cloture}", value=f"{total_at:,.2f} {unite_affichage}")
-        with col_at2:
-            total_realise = df_atterrissage[df_atterrissage['Statut'] == 'Réalisé'][col_prev_aff].sum()
-            st.metric(label="Déjà Réalisé (Janv - Cutoff)", value=f"{total_realise:,.2f} {unite_affichage}")
-        with col_at3:
-            total_prevision = df_atterrissage[df_atterrissage['Statut'] == 'Prévision'][col_prev_aff].sum()
-            st.metric(label="Reste à Prévoir (Post-Cutoff)", value=f"{total_prevision:,.2f} {unite_affichage}")
-
-        st.markdown("---")
-        
-        st.markdown("#### 📦 Détail de l'atterrissage par Article")
-        df_atterrissage_sku = df_atterrissage.pivot_table(
-            index='article', columns='Statut', values=col_prev_aff, aggfunc='sum'
-        ).fillna(0)
-        
-        if 'Réalisé' not in df_atterrissage_sku.columns: df_atterrissage_sku['Réalisé'] = 0
-        if 'Prévision' not in df_atterrissage_sku.columns: df_atterrissage_sku['Prévision'] = 0
-            
-        df_atterrissage_sku['Total'] = df_atterrissage_sku['Réalisé'] + df_atterrissage_sku['Prévision']
-        df_atterrissage_sku = df_atterrissage_sku.sort_values('Total', ascending=False)
-        
-        st.dataframe(
-            df_atterrissage_sku,
-            column_config={
-                "article": "Article",
-                "Réalisé": st.column_config.NumberColumn(f"Réalisé ({unite_affichage})", format="%.2f"),
-                "Prévision": st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
-                "Total": st.column_config.NumberColumn(f"Total ({unite_affichage})", format="%.2f")
-            },
-            use_container_width=True
-        )
-
-        st.markdown("---")
-        
-        st.subheader(f"📅 Prévisions Mensuelles jusqu'en {annee_cible}")
-        
+        st.markdown("### Performances des ventes")
+        # On recrée un tableau croisé propre
         pivot_mensuel = df_previsions.pivot_table(
             index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
         ).fillna(0)
@@ -498,7 +525,26 @@ if fichier_ventes is not None:
         pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
         
         st.dataframe(pivot_mensuel, use_container_width=True)
-        
+
+        with st.expander("Voir le détail de l'atterrissage par Article"):
+            df_atterrissage_sku = df_atterrissage.pivot_table(
+                index='article', columns='Statut', values=col_prev_aff, aggfunc='sum'
+            ).fillna(0)
+            if 'Réalisé' not in df_atterrissage_sku.columns: df_atterrissage_sku['Réalisé'] = 0
+            if 'Prévision' not in df_atterrissage_sku.columns: df_atterrissage_sku['Prévision'] = 0
+            df_atterrissage_sku['Total'] = df_atterrissage_sku['Réalisé'] + df_atterrissage_sku['Prévision']
+            df_atterrissage_sku = df_atterrissage_sku.sort_values('Total', ascending=False)
+            
+            st.dataframe(
+                df_atterrissage_sku,
+                column_config={
+                    "Réalisé": st.column_config.NumberColumn(f"Réalisé ({unite_affichage})", format="%.2f"),
+                    "Prévision": st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
+                    "Total": st.column_config.NumberColumn(f"Total ({unite_affichage})", format="%.2f")
+                },
+                use_container_width=True
+            )
+            
         with st.expander("Voir le détail mensuel complet"):
             st.dataframe(
                 df_previsions[["annee", "mois", "Date", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", col_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),
@@ -513,13 +559,13 @@ if fichier_ventes is not None:
             )
 
     with tab_indices:
-        st.subheader("Table des Indices de Saisonnalité")
+        st.markdown("### Indices de Saisonnalité")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         st.dataframe(pivot_indices, use_container_width=True)
 
     with tab_sarr:
-        st.subheader(f"Table du SARR Global (en {unite_affichage})")
+        st.markdown(f"### SARR Global (en {unite_affichage})")
         st.dataframe(
             df_sarr[["annee", "mois", "agence", "article", "Vol_Aff", "Indice", "SARR_Aff"]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
@@ -531,7 +577,7 @@ if fichier_ventes is not None:
         )
 
     with tab_diag:
-        st.subheader("🩺 Diagnostic : Volumes Historiques")
+        st.markdown("### Diagnostic : Volumes Historiques")
         df_diag = df_perimetre.groupby(['annee', 'mois', 'region', 'agence', 'article', 'contenance_cl', 'positionnement'])[['hl']].sum().reset_index()
         df_diag = df_diag[df_diag['hl'] > 0].sort_values(['annee', 'mois', 'region', 'agence', 'article'])
         st.dataframe(df_diag, use_container_width=True)

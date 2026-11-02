@@ -7,7 +7,7 @@ import unicodedata
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (BRAND STAR MADAGASCAR : ROUGE, VERT, ÉTOILES)
+# CONFIGURATION ET DESIGN (BRAND STAR MADAGASCAR : ROUGE, VERT, BLANC)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐")
 
@@ -60,16 +60,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # En-tête de l'application (logo en haut à gauche + titre)
-col_logo, col_titre = st.columns([1, 5], vertical_alignment="center")
+col_logo, col_titre = st.columns([2, 5], vertical_alignment="center")
 
 with col_logo:
     if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=180) # Logo agrandi
+        st.image(str(LOGO_PATH), use_container_width=True)
 
 with col_titre:
     st.markdown("""
         <div style='text-align: left; margin-bottom: 10px;'>
-            <h1 style='font-size: 2.8rem; margin-bottom: 0;'>⭐ PREVISIONS STAR MADAGASCAR ⭐</h1>
+            <h1 style='font-size: 2.8rem; margin-bottom: 0;'>PREVISIONS STAR MADAGASCAR</h1>
             <p style='color: #4B5563; font-size: 1.2rem; font-weight: 500; margin-top: 5px;'>
                 Moteur de prévision S&OP complet (Étapes 1 à 5)
             </p>
@@ -198,7 +198,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     # Étape 3 : Réalisé
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return None, None, None, None, pd.DataFrame()
+    if df_realise.empty: return None, None, None, None, df_perimetre
 
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
     if df_hist.empty: return None, None, None, None, df_realise
@@ -346,7 +346,10 @@ if fichier_ventes is not None:
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
-        st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True)
+        if df_realise is not None and not df_realise.empty:
+            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True)
+        else:
+            st.info("Aucune donnée réalisée pour le moment.")
 
     with tab4:
         st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")

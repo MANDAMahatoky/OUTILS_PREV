@@ -7,7 +7,7 @@ import unicodedata
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (BRAND STAR MADAGASCAR : ROUGE, VERT, BLANC)
+# CONFIGURATION ET DESIGN (FOND BLANC PUR + BRANDING STAR)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐")
 
@@ -18,24 +18,35 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    /* Fond général clair */
-    .stApp { background-color: #FAFAFA; }
+    /* --- FOND DE L'APP EN BLANC PUR --- */
+    .stApp { 
+        background-color: #FFFFFF !important; 
+    }
     
     /* Barre latérale blanche avec bordure Rouge STAR */
     [data-testid="stSidebar"] { 
         background-color: #FFFFFF; 
-        border-right: 5px solid #E30613; /* Rouge STAR */
+        border-right: 4px solid #E30613; /* Rouge STAR */
+    }
+    
+    /* SUPPRESSION DES LIGNES VERTICALES SUR LES COLONNES */
+    [data-testid="column"] {
+        border: none !important;
+        box-shadow: none !important;
     }
     
     /* Titres */
-    h1 { color: #E30613 !important; font-weight: 900 !important; }
+    h1 { color: #E30613 !important; font-weight: 900 !important; margin-bottom: 0 !important; }
     h2, h3 { color: #009640 !important; font-weight: 700 !important; } /* Vert STAR */
     
-    /* Cartes KPI (Style épuré avec bordure gauche Rouge) */
+    /* Cartes KPI (Fond blanc, bordure grise légère pour ressortir sur le fond blanc) */
     .kpi-card {
-        background-color: #FFFFFF; border-radius: 8px; padding: 20px;
+        background-color: #FFFFFF; 
+        border-radius: 8px; 
+        padding: 20px;
+        border: 1px solid #E5E7EB; /* Bordure grise */
+        border-left: 6px solid #E30613; /* Bordure gauche Rouge */
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        border-left: 6px solid #E30613;
         display: flex; flex-direction: column; justify-content: space-between; height: 130px;
     }
     .kpi-header { display: flex; justify-content: space-between; align-items: center; color: #4B5563; font-size: 0.95rem; font-weight: 600; }
@@ -44,9 +55,9 @@ st.markdown("""
     .kpi-footer { font-size: 0.85rem; color: #6B7280; }
     
     /* Onglets (Style Pilule) */
-    .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; }
+    .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
-        height: 45px; background-color: #F3F4F6; color: #4B5563;
+        height: 45px; background-color: #F9FAFB; color: #4B5563;
         border-radius: 8px; padding: 10px 20px; font-weight: 600; border: 1px solid #E5E7EB;
     }
     .stTabs [aria-selected="true"] {
@@ -54,13 +65,19 @@ st.markdown("""
         border: 1px solid #E30613 !important;
     }
     
-    /* Conteneurs de tableaux */
-    div[data-testid="stDataFrame"] { background-color: #FFFFFF; padding: 10px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    /* Conteneurs de tableaux (Bordure légère pour ressortir sur blanc) */
+    div[data-testid="stDataFrame"] { 
+        background-color: #FFFFFF; 
+        padding: 15px; 
+        border-radius: 8px; 
+        border: 1px solid #E5E7EB;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# En-tête de l'application (logo en haut à gauche + titre)
-col_logo, col_titre = st.columns([2, 5], vertical_alignment="center")
+# En-tête de l'application (logo + titre sans ligne de séparation)
+col_logo, col_titre = st.columns([1.5, 5], gap="small", vertical_alignment="center")
 
 with col_logo:
     if LOGO_PATH.exists():
@@ -68,9 +85,9 @@ with col_logo:
 
 with col_titre:
     st.markdown("""
-        <div style='text-align: left; margin-bottom: 10px;'>
-            <h1 style='font-size: 2.8rem; margin-bottom: 0;'>PREVISIONS STAR MADAGASCAR</h1>
-            <p style='color: #4B5563; font-size: 1.2rem; font-weight: 500; margin-top: 5px;'>
+        <div style='text-align: left;'>
+            <h1 style='font-size: 2.6rem;'>PREVISIONS STAR MADAGASCAR</h1>
+            <p style='color: #4B5563; font-size: 1.1rem; font-weight: 500; margin-top: 5px;'>
                 Moteur de prévision S&OP complet (Étapes 1 à 5)
             </p>
         </div>

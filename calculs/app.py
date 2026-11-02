@@ -75,7 +75,7 @@ with col_titre:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==============================================================================
-# RÉFÉRENTIEL ET MAPPING (DONNÉES INTÉGRÉES)
+# RÉFÉRENTIEL ET MAPPING
 # ==============================================================================
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
@@ -204,7 +204,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_hist_complet = df_hist.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
     if df_hist_complet.empty: return None, None, None, None, df_realise
 
-    # Étape 4 : Indices & SARR
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
     vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
@@ -217,7 +216,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # Étape 5.1 : Momentum
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -235,7 +233,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # Étape 5.2 : Prévisions
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
@@ -293,7 +290,6 @@ with st.expander("📁 1. Importer vos fichiers (Données Brutes)", expanded=Fal
 if fichier_ventes is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
-    # --- BARRE LATÉRALE AVEC FILTRES EN CASCADE ---
     with st.sidebar:
         st.markdown("<h2 style='font-size: 1.2rem;'>⚙️ Paramètres</h2>", unsafe_allow_html=True)
         
@@ -340,7 +336,6 @@ if fichier_ventes is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_previsions, df_realise = calculer_etape_5(
         df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible
     )
@@ -352,7 +347,6 @@ if fichier_ventes is not None:
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
-    # --- KPI DYNAMIQUES ---
     df_cible = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
@@ -372,7 +366,6 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- ONGLETS ---
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])
@@ -408,7 +401,6 @@ if fichier_ventes is not None:
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
         
-        # CHOIX DU MODE D'AFFICHAGE
         mode_affichage = st.radio("Choisir le mode d'affichage :", ["📊 Tableau", "📈 Graphiques Data Analyst"], horizontal=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -451,17 +443,14 @@ if fichier_ventes is not None:
                 )
 
         else:
-            # MODE GRAPHIQUES DATA ANALYST
             st.markdown("#### 📊 Analyse Visuelle des Prévisions")
             
-            # Préparation des données pour Plotly
             df_graph = df_previsions.copy()
             df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
             df_graph['Date'] = pd.to_datetime(df_graph['Date_Str'])
             
             df_grouped = df_graph.groupby(['Date', 'Statut'])[col_prev_aff].sum().reset_index()
 
-            # --- GRAPHIQUE 1 : COURBE DE TENDANCE ---
             fig1 = go.Figure()
             
             df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
@@ -492,12 +481,9 @@ if fichier_ventes is not None:
             col_g1, col_g2 = st.columns(2)
 
             with col_g1:
-                # --- GRAPHIQUE 2 : PROFIL DE SAISONNALITÉ ---
-                # On prend la moyenne des indices par mois
                 df_saison = table_indices.groupby('mois')['Indice'].mean().reset_index()
                 df_saison['Mois_Nom'] = df_saison['mois'].apply(lambda m: MOIS_NOMS[m-1])
                 
-                # Couleurs : Vert si < 1, Rouge si > 1
                 colors = ['#009640' if val < 1 else '#E30613' for val in df_saison['Indice']]
                 
                 fig2 = go.Figure(data=[go.Bar(x=df_saison['Mois_Nom'], y=df_saison['Indice'], marker_color=colors)])
@@ -513,7 +499,6 @@ if fichier_ventes is not None:
                 st.plotly_chart(fig2, use_container_width=True)
 
             with col_g2:
-                # --- GRAPHIQUE 3 : TOP ARTICLES ---
                 df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
                 
                 fig3 = go.Figure(data=[go.Bar(x=df_top[col_prev_aff], y=df_top['article'], orientation='h', marker_color='#E30613')])

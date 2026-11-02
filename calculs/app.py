@@ -55,10 +55,10 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         display: flex; flex-direction: column; justify-content: space-between; height: 130px;
     }
-    .kpi-header { display: flex; justify-content: space-between; align-items: center; color: #4B5563; font-size: 0.95rem; font-weight: 600; }
+    .kpi-header { display: flex; justify-content: space-between; align-items: center; color: #4B5563; font-size: 1rem; font-weight: 600; }
     .kpi-icon { font-size: 1.5rem; }
-    .kpi-value { font-size: 2.2rem; font-weight: 800; color: #111827; margin-top: 5px; }
-    .kpi-footer { font-size: 0.85rem; color: #6B7280; }
+    .kpi-value { font-size: 2.4rem; font-weight: 800; color: #111827; margin-top: 5px; }
+    .kpi-footer { font-size: 0.9rem; color: #6B7280; font-weight: 500;}
     
     /* Onglets */
     .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
@@ -306,32 +306,26 @@ if fichier_ventes is not None:
         
         st.markdown("##### 2. Périmètre (Filtres)")
         
-        # 1. Région
         regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Aucune vente"])
         sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
         df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
 
-        # 2. Positionnement
         positionnements_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
         sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
         df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
 
-        # 3. Contenance
         contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
         sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
         df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
 
-        # 4. Segment
         segments_dispo = sorted([s for s in df_temp["segment"].unique() if pd.notna(s)])
         sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
         df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
 
-        # 5. Article
         articles_dispo = sorted(df_temp["article"].unique())
         sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
 
-        # 6. Agence
         agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
         sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
@@ -345,7 +339,6 @@ if fichier_ventes is not None:
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=0)
 
-    # Application finale des filtres
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
     if sel_positionnements: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positionnements)]
@@ -365,22 +358,20 @@ if fichier_ventes is not None:
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
-    # --- KPI ---
-    total_previsions = df_previsions[df_previsions['Statut'] == 'Prévision'][col_prev_aff].sum()
-    moy_momentum = df_momentum['Momentum_HL'].mean()
-    moy_base = df_momentum['Base_HL'].mean()
+    # --- NOUVEAUX KPI (Atterrissage Cible & CAGR) ---
+    df_cible = df_previsions[df_previsions['annee'] == annee_cible]
+    atterrissage_cible = df_cible[col_prev_aff].sum()
+    cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
 
-    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1, kpi2 = st.columns(2)
     with kpi1:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Total Prévisions Générées</span> <span class="kpi-icon">⭐</span></div><div class="kpi-value">{total_previsions:,.0f}</div><div class="kpi-footer">{unite_affichage}</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
     with kpi2:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Momentum Moyen</span> <span class="kpi-icon">⚡</span></div><div class="kpi-value">{moy_momentum:,.2f}</div><div class="kpi-footer">HL / mois</div></div>""", unsafe_allow_html=True)
-    with kpi3:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Base Moyenne</span> <span class="kpi-icon">📊</span></div><div class="kpi-value">{moy_base:,.2f}</div><div class="kpi-footer">HL / mois</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- ONGLETS ---
+    # --- ONGLETS (ÉTAPES 1 À 5) ---
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])

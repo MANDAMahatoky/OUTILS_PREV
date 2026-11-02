@@ -268,7 +268,19 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     for _, row in df_momentum.iterrows():
         ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
         
+        # --- CALCUL DU CAGR (Correction ici) ---
+        art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
+        if not art_hist_complet.empty:
+            a_deb, a_fin = art_hist_complet['annee'].min(), art_hist_complet['annee'].max()
+            v_deb = art_hist_complet[art_hist_complet['annee'] == a_deb]['hl'].sum()
+            v_fin = art_hist_complet[art_hist_complet['annee'] == a_fin]['hl'].sum()
+            nb_ans = a_fin - a_deb
+            cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
+        else:
+            cagr_val = 0.0
+
         for y in range(annee_cloture, annee_cible + 1):
+            multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
             for m in range(1, 13):
                 coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
                 coef = coef_data['Indice'].values[0] if not coef_data.empty else 1.0
@@ -278,12 +290,14 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
                     val_hl = dict_realises.get((y, m, ag, art), 0.0)
                 else:
                     statut = "Prévision"
-                    val_hl = max(0.0, (coef * base) + momentum)
+                    # Application du CAGR
+                    val_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                     
                 val_cols = val_hl * (10000 / contenance)
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
                     "Statut": statut, "Indice": coef, "Base_HL": base, "Momentum_HL": momentum, 
+                    "CAGR (%)": cagr_val * 100, # Colonne ajoutée
                     "Volume_HL": val_hl, "Volume_Cols": val_cols
                 })
                 

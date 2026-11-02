@@ -239,21 +239,26 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         base = max(sarr_m, np.mean([sarr_m1, sarr_m2, sarr_m3]))
         
         info_art = group.iloc[0]
-        resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum, "contenance_cl": info_art['contenance_cl']}) # Correction ici (minuscules)
+        resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum, "contenance_cl": info_art['contenance_cl']})
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
     # On inclut TOUS les articles du périmètre
     articles_perimetre = df_perimetre[['agence', 'article']].drop_duplicates()
     
-    # Maintenant les colonnes correspondent (agence, article)
+    # Fusion 1 : Ajout des bases et momentum aux articles du périmètre
     df_momentum_complet = pd.merge(articles_perimetre, df_momentum, on=['agence', 'article'], how='left')
     
     df_momentum_complet['Base_HL'] = df_momentum_complet['Base_HL'].fillna(0.0)
     df_momentum_complet['Momentum_HL'] = df_momentum_complet['Momentum_HL'].fillna(0.0)
     
-    # On récupère la contenance de chaque article
+    # Fusion 2 : Récupération de la contenance (on garde 'contenance_cl' venant de df_perimetre)
     conte_df = df_perimetre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
+    
+    # On supprime 'contenance_cl' de df_momentum_complet s'il existe pour éviter le conflit _x / _y
+    if 'contenance_cl' in df_momentum_complet.columns:
+        df_momentum_complet = df_momentum_complet.drop(columns=['contenance_cl'])
+        
     df_momentum_complet = pd.merge(df_momentum_complet, conte_df, on=['agence', 'article'], how='left')
     df_momentum_complet['contenance_cl'] = df_momentum_complet['contenance_cl'].fillna(100.0)
 
@@ -261,9 +266,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
-    # On boucle sur df_momentum_complet
     for _, row in df_momentum_complet.iterrows():
-        ag, art = row['agence'], row['article'] # Correction ici (minuscules)
+        ag, art = row['agence'], row['article']
         base, momentum, contenance = row['Base_HL'], row['Momentum_HL'], row['contenance_cl']
         
         cagr_val = 0.0

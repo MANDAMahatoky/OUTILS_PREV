@@ -107,7 +107,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ÉTAPES 4, 5.1 & 5.2 : CALCULS
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, methode_coef: str, activer_momentum: bool, methode_base: str, methode_momentum: str):
+def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, methode_coef: str, activer_momentum: bool, methode_base: str, methode_momentum: str, mode_cagr: str, cagr_manuel: float):
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
@@ -193,23 +193,27 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # ÉTAPE 5.2 : PRÉVISIONS AVEC CAGR
+    # ÉTAPE 5.2 : PRÉVISIONS
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
     for _, row in df_momentum.iterrows():
         ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
         
-        art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
-        if not art_hist_complet.empty:
-            annee_debut_cagr = art_hist_complet['annee'].min()
-            annee_fin_cagr = art_hist_complet['annee'].max()
-            vol_debut = art_hist_complet[art_hist_complet['annee'] == annee_debut_cagr]['hl'].sum()
-            vol_fin = art_hist_complet[art_hist_complet['annee'] == annee_fin_cagr]['hl'].sum()
-            nb_ans = annee_fin_cagr - annee_debut_cagr
-            cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1 if nb_ans > 0 and vol_debut > 0 and vol_fin > 0 else 0.0
+        # --- GESTION DU CAGR (Auto ou Manuel) ---
+        if mode_cagr == "Automatique":
+            art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
+            if not art_hist_complet.empty:
+                annee_debut_cagr = art_hist_complet['annee'].min()
+                annee_fin_cagr = art_hist_complet['annee'].max()
+                vol_debut = art_hist_complet[art_hist_complet['annee'] == annee_debut_cagr]['hl'].sum()
+                vol_fin = art_hist_complet[art_hist_complet['annee'] == annee_fin_cagr]['hl'].sum()
+                nb_ans = annee_fin_cagr - annee_debut_cagr
+                cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1 if nb_ans > 0 and vol_debut > 0 and vol_fin > 0 else 0.0
+            else:
+                cagr_val = 0.0
         else:
-            cagr_val = 0.0
+            cagr_val = cagr_manuel / 100.0 # Conversion du pourcentage
 
         for y in range(annee_cloture, annee_cible + 1):
             multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
@@ -300,7 +304,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
     
     st.sidebar.markdown("### 📈 Momentum")
-    activer_momentum = st.sidebar.checkbox("Activer le Momentum (Tendance)", value=True)
+    activer_momentum = st.sidebar.checkbox("Activer le Momentum (Tendance)", value=False)
     if activer_momentum:
         methode_momentum = st.sidebar.selectbox(
             "Formule du Momentum",
@@ -310,16 +314,24 @@ if fichier_ventes is not None and fichier_ref is not None:
     else:
         methode_momentum = "Aucun"
 
+    # NOUVELLE SECTION CAGR
+    st.sidebar.markdown("### 📊 Croissance (CAGR)")
+    mode_cagr = st.sidebar.radio("Mode de calcul", options=["Automatique", "Manuel"], index=0)
+    if mode_cagr == "Manuel":
+        cagr_manuel = st.sidebar.number_input("Taux de croissance annuel (%)", value=0.0, step=0.5)
+    else:
+        cagr_manuel = 0.0
+
     # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_hist, df_previsions = calculer_modele(
-        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible, methode_coef, activer_momentum, methode_base, methode_momentum
+        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible, methode_coef, activer_momentum, methode_base, methode_momentum, mode_cagr, cagr_manuel
     )
 
     if table_indices is None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
         st.stop()
 
-    st.success(f"✅ Modèle calculé (Base : {methode_base} | Momentum : {methode_momentum}).")
+    st.success(f"✅ Modèle calculé (Base : {methode_base} | Momentum : {methode_momentum} | CAGR : {mode_cagr}).")
     
     # ONGLETS
     tab_indices, tab_sarr, tab_vue_excel, tab_prev, tab_diag = st.tabs([
@@ -392,7 +404,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_prev:
-        # --- SECTION ATTERRISSAGE (MISE A JOUR) ---
+        # --- SECTION ATTERRISSAGE ---
         st.markdown(f"### 🛬 Atterrissage {annee_cloture} (Réalisé + Prévisions)")
         
         df_atterrissage = df_previsions[df_previsions['annee'] == annee_cloture]
@@ -440,7 +452,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         
         # --- TABLEAU CROISÉ GLOBAL ---
         st.subheader(f"Prévisions Finales jusqu'en {annee_cible} (en {unite_affichage})")
-        st.info("💡 Les mois passés de l'année de clôture affichent désormais les ventes réalisées (Statut = Réalisé).")
+        st.info("💡 Les mois passés de l'année de clôture affichent les ventes réalisées (Statut = Réalisé).")
         
         pivot_mensuel = df_previsions.pivot_table(
             index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'

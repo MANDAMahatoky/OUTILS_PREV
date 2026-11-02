@@ -57,7 +57,6 @@ st.markdown("""
         border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
     }
 
-    /* Style des cartes de graphiques Plotly */
     div[data-testid="stPlotlyChart"] {
         background-color: #FFFFFF;
         padding: 15px;
@@ -213,6 +212,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_hist_complet = df_hist.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
     if df_hist_complet.empty: return None, None, None, None, df_realise
 
+    # Étape 4 : Indices & SARR
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
     vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
@@ -225,6 +225,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
+    # Étape 5.1 : Momentum
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -242,11 +243,25 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
+    # --- MODIFICATION ICI : On inclut TOUS les articles du périmètre ---
+    articles_perimetre = df_perimetre[['agence', 'article']].drop_duplicates()
+    df_momentum_complet = pd.merge(articles_perimetre, df_momentum, on=['agence', 'article'], how='left')
+    df_momentum_complet['Base_HL'] = df_momentum_complet['Base_HL'].fillna(0.0)
+    df_momentum_complet['Momentum_HL'] = df_momentum_complet['Momentum_HL'].fillna(0.0)
+    
+    # On récupère la contenance de chaque article
+    conte_df = df_perimetre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
+    df_momentum_complet = pd.merge(df_momentum_complet, conte_df, on=['agence', 'article'], how='left')
+    df_momentum_complet['contenance_cl'] = df_momentum_complet['contenance_cl'].fillna(100.0)
+
+    # Étape 5.2 : Prévisions
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
-    for _, row in df_momentum.iterrows():
-        ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
+    # On boucle sur df_momentum_complet
+    for _, row in df_momentum_complet.iterrows():
+        ag, art = row['Agence'], row['Article']
+        base, momentum, contenance = row['Base_HL'], row['Momentum_HL'], row['contenance_cl']
         
         cagr_val = 0.0
         if annee_cible > annee_cloture:
@@ -431,6 +446,10 @@ if fichier_ventes is not None:
             ).fillna(0)
             pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
             pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
+            
+            # On supprime les lignes où toutes les valeurs sont à 0 pour faire plus propre
+            pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
+            
             st.dataframe(pivot_mensuel, use_container_width=True)
             
             with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
@@ -460,7 +479,6 @@ if fichier_ventes is not None:
             
             df_grouped = df_graph.groupby(['Date', 'Statut'])[col_prev_aff].sum().reset_index()
 
-            # --- GRAPHIQUE 1 : COURBE DE TENDANCE (Style amélioré avec zone de remplissage) ---
             fig1 = go.Figure()
             
             df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
@@ -471,14 +489,14 @@ if fichier_ventes is not None:
                     x=df_real['Date'], y=df_real[col_prev_aff], 
                     mode='lines+markers', name='Réalisé', 
                     line=dict(color='#009640', width=3),
-                    fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)' # Remplissage vert clair
+                    fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                 ))
             if not df_prev.empty:
                 fig1.add_trace(go.Scatter(
                     x=df_prev['Date'], y=df_prev[col_prev_aff], 
                     mode='lines+markers', name='Prévision', 
                     line=dict(color='#E30613', width=3, dash='dash'),
-                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)' # Remplissage rouge très clair
+                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
                 ))
 
             fig1.update_layout(
@@ -502,11 +520,9 @@ if fichier_ventes is not None:
             col_g1, col_g2 = st.columns(2)
 
             with col_g1:
-                # --- GRAPHIQUE 2 : PROFIL DE SAISONNALITÉ (Ajout d'une ligne de référence) ---
                 df_saison = table_indices.groupby('mois')['Indice'].mean().reset_index()
                 df_saison['Mois_Nom'] = df_saison['mois'].apply(lambda m: MOIS_NOMS[m-1])
                 
-                # Couleurs : Vert si < 1, Rouge si > 1
                 colors = ['#009640' if val < 1 else '#E30613' for val in df_saison['Indice']]
                 
                 fig2 = go.Figure(data=[go.Bar(
@@ -517,7 +533,6 @@ if fichier_ventes is not None:
                     textposition='auto'
                 )])
                 
-                # Ligne de référence à 1.0
                 fig2.add_hline(y=1.0, line_dash="dash", line_color="#4B5563", annotation_text="Moyenne (1.0)", annotation_position="bottom right")
 
                 fig2.update_layout(
@@ -532,14 +547,13 @@ if fichier_ventes is not None:
                 st.plotly_chart(fig2, use_container_width=True)
 
             with col_g2:
-                # --- GRAPHIQUE 3 : TOP ARTICLES (Dégradé de couleurs) ---
                 df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
                 
                 fig3 = go.Figure(data=[go.Bar(
                     x=df_top[col_prev_aff], 
                     y=df_top['article'], 
                     orientation='h', 
-                    marker=dict(color=df_top[col_prev_aff], colorscale=['#FFC0C0', '#E30613']) # Dégradé du rose au rouge STAR
+                    marker=dict(color=df_top[col_prev_aff], colorscale=['#FFC0C0', '#E30613'])
                 )])
                 
                 fig3.update_layout(

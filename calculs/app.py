@@ -6,7 +6,7 @@ import io
 import unicodedata
 
 st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
-st.title("Moteur de Prévision S&OP (Étapes 1 à 5.2)")
+st.title("Moteur de Prévision S&OP")
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
@@ -107,7 +107,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 # ÉTAPES 4, 5.1 & 5.2 : CALCULS
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, methode_coef: str, activer_momentum: bool, methode_base: str, methode_momentum: str, mode_cagr: str, cagr_manuel: float):
+def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
@@ -116,24 +116,20 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
     if df_hist.empty: return None, None, None, None, None
 
+    # Années complètes uniquement
     mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     annees_completes = mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']]
     df_hist_complet = df_hist.merge(annees_completes, on=['agence', 'article', 'annee'], how='inner')
     
     if df_hist_complet.empty: return None, None, None, None, None
 
-    # ÉTAPE 4 : INDICES & SARR
+    # ÉTAPE 4 : INDICES (Ratio des Sommes)
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0)
     vols = vols.reindex(columns=range(1, 13), fill_value=0.0) 
-    vols_annuels = vols.sum(axis=1)
     
-    if methode_coef == "Moyenne des Ratios":
-        ratios = vols.div(vols_annuels / 12.0, axis=0).replace([np.inf, -np.inf], np.nan)
-        indices = ratios.groupby(['agence', 'article']).mean().fillna(1.0)
-    else:
-        vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
-        vols_annuels_cumules = vols_annuels.groupby(['agence', 'article']).sum()
-        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
+    vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
+    indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     table_indices['mois'] = table_indices['mois'].astype(int) 
@@ -142,7 +138,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # ÉTAPE 5.1 : MOMENTUM & BASE
+    # ÉTAPE 5.1 : MOMENTUM (Différence Absolue) & BASE
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -158,33 +154,17 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         sarr_m2 = get_val(2, 'SARR_HL')
         sarr_m3 = get_val(3, 'SARR_HL')
         
-        momentum = 0.0
-        if activer_momentum:
-            if methode_momentum == "Différence Absolue (HL)":
-                var1, var2, var3 = sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3
-                momentum = np.mean([var1, var2, var3])
-            elif methode_momentum == "Croissance Relative (%)":
-                var1 = (sarr_m / sarr_m1) - 1 if sarr_m1 > 0 else 0
-                var2 = (sarr_m1 / sarr_m2) - 1 if sarr_m2 > 0 else 0
-                var3 = (sarr_m2 / sarr_m3) - 1 if sarr_m3 > 0 else 0
-                momentum_pct = np.mean([var1, var2, var3])
-                momentum = sarr_m * momentum_pct 
-            elif methode_momentum == "Pente de Régression (SLOPE)":
-                y = np.array([sarr_m3, sarr_m2, sarr_m1, sarr_m])
-                x = np.array([1, 2, 3, 4])
-                if len(y) > 1:
-                    momentum = np.polyfit(x, y, 1)[0]
+        # Calcul du Momentum (Différence absolue)
+        var1, var2, var3 = sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3
+        momentum = np.mean([var1, var2, var3])
         
-        if methode_base == "Moyenne Annuelle (Total / 12)":
-            vol_annee_cloture = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['agence'] == ag) & (df_realise['article'] == art)]['hl'].sum()
-            mois_ecoules = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['agence'] == ag) & (df_realise['article'] == art)]['mois'].nunique()
-            base = vol_annee_cloture / mois_ecoules if mois_ecoules > 0 else max(sarr_m, np.mean([sarr_m1, sarr_m2, sarr_m3]))
-        elif methode_base == "Moyenne des 3 derniers SARR":
-            base = np.mean([sarr_m, sarr_m1, sarr_m2])
-        else:
-            base = max(sarr_m, np.mean([sarr_m1, sarr_m2, sarr_m3]))
+        # Calcul de la Base (Moyenne Annuelle de l'année de clôture)
+        group_realise = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)]
+        vol_annee_cloture = group_realise[group_realise['annee'] == annee_cloture]['hl'].sum()
+        mois_ecoules = group_realise[group_realise['annee'] == annee_cloture]['mois'].nunique()
+        base = vol_annee_cloture / mois_ecoules if mois_ecoules > 0 else 0.0
         
-        info_art = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)].iloc[0]
+        info_art = group_realise.iloc[0]
         
         resultats_momentum.append({
             "Agence": ag, "Article": art,
@@ -193,27 +173,23 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # ÉTAPE 5.2 : PRÉVISIONS
+    # ÉTAPE 5.2 : PRÉVISIONS (CAGR Automatique)
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
     for _, row in df_momentum.iterrows():
         ag, art, base, momentum, contenance = row['Agence'], row['Article'], row['Base_HL'], row['Momentum_HL'], row['Contenance']
         
-        # --- GESTION DU CAGR (Auto ou Manuel) ---
-        if mode_cagr == "Automatique":
-            art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
-            if not art_hist_complet.empty:
-                annee_debut_cagr = art_hist_complet['annee'].min()
-                annee_fin_cagr = art_hist_complet['annee'].max()
-                vol_debut = art_hist_complet[art_hist_complet['annee'] == annee_debut_cagr]['hl'].sum()
-                vol_fin = art_hist_complet[art_hist_complet['annee'] == annee_fin_cagr]['hl'].sum()
-                nb_ans = annee_fin_cagr - annee_debut_cagr
-                cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1 if nb_ans > 0 and vol_debut > 0 and vol_fin > 0 else 0.0
-            else:
-                cagr_val = 0.0
+        art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
+        if not art_hist_complet.empty:
+            annee_debut_cagr = art_hist_complet['annee'].min()
+            annee_fin_cagr = art_hist_complet['annee'].max()
+            vol_debut = art_hist_complet[art_hist_complet['annee'] == annee_debut_cagr]['hl'].sum()
+            vol_fin = art_hist_complet[art_hist_complet['annee'] == annee_fin_cagr]['hl'].sum()
+            nb_ans = annee_fin_cagr - annee_debut_cagr
+            cagr_val = ((vol_fin / vol_debut) ** (1 / nb_ans)) - 1 if nb_ans > 0 and vol_debut > 0 and vol_fin > 0 else 0.0
         else:
-            cagr_val = cagr_manuel / 100.0 # Conversion du pourcentage
+            cagr_val = 0.0
 
         for y in range(annee_cloture, annee_cible + 1):
             multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
@@ -225,11 +201,12 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                 if y == annee_cloture and m <= mois_cutoff:
                     statut = "Réalisé"
                     val_hl = dict_realises.get((y, m, ag, art), 0.0)
-                    val_cols = val_hl * (10000 / contenance)
                 else:
                     statut = "Prévision"
+                    # Application de la formule : (Base * Coef + Momentum) * CAGR
                     val_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
-                    val_cols = val_hl * (10000 / contenance)
+                    
+                val_cols = val_hl * (10000 / contenance)
                 
                 resultats_previsions.append({
                     "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
@@ -256,7 +233,8 @@ if fichier_ventes is not None and fichier_ref is not None:
     
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
 
-    st.sidebar.header("🔍 Filtres")
+    # FILTRES ÉTAPE 1
+    st.sidebar.header("🔍 Filtres Données")
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
     
@@ -273,69 +251,40 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
+    # FILTRES ÉTAPES 2 À 4
     st.sidebar.markdown("---")
-    st.sidebar.header("📅 Intervalle Historique")
+    st.sidebar.header("📅 Paramètres Temporels")
+    
     annee_min_reelle = int(df_perimetre["annee"].min()) if not df_perimetre.empty else 2020
     annee_max_reelle = int(df_perimetre["annee"].max()) if not df_perimetre.empty else 2026
-    
     st.sidebar.success(f"Données détectées : **{annee_min_reelle}** à **{annee_max_reelle}**")
     
-    annee_min_histo = st.sidebar.number_input("Année Min (Début)", min_value=2015, max_value=2030, value=2024)
-    annee_max_histo = st.sidebar.number_input("Année Max (Fin)", min_value=annee_min_histo, max_value=2030, value=2025)
+    annee_min_histo = st.sidebar.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2022)
+    annee_max_histo = st.sidebar.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2025)
     
-    st.sidebar.header("⚙️ Cutoff & Cible")
     annee_cloture = st.sidebar.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
     mois_cutoff = st.sidebar.selectbox("Mois de Cutoff (M)", options=list(range(1, 13)), index=9, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
     
-    st.sidebar.markdown("---")
-    annee_cible = st.sidebar.number_input("Année Cible (Prévisions)", min_value=annee_cloture, max_value=2035, value=2027)
+    annee_cible = st.sidebar.number_input("Année Cible (Fin Prévisions)", min_value=annee_cloture, max_value=2035, value=2027)
 
     st.sidebar.markdown("---")
-    st.sidebar.header("🛠️ Options d'Affichage")
-    nb_mois_vue = st.sidebar.slider("Nombre de mois à afficher (Vue Excel)", min_value=3, max_value=12, value=5)
-    methode_coef = st.sidebar.radio("Méthode de calcul des indices", options=["Moyenne des Ratios", "Ratio des Sommes"], index=0)
-    
-    methode_base = st.sidebar.radio(
-        "Méthode de calcul de la Base", 
-        options=["Moyenne Annuelle (Total / 12)", "Max(SARR M, Moyenne 3 derniers)", "Moyenne des 3 derniers SARR"],
-        index=0
-    )
-    
-    unite_affichage = st.sidebar.radio("Unité d'affichage", options=["HL", "Cols"], index=0)
-    
-    st.sidebar.markdown("### 📈 Momentum")
-    activer_momentum = st.sidebar.checkbox("Activer le Momentum (Tendance)", value=False)
-    if activer_momentum:
-        methode_momentum = st.sidebar.selectbox(
-            "Formule du Momentum",
-            options=["Différence Absolue (HL)", "Croissance Relative (%)", "Pente de Régression (SLOPE)"],
-            index=0
-        )
-    else:
-        methode_momentum = "Aucun"
-
-    # NOUVELLE SECTION CAGR
-    st.sidebar.markdown("### 📊 Croissance (CAGR)")
-    mode_cagr = st.sidebar.radio("Mode de calcul", options=["Automatique", "Manuel"], index=0)
-    if mode_cagr == "Manuel":
-        cagr_manuel = st.sidebar.number_input("Taux de croissance annuel (%)", value=0.0, step=0.5)
-    else:
-        cagr_manuel = 0.0
+    st.sidebar.header("⚙️ Affichage")
+    unite_affichage = st.sidebar.radio("Unité", options=["HL", "Cols"], index=0)
 
     # --- CALCULS ---
     table_indices, df_sarr, df_momentum, df_hist, df_previsions = calculer_modele(
-        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible, methode_coef, activer_momentum, methode_base, methode_momentum, mode_cagr, cagr_manuel
+        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible
     )
 
     if table_indices is None:
-        st.warning("⚠️ Aucune année complète (12 mois) trouvée pour calculer les coefficients.")
+        st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique pour calculer les coefficients.")
         st.stop()
 
-    st.success(f"✅ Modèle calculé (Base : {methode_base} | Momentum : {methode_momentum} | CAGR : {mode_cagr}).")
+    st.success(f"✅ Modèle calculé avec Indices (Ratio des Sommes) et Momentum.")
     
     # ONGLETS
-    tab_indices, tab_sarr, tab_vue_excel, tab_prev, tab_diag = st.tabs([
-        "📊 Indices", "📈 SARR Global", "🔍 Vue Excel Décalée", "🚀 Prévisions & Atterrissage", "🩺 Diagnostic Données"
+    tab_indices, tab_sarr, tab_prev, tab_diag = st.tabs([
+        "📊 Indices", "📈 SARR Global", "🚀 Prévisions & Atterrissage", "🩺 Diagnostic Données"
     ])
 
     if unite_affichage == "Cols":
@@ -348,7 +297,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         col_prev_aff = "Volume_HL"
 
     with tab_indices:
-        st.subheader("Table des Indices de Saisonnalité")
+        st.subheader("Table des Indices de Saisonnalité (Ratio des Sommes)")
         pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
         pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
         st.dataframe(pivot_indices.style.format("{:.2f}"), use_container_width=True)
@@ -365,44 +314,6 @@ if fichier_ventes is not None and fichier_ref is not None:
             use_container_width=True, height=400
         )
 
-    with tab_vue_excel:
-        st.subheader("🔍 Vue Décalée (Format Excel)")
-        df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
-        df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
-        
-        vue_excel_data = []
-        for (ag, art), group in df_sarr_sorted.groupby(['agence', 'article']):
-            row = {"Agence": ag, "Article": art}
-            sarr_vals_pour_moyenne = []
-            
-            for i in range(nb_mois_vue):
-                r = group[group['rang'] == i]
-                if not r.empty:
-                    row[f"M-{i+1} (Date)"] = f"{MOIS_NOMS[int(r['mois'].values[0])-1]}-{str(int(r['annee'].values[0]))[-2:]}"
-                    row[f"M-{i+1} (Coef)"] = r['Indice'].values[0]
-                    val_sarr = r['SARR_Aff'].values[0]
-                    row[f"SARR M-{i+1}"] = val_sarr
-                    sarr_vals_pour_moyenne.append(val_sarr)
-                else:
-                    row[f"M-{i+1} (Date)"] = "-"
-                    row[f"M-{i+1} (Coef)"] = 0
-                    row[f"SARR M-{i+1}"] = 0
-                    
-            row[f"Moyenne SARR ({unite_affichage})"] = np.mean(sarr_vals_pour_moyenne) if sarr_vals_pour_moyenne else 0
-            vue_excel_data.append(row)
-            
-        df_vue_excel = pd.DataFrame(vue_excel_data)
-        
-        st.dataframe(
-            df_vue_excel,
-            column_config={
-                **{f"M-{i+1} (Coef)": st.column_config.NumberColumn(f"M-{i+1} (Coef)", format="%.2f") for i in range(nb_mois_vue)},
-                **{f"SARR M-{i+1}": st.column_config.NumberColumn(f"SARR M-{i+1} ({unite_affichage})", format="%.2f") for i in range(nb_mois_vue)},
-                f"Moyenne SARR ({unite_affichage})": st.column_config.NumberColumn(f"Moyenne SARR ({unite_affichage})", format="%.2f")
-            },
-            use_container_width=True
-        )
-
     with tab_prev:
         # --- SECTION ATTERRISSAGE ---
         st.markdown(f"### 🛬 Atterrissage {annee_cloture} (Réalisé + Prévisions)")
@@ -415,15 +326,15 @@ if fichier_ventes is not None and fichier_ref is not None:
             st.metric(label=f"Total Global {annee_cloture}", value=f"{total_at:,.2f} {unite_affichage}")
         with col_at2:
             total_realise = df_atterrissage[df_atterrissage['Statut'] == 'Réalisé'][col_prev_aff].sum()
-            st.metric(label="Déjà Réalisé (Janv - Cutoff)", value=f"{total_realise:,.2f} {unite_affichage}")
+            st.metric(label="Déjà Réalisé", value=f"{total_realise:,.2f} {unite_affichage}")
         with col_at3:
             total_prevision = df_atterrissage[df_atterrissage['Statut'] == 'Prévision'][col_prev_aff].sum()
-            st.metric(label="Reste à Prévoir (Post-Cutoff)", value=f"{total_prevision:,.2f} {unite_affichage}")
+            st.metric(label="Reste à Prévoir", value=f"{total_prevision:,.2f} {unite_affichage}")
 
         st.markdown("---")
         
         # Tableau par SKU
-        st.markdown("#### Détail de l'atterrissage par Article")
+        st.markdown("#### Détail par Article")
         df_atterrissage_sku = df_atterrissage.pivot_table(
             index='article', 
             columns='Statut', 
@@ -434,8 +345,8 @@ if fichier_ventes is not None and fichier_ref is not None:
         if 'Réalisé' not in df_atterrissage_sku.columns: df_atterrissage_sku['Réalisé'] = 0
         if 'Prévision' not in df_atterrissage_sku.columns: df_atterrissage_sku['Prévision'] = 0
             
-        df_atterrissage_sku['Total Atterrissage'] = df_atterrissage_sku['Réalisé'] + df_atterrissage_sku['Prévision']
-        df_atterrissage_sku = df_atterrissage_sku.sort_values('Total Atterrissage', ascending=False)
+        df_atterrissage_sku['Total'] = df_atterrissage_sku['Réalisé'] + df_atterrissage_sku['Prévision']
+        df_atterrissage_sku = df_atterrissage_sku.sort_values('Total', ascending=False)
         
         st.dataframe(
             df_atterrissage_sku,
@@ -443,7 +354,7 @@ if fichier_ventes is not None and fichier_ref is not None:
                 "article": "Article",
                 "Réalisé": st.column_config.NumberColumn(f"Réalisé ({unite_affichage})", format="%.2f"),
                 "Prévision": st.column_config.NumberColumn(f"Prévision ({unite_affichage})", format="%.2f"),
-                "Total Atterrissage": st.column_config.NumberColumn(f"Total ({unite_affichage})", format="%.2f")
+                "Total": st.column_config.NumberColumn(f"Total ({unite_affichage})", format="%.2f")
             },
             use_container_width=True
         )
@@ -451,8 +362,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.markdown("---")
         
         # --- TABLEAU CROISÉ GLOBAL ---
-        st.subheader(f"Prévisions Finales jusqu'en {annee_cible} (en {unite_affichage})")
-        st.info("💡 Les mois passés de l'année de clôture affichent les ventes réalisées (Statut = Réalisé).")
+        st.subheader(f"Prévisions Finales jusqu'en {annee_cible}")
         
         pivot_mensuel = df_previsions.pivot_table(
             index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
@@ -462,7 +372,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         st.dataframe(pivot_mensuel.style.format("{:,.2f}"), use_container_width=True)
         
         # --- DÉTAIL MENSUEL ---
-        st.markdown("### 📅 Détail Mensuel des Prévisions & Réalisés")
+        st.markdown("### 📅 Détail Mensuel")
         st.dataframe(
             df_previsions[["annee", "mois", "Date", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", col_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),
             column_config={
@@ -476,7 +386,7 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_diag:
-        st.subheader("🩺 Diagnostic : Volumes Historiques (en HL)")
+        st.subheader("🩺 Diagnostic : Volumes Historiques")
         df_diag = df_perimetre.groupby(['annee', 'mois', 'agence', 'article', 'contenance_cl'])[['hl']].sum().reset_index()
         df_diag = df_diag[df_diag['hl'] > 0].sort_values(['annee', 'mois', 'agence', 'article'])
         st.dataframe(df_diag, use_container_width=True)

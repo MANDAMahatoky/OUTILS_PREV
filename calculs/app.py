@@ -9,6 +9,81 @@ st.set_page_config(page_title="Moteur de Prévision S&OP", layout="wide")
 st.title("Moteur de Prévision S&OP")
 
 # ==============================================================================
+# RÉFÉRENTIEL INTÉGRÉ PAR DÉFAUT (Classeur2)
+# ==============================================================================
+REF_DEFAUT = [
+    {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50},
+    {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50},
+    {"Article": "Caprice Ananas 100 cl VER", "Contenance (Cl)": 100},
+    {"Article": "Caprice Ananas 150 cl PET", "Contenance (Cl)": 150},
+    {"Article": "Caprice Ananas 30 cl VER", "Contenance (Cl)": 30},
+    {"Article": "Caprice Bonbon Anglais 100 cl VER", "Contenance (Cl)": 100},
+    {"Article": "Caprice Bonbon Anglais 150 cl PET", "Contenance (Cl)": 150},
+    {"Article": "Caprice Bonbon Anglais 30 cl VER", "Contenance (Cl)": 30},
+    {"Article": "Caprice Bonbon Anglais 35 cl PET", "Contenance (Cl)": 35},
+    {"Article": "Caprice Bonbon Anglais 50 cl PET", "Contenance (Cl)": 50},
+    {"Article": "Caprice Grenadine 100 cl VER", "Contenance (Cl)": 100},
+    {"Article": "Caprice Grenadine 150 cl PET", "Contenance (Cl)": 150},
+    {"Article": "Caprice Grenadine 30 cl VER", "Contenance (Cl)": 30},
+    {"Article": "Caprice Grenadine 33 cl CAN", "Contenance (Cl)": 33},
+    {"Article": "Caprice Grenadine 35 cl PET", "Contenance (Cl)": 35},
+    {"Article": "Caprice Grenadine 50 cl PET", "Contenance (Cl)": 50},
+    {"Article": "Caprice Orange 100 cl VER", "Contenance (Cl)": 100},
+    {"Article": "Caprice Orange 150 cl PET", "Contenance (Cl)": 150},
+    {"Article": "Caprice Orange 30 cl VER", "Contenance (Cl)": 30},
+    {"Article": "Caprice Orange 33 cl CAN", "Contenance (Cl)": 33},
+    {"Article": "Caprice Orange 35 cl PET", "Contenance (Cl)": 35},
+    {"Article": "Caprice Orange 50 cl PET", "Contenance (Cl)": 50},
+    {"Article": "Caprice Bonbon Anglais 33 cl CAN", "Contenance (Cl)": 33},
+    {"Article": "Caprice Citron 100 cl VER", "Contenance (Cl)": 100},
+    {"Article": "Caprice Citron 150 cl PET", "Contenance (Cl)": 150},
+    {"Article": "Caprice Citron 30 cl VER", "Contenance (Cl)": 30},
+    {"Article": "Caprice Citron 50 cl PET", "Contenance (Cl)": 50},
+    {"Article": "Tonic 100 cl VER", "Contenance (Cl)": 100},
+    {"Article": "Tonic 30 cl VER", "Contenance (Cl)": 30},
+    {"Article": "World Cola 100cl VER", "Contenance (Cl)": 100},
+    {"Article": "World Cola 100cl WOCO VER", "Contenance (Cl)": 100},
+    {"Article": "World Cola 150cl PET", "Contenance (Cl)": 150},
+    {"Article": "World Cola 30cl VER", "Contenance (Cl)": 30},
+    {"Article": "World Cola 30cl WOCO VER", "Contenance (Cl)": 30},
+    {"Article": "World Cola 33 cl CAN", "Contenance (Cl)": 33},
+    {"Article": "World Cola 35cl PET", "Contenance (Cl)": 35},
+    {"Article": "World Cola 50cl PET", "Contenance (Cl)": 50},
+    {"Article": "Beaufort 33 CL CAN", "Contenance (Cl)": 33},
+    {"Article": "Beaufort 33CL VER", "Contenance (Cl)": 33},
+    {"Article": "FRESH 33 cl CAN", "Contenance (Cl)": 33},
+    {"Article": "THB Fresh 33 cl VER", "Contenance (Cl)": 33},
+    {"Article": "THB Fresh 65 cl VER", "Contenance (Cl)": 65},
+    {"Article": "Gold 8 50 cl CAN", "Contenance (Cl)": 50},
+    {"Article": "Gold 8 50 cl VER", "Contenance (Cl)": 50},
+    {"Article": "Gold Blanche 33cl VER", "Contenance (Cl)": 33},
+    {"Article": "Gold Blanche 50 cl CAN", "Contenance (Cl)": 50},
+    {"Article": "Gold Blanche 50 cl VER", "Contenance (Cl)": 50},
+    {"Article": "Gold Blonde 33 cl VER", "Contenance (Cl)": 33},
+    {"Article": "Gold Blonde 50 cl CAN", "Contenance (Cl)": 50},
+    {"Article": "Gold Blonde 50 cl VER", "Contenance (Cl)": 50},
+    {"Article": "Gold Blonde 65 cl VER", "Contenance (Cl)": 65},
+    {"Article": "Queen s 65 cl VER", "Contenance (Cl)": 65},
+    {"Article": "THB Pilsener 33 cl VER", "Contenance (Cl)": 33},
+    {"Article": "THB Pilsener 50 cl CAN", "Contenance (Cl)": 50},
+    {"Article": "THB Pilsener 65 cl VER", "Contenance (Cl)": 65},
+    {"Article": "Cristal 100 cl VER", "Contenance (Cl)": 100},
+    {"Article": "Cristal 150 cl PET", "Contenance (Cl)": 150},
+    {"Article": "Cristal 30 cl VER", "Contenance (Cl)": 30},
+    {"Article": "Cristal 50 cl VER", "Contenance (Cl)": 50},
+    {"Article": "Cristalline 100 cl PET", "Contenance (Cl)": 100},
+    {"Article": "Cristalline 200 cl PET", "Contenance (Cl)": 200},
+    {"Article": "Eau vive 150 cl PET", "Contenance (Cl)": 150},
+    {"Article": "Eau vive 50 cl PET", "Contenance (Cl)": 50},
+    {"Article": "Eau vive 50 cl VER", "Contenance (Cl)": 50},
+    {"Article": "FOSA 50 cl CAN", "Contenance (Cl)": 50},
+    {"Article": "XXL 30cl BOB VER", "Contenance (Cl)": 30},
+    {"Article": "XXL 30cl VER", "Contenance (Cl)": 30},
+    {"Article": "XXL 33 cl CAN", "Contenance (Cl)": 33},
+    {"Article": "XXL 35cl PET", "Contenance (Cl)": 35}
+]
+
+# ==============================================================================
 # FONCTIONS UTILITAIRES
 # ==============================================================================
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
@@ -29,24 +104,27 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 # ÉTAPE 1 : CHARGEMENT ET ENRICHISSEMENT
 # ==============================================================================
 @st.cache_data(show_spinner="Chargement des données...")
-def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
-    flux_ref = io.BytesIO(ref_bytes)
-    df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
+def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.DataFrame:
+    # 1. Gestion du Référentiel
+    if ref_bytes is not None:
+        flux_ref = io.BytesIO(ref_bytes)
+        df_ref = pd.read_excel(flux_ref, sheet_name="Ref actif")
+        df_ref = df_ref.rename(columns={
+            "Article": "article_original", "Positionnement": "positionnement", 
+            "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"
+        })
+        df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_cl"]].copy()
+    else:
+        df_ref = pd.DataFrame(REF_DEFAUT)
+        df_ref["positionnement"] = "Non renseigné"
+        df_ref["occasion"] = "Non renseigné"
+        df_ref = df_ref.rename(columns={"Article": "article_original", "Contenance (Cl)": "contenance_cl"})
     
-    df_ref = df_ref.rename(columns={
-        "Article": "article_original", "Positionnement": "positionnement", 
-        "Occasion": "occasion", "Contenance (hl)": "contenance_hl", "Contenance (Cl)": "contenance_cl"
-    })
-    
-    for col in ["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]:
-        if col not in df_ref.columns: 
-            df_ref[col] = 0.0 if "contenance" in col else "Non renseigné"
-            
-    df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_hl", "contenance_cl"]].copy()
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
+    # 2. Lecture des Ventes
     flux_ventes = io.BytesIO(ventes_bytes)
     df_raw = pd.read_excel(flux_ventes, sheet_name=0, header=None)
     
@@ -75,19 +153,25 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     else:
         return pd.DataFrame()
 
-    df_enrichi = df_ref.merge(df, on="cle_article", how="left")
+    # 3. Jointure EXTÉRIEURE (Outer) : Garde les articles du référentiel ET les nouveaux des ventes
+    df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
+    
+    # 4. Nettoyage
+    # Si un article vient des ventes mais n'est pas dans le référentiel (_x), on prend le nom des ventes (_y)
+    df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"])
     
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["mois"] = df_enrichi["mois"].fillna(1).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
-    df_enrichi["article"] = df_enrichi["article_original_x"]
     
+    # Contenance par défaut de 100 cl si nouveau produit inconnu
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
     df_enrichi["hl"] = df_enrichi["volume_brut"]
     
+    # Attribution automatique des segments
     conditions = [
         df_enrichi["article"].str.contains("booster|alcoomix", case=False, na=False),
         df_enrichi["article"].str.contains("caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", case=False, na=False),
@@ -154,11 +238,9 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         sarr_m2 = get_val(2, 'SARR_HL')
         sarr_m3 = get_val(3, 'SARR_HL')
         
-        # Calcul du Momentum (Différence absolue)
         var1, var2, var3 = sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3
         momentum = np.mean([var1, var2, var3])
         
-        # Calcul de la Base (Moyenne Annuelle de l'année de clôture)
         group_realise = df_realise[(df_realise['agence'] == ag) & (df_realise['article'] == art)]
         vol_annee_cloture = group_realise[group_realise['annee'] == annee_cloture]['hl'].sum()
         mois_ecoules = group_realise[group_realise['annee'] == annee_cloture]['mois'].nunique()
@@ -173,7 +255,7 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # ÉTAPE 5.2 : PRÉVISIONS (CAGR Automatique)
+    # ÉTAPE 5.2 : PRÉVISIONS
     resultats_previsions = []
     dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
 
@@ -203,7 +285,6 @@ def calculer_modele(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_
                     val_hl = dict_realises.get((y, m, ag, art), 0.0)
                 else:
                     statut = "Prévision"
-                    # Application de la formule : (Base * Coef + Momentum) * CAGR
                     val_hl = max(0.0, ((coef * base) + momentum) * multiplicateur_cagr)
                     
                 val_cols = val_hl * (10000 / contenance)
@@ -227,14 +308,15 @@ col1, col2 = st.columns(2)
 with col1:
     fichier_ventes = st.file_uploader("1. Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
 with col2:
-    fichier_ref = st.file_uploader("2. Fichier Référentiel (Classeur2.xlsx)", type=["xlsx"])
+    fichier_ref = st.file_uploader("2. Fichier Référentiel (Optionnel)", type=["xlsx"], help="Laissez vide pour utiliser le référentiel intégré.")
 
-if fichier_ventes is not None and fichier_ref is not None:
+if fichier_ventes is not None:
     
-    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue())
+    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
-    # FILTRES ÉTAPE 1
+    # FILTRES
     st.sidebar.header("🔍 Filtres Données")
+    # On affiche uniquement les segments qui ont du sens
     segments_dispo = sorted([s for s in df_enrichi["segment"].unique() if pd.notna(s)])
     sel_segments = st.sidebar.multiselect("📦 Segment", options=segments_dispo, placeholder="Tous")
     
@@ -251,7 +333,6 @@ if fichier_ventes is not None and fichier_ref is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    # FILTRES ÉTAPES 2 À 4
     st.sidebar.markdown("---")
     st.sidebar.header("📅 Paramètres Temporels")
     
@@ -277,7 +358,7 @@ if fichier_ventes is not None and fichier_ref is not None:
     )
 
     if table_indices is None:
-        st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique pour calculer les coefficients.")
+        st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique.")
         st.stop()
 
     st.success(f"✅ Modèle calculé avec Indices (Ratio des Sommes) et Momentum.")
@@ -315,7 +396,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         )
 
     with tab_prev:
-        # --- SECTION ATTERRISSAGE ---
         st.markdown(f"### 🛬 Atterrissage {annee_cloture} (Réalisé + Prévisions)")
         
         df_atterrissage = df_previsions[df_previsions['annee'] == annee_cloture]
@@ -333,7 +413,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
         st.markdown("---")
         
-        # Tableau par SKU
         st.markdown("#### Détail par Article")
         df_atterrissage_sku = df_atterrissage.pivot_table(
             index='article', 
@@ -361,7 +440,6 @@ if fichier_ventes is not None and fichier_ref is not None:
 
         st.markdown("---")
         
-        # --- TABLEAU CROISÉ GLOBAL ---
         st.subheader(f"Prévisions Finales jusqu'en {annee_cible}")
         
         pivot_mensuel = df_previsions.pivot_table(
@@ -371,7 +449,6 @@ if fichier_ventes is not None and fichier_ref is not None:
         pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
         st.dataframe(pivot_mensuel.style.format("{:,.2f}"), use_container_width=True)
         
-        # --- DÉTAIL MENSUEL ---
         st.markdown("### 📅 Détail Mensuel")
         st.dataframe(
             df_previsions[["annee", "mois", "Date", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", col_prev_aff]].sort_values(["annee", "mois", "agence", "article"]),

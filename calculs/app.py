@@ -323,8 +323,11 @@ if fichier_ventes is not None:
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2023)
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2024)
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
+        
+        # CORRECTION ICI : value=annee_cloture pour éviter l'erreur StreamlitValueBelowMinError
+        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
+        
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
-        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2025)
 
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)

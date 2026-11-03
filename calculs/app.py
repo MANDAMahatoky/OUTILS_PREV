@@ -26,8 +26,6 @@ st.markdown("""
     [data-testid="column"] { border: none !important; box-shadow: none !important; }
     h1 { color: #E30613 !important; font-weight: 900 !important; margin-bottom: 0 !important; }
     h2, h3 { color: #009640 !important; font-weight: 700 !important; }
-    
-    /* Style des cartes KPI */
     .kpi-card {
         background-color: #FFFFFF; border-radius: 8px; padding: 20px;
         border: 1px solid #E5E7EB; border-left: 6px solid #E30613; 
@@ -36,16 +34,8 @@ st.markdown("""
     }
     .kpi-header { display: flex; justify-content: space-between; align-items: center; color: #4B5563; font-size: 1rem; font-weight: 600; }
     .kpi-icon { font-size: 1.5rem; }
-    
-    /* Couleurs des valeurs KPI */
-    .kpi-value-green { 
-        font-size: 2.4rem; font-weight: 800; 
-        color: #009640; /* Vert STAR */
-        margin-top: 5px; 
-    }
+    .kpi-value { font-size: 2.4rem; font-weight: 800; color: #111827; margin-top: 5px; }
     .kpi-footer { font-size: 0.9rem; color: #6B7280; font-weight: 500;}
-    
-    /* Style des onglets */
     .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 45px; background-color: #F9FAFB; color: #4B5563;
@@ -55,33 +45,13 @@ st.markdown("""
         background-color: #E30613 !important; color: #FFFFFF !important;
         border: 1px solid #E30613 !important;
     }
-    
-    /* Style CSS pour les tableaux HTML générés par Pandas Styler */
-    .styled-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 10px 0;
-        font-size: 0.9em;
-        font-family: 'Inter', sans-serif;
-        background-color: #FFFFFF;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    div[data-testid="stDataFrame"] { 
+        background-color: #FFFFFF; padding: 15px; border-radius: 8px; 
+        border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
     }
-    .styled-table thead tr {
-        background-color: #F3F4F6;
-        color: #4B5563;
-        text-align: left;
-    }
-    .styled-table th, .styled-table td {
-        padding: 12px 15px;
-        border-bottom: 1px solid #E5E7EB;
-    }
-    .styled-table tbody tr:nth-of-type(even) {
-        background-color: #F9FAFB;
-    }
-    .styled-table tbody tr:hover {
-        background-color: #F3F4F6;
+    div[data-testid="stPlotlyChart"] {
+        background-color: #FFFFFF; padding: 15px; border-radius: 8px;
+        border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -228,7 +198,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, mois_cible: int):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
     # On ne garde que les articles qui ont au moins une vente historique
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
@@ -321,9 +291,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     
     cols_finales = ["annee", "mois", "agence", "article", "Date", "Statut", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", "Volume_HL", "Volume_Cols"]
     
-    # FILTRE FINAL SELON LE MOIS CIBLE
-    df_cross = df_cross[(df_cross['annee'] < annee_cible) | ((df_cross['annee'] == annee_cible) & (df_cross['mois'] <= mois_cible))]
-    
     return table_indices, df_sarr, df_momentum, df_cross[cols_finales].copy(), df_realise
 
 # ==============================================================================
@@ -364,20 +331,15 @@ if fichier_ventes is not None:
         agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
         sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
-        st.markdown("##### 📅 Paramètres Historiques & Cutoff")
+        st.markdown("##### 📅 Cutoff")
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2023)
+        
+        # CORRECTION ICI : value=max(2024, annee_min_histo) pour éviter l'erreur
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=max(2024, annee_min_histo))
         
-        # NOUVEL ORDRE : Mois de Cutoff juste en bas de Année Max
-        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
-        
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
-
-        st.markdown("##### 🎯 Paramètres de Prévision")
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
-        
-        # NOUVEAU : Choix du Mois Cible
-        mois_cible = st.selectbox("Mois Cible (Fin des prévisions)", options=list(range(1, 13)), index=11, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
+        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
 
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)
@@ -391,7 +353,7 @@ if fichier_ventes is not None:
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
     table_indices, df_sarr, df_momentum, df_previsions, df_realise = calculer_etape_5(
-        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible, mois_cible
+        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible
     )
 
     if table_indices is None:
@@ -404,19 +366,19 @@ if fichier_ventes is not None:
     df_cible = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
-    if annee_cible == annee_cloture and mois_cible == mois_cutoff:
+    if annee_cible == annee_cloture:
         st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
-            <div class="kpi-header"><span>Atterrissage {MOIS_NOMS[mois_cible-1]} {annee_cible} (Réalisé)</span> <span class="kpi-icon">🎯</span></div>
-            <div class="kpi-value-green">{atterrissage_cible:,.0f}</div>
+            <div class="kpi-header"><span>Atterrissage {annee_cible} (Réalisé + Prévisions)</span> <span class="kpi-icon">🎯</span></div>
+            <div class="kpi-value">{atterrissage_cible:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} (Projection finale)</div>
         </div>""", unsafe_allow_html=True)
     else:
         cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
         kpi1, kpi2 = st.columns(2)
         with kpi1:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage jusqu'à {MOIS_NOMS[mois_cible-1]} {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value-green">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
         with kpi2:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value-green">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -424,64 +386,18 @@ if fichier_ventes is not None:
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])
 
-    # --- DEFINITION DES STYLES DE COULEUR (HTML) ---
-    def render_styled_html(df, style_func):
-        try:
-            # On remplace les NaN par des chaînes vides pour éviter les crashs de Styler
-            df_clean = df.fillna('')
-            styled = style_func(df_clean)
-            html = styled.to_html(classes="styled-table", border=0)
-            st.markdown(html, unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"Erreur d'affichage du tableau : {e}")
-            st.dataframe(df, use_container_width=True)
-
-    def style_green(df):
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) > 0:
-            return df.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
-        return df.style
-
-    def style_pivot_previsions(df, annee_cloture, mois_cutoff):
-        styles = pd.DataFrame('', index=df.index, columns=df.columns)
-        for i in range(len(df)):
-            annee = df.iloc[i]['annee']
-            for col_idx, col in enumerate(df.columns):
-                if col in MOIS_NOMS:
-                    mois = MOIS_NOMS.index(col) + 1
-                    if annee < annee_cloture or (annee == annee_cloture and mois <= mois_cutoff):
-                        styles.iloc[i, col_idx] = 'color: #009640; font-weight: bold;' # Vert
-                    else:
-                        styles.iloc[i, col_idx] = 'color: #D35400; font-weight: bold;' # Orange Foncé
-                elif col == 'Total Année':
-                    styles.iloc[i, col_idx] = 'color: #000000; font-weight: bold;'
-        return df.style.apply(lambda _: styles, axis=None)
-
-    def style_detail_row(row):
-        styles = []
-        for col in row.index:
-            if col == col_prev_aff or col == 'Statut':
-                if row['Statut'] == 'Réalisé':
-                    styles.append('color: #009640; font-weight: bold;') # Vert
-                else:
-                    styles.append('color: #D35400; font-weight: bold;') # Orange Foncé
-            else:
-                styles.append('')
-        return styles
-
     with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        render_styled_html(df_enrichi, style_green)
+        st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
     with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
-        render_styled_html(df_perimetre, style_green)
+        st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
-            df_real_grouped = df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index()
-            render_styled_html(df_real_grouped, style_green)
+            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True, hide_index=True)
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
@@ -492,12 +408,11 @@ if fichier_ventes is not None:
             st.markdown("**Indices de Saisonnalité**")
             pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            render_styled_html(pivot_indices.reset_index(), style_green)
+            st.dataframe(pivot_indices, use_container_width=True)
         with c_sarr:
             st.markdown("**Table SARR**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
-            df_sarr_filtered = df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"])
-            render_styled_html(df_sarr_filtered, style_green)
+            st.dataframe(df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
@@ -508,9 +423,13 @@ if fichier_ventes is not None:
 
         if mode_affichage == "📊 Tableau":
             with st.expander("5.1 Table du Momentum et de la Base"):
-                render_styled_html(
-                    df_momentum, 
-                    lambda df: df.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=['Base_HL', 'Momentum_HL'])
+                st.dataframe(
+                    df_momentum,
+                    column_config={
+                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
+                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
+                    },
+                    use_container_width=True, hide_index=True
                 )
                 
             st.markdown("#### 5.2 Résultat Final")
@@ -522,12 +441,8 @@ if fichier_ventes is not None:
             pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
             
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
-            pivot_reset = pivot_mensuel.reset_index()
             
-            render_styled_html(
-                pivot_reset,
-                lambda df: style_pivot_previsions(df, annee_cloture, mois_cutoff)
-            )
+            st.dataframe(pivot_mensuel, use_container_width=True)
             
             with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]
@@ -535,9 +450,16 @@ if fichier_ventes is not None:
                 if annee_cible > annee_cloture:
                     cols_to_show.insert(-1, "CAGR (%)")
                     
-                render_styled_html(
+                st.dataframe(
                     df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
-                    lambda df: df.style.apply(style_detail_row, axis=1)
+                    column_config={
+                        "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
+                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
+                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
+                        "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
+                        col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
+                    },
+                    use_container_width=True, hide_index=True, height=400
                 )
 
         else:
@@ -553,7 +475,7 @@ if fichier_ventes is not None:
                     st.warning("⚠️ Pas assez d'historique pour faire un backtest sur cette année.")
                 else:
                     res_backtest = calculer_etape_5(
-                        df_perimetre, annee_min_histo, annee_cible - 1, annee_cible - 1, 12, annee_cible, mois_cible
+                        df_perimetre, annee_min_histo, annee_cible - 1, annee_cible - 1, 12, annee_cible
                     )
                     
                     if res_backtest[3] is not None:
@@ -587,15 +509,15 @@ if fichier_ventes is not None:
                             fig_bt.add_trace(go.Scatter(
                                 x=df_real_cible['Date'], y=df_real_cible[col_prev_aff], 
                                 mode='lines+markers', name='Réalisé (Réel)', 
-                                line=dict(color='#009640', width=3, shape='spline'), # Vert
-                                fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.15)' # Vert clair
+                                line=dict(color='#009640', width=3, shape='spline'),
+                                fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                             ))
                         if not df_pred_cible.empty:
                             fig_bt.add_trace(go.Scatter(
                                 x=df_pred_cible['Date'], y=df_pred_cible[col_prev_aff], 
                                 mode='lines+markers', name='Prévision (Backtest)', 
-                                line=dict(color='#D35400', width=3, dash='dot', shape='spline'), # Orange Foncé
-                                fill='tozeroy', fillcolor='rgba(211, 84, 0, 0.1)' # Orange Foncé clair
+                                line=dict(color='#E30613', width=3, dash='dot', shape='spline'),
+                                fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
                             ))
 
                         fig_bt.update_layout(
@@ -635,15 +557,15 @@ if fichier_ventes is not None:
                 fig1.add_trace(go.Scatter(
                     x=df_real['Date'], y=df_real[col_prev_aff], 
                     mode='lines+markers', name='Réalisé', 
-                    line=dict(color='#009640', width=3, shape='spline'), # Vert
-                    fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.15)' # Vert clair
+                    line=dict(color='#009640', width=3, shape='spline'),
+                    fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                 ))
             if not df_prev.empty:
                 fig1.add_trace(go.Scatter(
                     x=df_prev['Date'], y=df_prev[col_prev_aff], 
                     mode='lines+markers', name='Prévision', 
-                    line=dict(color='#D35400', width=3, dash='dash', shape='spline'), # Orange Foncé
-                    fill='tozeroy', fillcolor='rgba(211, 84, 0, 0.1)' # Orange Foncé clair
+                    line=dict(color='#E30613', width=3, dash='dash', shape='spline'),
+                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
                 ))
 
             fig1.update_layout(

@@ -406,25 +406,18 @@ if fichier_ventes is not None:
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])
 
-    # --- DEFINITION DES STYLES DE COULEUR (CORRIGÉS POUR STREAMLIT) ---
+    # --- DEFINITION DES STYLES DE COULEUR (ULTRA STABLES) ---
     def style_green(df):
-        df_styled = df.copy()
-        df_styled.index = [''] * len(df_styled)
-        numeric_cols = df_styled.select_dtypes(include=[np.number]).columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) > 0:
-            try:
-                return df_styled.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
-            except AttributeError:
-                return df_styled.style.applymap(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
-        return df_styled.style
+            return df.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
+        return df
 
     def style_pivot_previsions(df, annee_cloture, mois_cutoff):
-        df_styled = df.copy()
-        df_styled.index = [''] * len(df_styled)
-        styles = pd.DataFrame('', index=df_styled.index, columns=df_styled.columns)
-        for idx in df_styled.index:
-            annee = df_styled.loc[idx, 'annee']
-            for col in df_styled.columns:
+        styles = pd.DataFrame('', index=df.index, columns=df.columns)
+        for idx in df.index:
+            annee = df.loc[idx, 'annee']
+            for col in df.columns:
                 if col in MOIS_NOMS:
                     mois = MOIS_NOMS.index(col) + 1
                     if annee < annee_cloture or (annee == annee_cloture and mois <= mois_cutoff):
@@ -433,7 +426,7 @@ if fichier_ventes is not None:
                         styles.loc[idx, col] = 'color: #D35400; font-weight: bold;' # Orange Foncé
                 elif col == 'Total Année':
                     styles.loc[idx, col] = 'color: #000000; font-weight: bold;'
-        return df_styled.style.apply(lambda _: styles, axis=None)
+        return df.style.apply(lambda _: styles, axis=None)
 
     def style_detail_row(row):
         styles = []
@@ -449,17 +442,17 @@ if fichier_ventes is not None:
 
     with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        st.dataframe(style_green(df_enrichi), use_container_width=True)
+        st.dataframe(style_green(df_enrichi), use_container_width=True, hide_index=True)
 
     with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
-        st.dataframe(style_green(df_perimetre), use_container_width=True)
+        st.dataframe(style_green(df_perimetre), use_container_width=True, hide_index=True)
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
             df_real_grouped = df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index()
-            st.dataframe(style_green(df_real_grouped), use_container_width=True)
+            st.dataframe(style_green(df_real_grouped), use_container_width=True, hide_index=True)
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
@@ -470,12 +463,12 @@ if fichier_ventes is not None:
             st.markdown("**Indices de Saisonnalité**")
             pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            st.dataframe(style_green(pivot_indices.reset_index()), use_container_width=True)
+            st.dataframe(style_green(pivot_indices.reset_index()), use_container_width=True, hide_index=True)
         with c_sarr:
             st.markdown("**Table SARR**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
             df_sarr_filtered = df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"])
-            st.dataframe(style_green(df_sarr_filtered), use_container_width=True)
+            st.dataframe(style_green(df_sarr_filtered), use_container_width=True, hide_index=True)
 
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
@@ -492,7 +485,7 @@ if fichier_ventes is not None:
                         "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
                         "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
                     },
-                    use_container_width=True
+                    use_container_width=True, hide_index=True
                 )
                 
             st.markdown("#### 5.2 Résultat Final")
@@ -508,7 +501,7 @@ if fichier_ventes is not None:
             
             st.dataframe(
                 style_pivot_previsions(pivot_reset, annee_cloture, mois_cutoff).format(precision=2),
-                use_container_width=True
+                use_container_width=True, hide_index=True
             )
             
             with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
@@ -518,7 +511,7 @@ if fichier_ventes is not None:
                     cols_to_show.insert(-1, "CAGR (%)")
                     
                 st.dataframe(
-                    df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]).style.apply(style_detail_row, axis=1).hide(axis="index"),
+                    df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]).style.apply(style_detail_row, axis=1),
                     column_config={
                         "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
                         "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
@@ -526,7 +519,7 @@ if fichier_ventes is not None:
                         "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
                         col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
                     },
-                    use_container_width=True, height=400
+                    use_container_width=True, hide_index=True, height=400
                 )
 
         else:

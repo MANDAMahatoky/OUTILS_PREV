@@ -492,10 +492,14 @@ if fichier_ventes is not None:
                         df_pred_cible['Date_Str'] = str(annee_cible) + '-' + df_pred_cible['mois'].astype(str).str.zfill(2) + '-01'
                         df_pred_cible['Date'] = pd.to_datetime(df_pred_cible['Date_Str'])
 
+                        # CORRECTION ICI : On filtre les zéros pour lisser la courbe
+                        df_real_cible = df_real_cible[df_real_cible[col_prev_aff] > 0]
+                        df_pred_cible = df_pred_cible[df_pred_cible[col_prev_aff] > 0]
+
                         fig_bt = go.Figure()
                         
                         if not df_real_cible.empty:
-                            # AJOUT DE shape='spline' ICI
+                            # AJOUT DE shape='spline'
                             fig_bt.add_trace(go.Scatter(
                                 x=df_real_cible['Date'], y=df_real_cible[col_prev_aff], 
                                 mode='lines+markers', name='Réalisé (Réel)', 
@@ -503,7 +507,7 @@ if fichier_ventes is not None:
                                 fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                             ))
                         if not df_pred_cible.empty:
-                            # AJOUT DE shape='spline' ICI
+                            # AJOUT DE shape='spline'
                             fig_bt.add_trace(go.Scatter(
                                 x=df_pred_cible['Date'], y=df_pred_cible[col_prev_aff], 
                                 mode='lines+markers', name='Prévision (Backtest)', 
@@ -537,13 +541,17 @@ if fichier_ventes is not None:
             
             df_grouped = df_graph.groupby(['Date', 'Statut'])[col_prev_aff].sum().reset_index()
 
-            fig1 = go.Figure()
-            
             df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
             df_prev = df_grouped[df_grouped['Statut'] == 'Prévision']
+
+            # CORRECTION ICI : On filtre les zéros pour lisser la courbe
+            df_real = df_real[df_real[col_prev_aff] > 0]
+            df_prev = df_prev[df_prev[col_prev_aff] > 0]
+
+            fig1 = go.Figure()
             
             if not df_real.empty:
-                # AJOUT DE shape='spline' ICI
+                # AJOUT DE shape='spline'
                 fig1.add_trace(go.Scatter(
                     x=df_real['Date'], y=df_real[col_prev_aff], 
                     mode='lines+markers', name='Réalisé', 
@@ -551,7 +559,7 @@ if fichier_ventes is not None:
                     fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                 ))
             if not df_prev.empty:
-                # AJOUT DE shape='spline' ICI
+                # AJOUT DE shape='spline'
                 fig1.add_trace(go.Scatter(
                     x=df_prev['Date'], y=df_prev[col_prev_aff], 
                     mode='lines+markers', name='Prévision', 

@@ -56,14 +56,32 @@ st.markdown("""
         border: 1px solid #E30613 !important;
     }
     
-    /* Style des tableaux Streamlit */
-    div[data-testid="stDataFrame"] { 
-        background-color: #FFFFFF; padding: 15px; border-radius: 8px; 
-        border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
+    /* Style CSS pour les tableaux HTML générés par Pandas Styler */
+    .styled-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+        font-size: 0.9em;
+        font-family: 'Inter', sans-serif;
+        background-color: #FFFFFF;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
-    div[data-testid="stPlotlyChart"] {
-        background-color: #FFFFFF; padding: 15px; border-radius: 8px;
-        border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    .styled-table thead tr {
+        background-color: #F3F4F6;
+        color: #4B5563;
+        text-align: left;
+    }
+    .styled-table th, .styled-table td {
+        padding: 12px 15px;
+        border-bottom: 1px solid #E5E7EB;
+    }
+    .styled-table tbody tr:nth-of-type(even) {
+        background-color: #F9FAFB;
+    }
+    .styled-table tbody tr:hover {
+        background-color: #F3F4F6;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -406,25 +424,29 @@ if fichier_ventes is not None:
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])
 
-    # --- DEFINITION DES STYLES DE COULEUR (ULTRA STABLES) ---
+    # --- DEFINITION DES STYLES DE COULEUR (HTML) ---
+    def render_styled_html(df, style_func):
+        try:
+            # On remplace les NaN par des chaînes vides pour éviter les crashs de Styler
+            df_clean = df.fillna('')
+            styled = style_func(df_clean)
+            html = styled.to_html(classes="styled-table", border=0)
+            st.markdown(html, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Erreur d'affichage du tableau : {e}")
+            st.dataframe(df, use_container_width=True)
+
     def style_green(df):
-        df_styled = df.copy()
-        df_styled.index = [''] * len(df_styled)
-        numeric_cols = df_styled.select_dtypes(include=[np.number]).columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) > 0:
-            try:
-                return df_styled.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
-            except AttributeError:
-                return df_styled.style.applymap(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
-        return df_styled.style
+            return df.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
+        return df.style
 
     def style_pivot_previsions(df, annee_cloture, mois_cutoff):
-        df_styled = df.copy()
-        df_styled.index = [''] * len(df_styled)
-        styles = pd.DataFrame('', index=df_styled.index, columns=df_styled.columns)
-        for i in range(len(df_styled)):
-            annee = df_styled.iloc[i]['annee']
-            for col_idx, col in enumerate(df_styled.columns):
+        styles = pd.DataFrame('', index=df.index, columns=df.columns)
+        for i in range(len(df)):
+            annee = df.iloc[i]['annee']
+            for col_idx, col in enumerate(df.columns):
                 if col in MOIS_NOMS:
                     mois = MOIS_NOMS.index(col) + 1
                     if annee < annee_cloture or (annee == annee_cloture and mois <= mois_cutoff):
@@ -433,7 +455,7 @@ if fichier_ventes is not None:
                         styles.iloc[i, col_idx] = 'color: #D35400; font-weight: bold;' # Orange Foncé
                 elif col == 'Total Année':
                     styles.iloc[i, col_idx] = 'color: #000000; font-weight: bold;'
-        return df_styled.style.apply(lambda _: styles, axis=None)
+        return df.style.apply(lambda _: styles, axis=None)
 
     def style_detail_row(row):
         styles = []
@@ -449,17 +471,17 @@ if fichier_ventes is not None:
 
     with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        st.dataframe(style_green(df_enrichi), use_container_width=True)
+        render_styled_html(df_enrichi, style_green)
 
     with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
-        st.dataframe(style_green(df_perimetre), use_container_width=True)
+        render_styled_html(df_perimetre, style_green)
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
             df_real_grouped = df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index()
-            st.dataframe(style_green(df_real_grouped), use_container_width=True)
+            render_styled_html(df_real_grouped, style_green)
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
@@ -470,12 +492,12 @@ if fichier_ventes is not None:
             st.markdown("**Indices de Saisonnalité**")
             pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            st.dataframe(style_green(pivot_indices.reset_index()), use_container_width=True)
+            render_styled_html(pivot_indices.reset_index(), style_green)
         with c_sarr:
             st.markdown("**Table SARR**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
             df_sarr_filtered = df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"])
-            st.dataframe(style_green(df_sarr_filtered), use_container_width=True)
+            render_styled_html(df_sarr_filtered, style_green)
 
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
@@ -486,13 +508,9 @@ if fichier_ventes is not None:
 
         if mode_affichage == "📊 Tableau":
             with st.expander("5.1 Table du Momentum et de la Base"):
-                st.dataframe(
-                    style_green(df_momentum),
-                    column_config={
-                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
-                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
-                    },
-                    use_container_width=True
+                render_styled_html(
+                    df_momentum, 
+                    lambda df: df.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=['Base_HL', 'Momentum_HL'])
                 )
                 
             st.markdown("#### 5.2 Résultat Final")
@@ -506,9 +524,9 @@ if fichier_ventes is not None:
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             pivot_reset = pivot_mensuel.reset_index()
             
-            st.dataframe(
-                style_pivot_previsions(pivot_reset, annee_cloture, mois_cutoff).format(precision=2),
-                use_container_width=True
+            render_styled_html(
+                pivot_reset,
+                lambda df: style_pivot_previsions(df, annee_cloture, mois_cutoff)
             )
             
             with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
@@ -517,16 +535,9 @@ if fichier_ventes is not None:
                 if annee_cible > annee_cloture:
                     cols_to_show.insert(-1, "CAGR (%)")
                     
-                st.dataframe(
-                    df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]).style.apply(style_detail_row, axis=1),
-                    column_config={
-                        "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
-                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
-                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
-                        "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
-                        col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
-                    },
-                    use_container_width=True, height=400
+                render_styled_html(
+                    df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
+                    lambda df: df.style.apply(style_detail_row, axis=1)
                 )
 
         else:

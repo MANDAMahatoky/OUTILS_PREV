@@ -200,7 +200,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
-    # NOUVEAUTE ICI : On ne garde que les articles qui ont au moins une vente historique
+    # On ne garde que les articles qui ont au moins une vente historique
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -333,7 +333,10 @@ if fichier_ventes is not None:
 
         st.markdown("##### 📅 Cutoff")
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2023)
-        annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2024)
+        
+        # CORRECTION ICI : value=max(2024, annee_min_histo) pour éviter l'erreur
+        annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=max(2024, annee_min_histo))
+        
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")

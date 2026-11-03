@@ -396,13 +396,12 @@ if fichier_ventes is not None:
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])
 
-    # --- DEFINITION DES STYLES DE COULEUR ---
-    def style_sepia_all(df):
-        styles = pd.DataFrame('', index=df.index, columns=df.columns)
-        for col in df.columns:
-            if pd.api.types.is_numeric_dtype(df[col]):
-                styles[col] = 'color: #704214; font-weight: bold;'
-        return df.style.apply(lambda _: styles, axis=None).hide(axis="index")
+    # --- DEFINITION DES STYLES DE COULEUR (CORRIGÉS POUR STREAMLIT) ---
+    def style_sepia(df):
+        try:
+            return df.style.map(lambda x: 'color: #704214; font-weight: bold;' if isinstance(x, (int, float, np.number)) else '').hide(axis="index")
+        except AttributeError:
+            return df.style.applymap(lambda x: 'color: #704214; font-weight: bold;' if isinstance(x, (int, float, np.number)) else '').hide(axis="index")
 
     def style_pivot_previsions(df, annee_cloture, mois_cutoff):
         styles = pd.DataFrame('', index=df.index, columns=df.columns)
@@ -433,17 +432,17 @@ if fichier_ventes is not None:
 
     with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        st.dataframe(style_sepia_all(df_enrichi), use_container_width=True)
+        st.dataframe(style_sepia(df_enrichi), use_container_width=True)
 
     with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
-        st.dataframe(style_sepia_all(df_perimetre), use_container_width=True)
+        st.dataframe(style_sepia(df_perimetre), use_container_width=True)
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
             df_real_grouped = df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index()
-            st.dataframe(style_sepia_all(df_real_grouped), use_container_width=True)
+            st.dataframe(style_sepia(df_real_grouped), use_container_width=True)
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
@@ -454,12 +453,12 @@ if fichier_ventes is not None:
             st.markdown("**Indices de Saisonnalité**")
             pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            st.dataframe(style_sepia_all(pivot_indices.reset_index()), use_container_width=True)
+            st.dataframe(style_sepia(pivot_indices.reset_index()), use_container_width=True)
         with c_sarr:
             st.markdown("**Table SARR**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
             df_sarr_filtered = df_sarr[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["annee", "mois"])
-            st.dataframe(style_sepia_all(df_sarr_filtered), use_container_width=True)
+            st.dataframe(style_sepia(df_sarr_filtered), use_container_width=True)
 
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
@@ -471,7 +470,7 @@ if fichier_ventes is not None:
         if mode_affichage == "📊 Tableau":
             with st.expander("5.1 Table du Momentum et de la Base"):
                 st.dataframe(
-                    style_sepia_all(df_momentum),
+                    style_sepia(df_momentum),
                     column_config={
                         "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
                         "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),

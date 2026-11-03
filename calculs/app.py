@@ -26,6 +26,8 @@ st.markdown("""
     [data-testid="column"] { border: none !important; box-shadow: none !important; }
     h1 { color: #E30613 !important; font-weight: 900 !important; margin-bottom: 0 !important; }
     h2, h3 { color: #009640 !important; font-weight: 700 !important; }
+    
+    /* Style des cartes KPI */
     .kpi-card {
         background-color: #FFFFFF; border-radius: 8px; padding: 20px;
         border: 1px solid #E5E7EB; border-left: 6px solid #E30613; 
@@ -34,8 +36,22 @@ st.markdown("""
     }
     .kpi-header { display: flex; justify-content: space-between; align-items: center; color: #4B5563; font-size: 1rem; font-weight: 600; }
     .kpi-icon { font-size: 1.5rem; }
-    .kpi-value { font-size: 2.4rem; font-weight: 800; color: #111827; margin-top: 5px; }
+    
+    /* Couleurs des valeurs KPI */
+    .kpi-value-neon { 
+        font-size: 2.4rem; font-weight: 800; 
+        color: #39FF14; /* Vert Néon */
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.4); 
+        margin-top: 5px; 
+    }
+    .kpi-value-sepia { 
+        font-size: 2.4rem; font-weight: 800; 
+        color: #704214; /* Sépia */
+        margin-top: 5px; 
+    }
     .kpi-footer { font-size: 0.9rem; color: #6B7280; font-weight: 500;}
+    
+    /* Style des onglets */
     .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 45px; background-color: #F9FAFB; color: #4B5563;
@@ -45,6 +61,8 @@ st.markdown("""
         background-color: #E30613 !important; color: #FFFFFF !important;
         border: 1px solid #E30613 !important;
     }
+    
+    /* Style des tableaux Streamlit */
     div[data-testid="stDataFrame"] { 
         background-color: #FFFFFF; padding: 15px; border-radius: 8px; 
         border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
@@ -333,10 +351,7 @@ if fichier_ventes is not None:
 
         st.markdown("##### 📅 Cutoff")
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2023)
-        
-        # CORRECTION ICI : value=max(2024, annee_min_histo) pour éviter l'erreur
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=max(2024, annee_min_histo))
-        
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
@@ -369,16 +384,16 @@ if fichier_ventes is not None:
     if annee_cible == annee_cloture:
         st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
             <div class="kpi-header"><span>Atterrissage {annee_cible} (Réalisé + Prévisions)</span> <span class="kpi-icon">🎯</span></div>
-            <div class="kpi-value">{atterrissage_cible:,.0f}</div>
+            <div class="kpi-value-neon">{atterrissage_cible:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} (Projection finale)</div>
         </div>""", unsafe_allow_html=True)
     else:
         cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
         kpi1, kpi2 = st.columns(2)
         with kpi1:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value-neon">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
         with kpi2:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value-neon">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -509,15 +524,15 @@ if fichier_ventes is not None:
                             fig_bt.add_trace(go.Scatter(
                                 x=df_real_cible['Date'], y=df_real_cible[col_prev_aff], 
                                 mode='lines+markers', name='Réalisé (Réel)', 
-                                line=dict(color='#009640', width=3, shape='spline'),
-                                fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
+                                line=dict(color='#704214', width=3, shape='spline'), # Sépia
+                                fill='tozeroy', fillcolor='rgba(112, 66, 20, 0.15)' # Sépia clair
                             ))
                         if not df_pred_cible.empty:
                             fig_bt.add_trace(go.Scatter(
                                 x=df_pred_cible['Date'], y=df_pred_cible[col_prev_aff], 
                                 mode='lines+markers', name='Prévision (Backtest)', 
-                                line=dict(color='#E30613', width=3, dash='dot', shape='spline'),
-                                fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
+                                line=dict(color='#39FF14', width=3, dash='dot', shape='spline'), # Vert Néon
+                                fill='tozeroy', fillcolor='rgba(57, 255, 20, 0.1)' # Vert Néon clair
                             ))
 
                         fig_bt.update_layout(
@@ -557,15 +572,15 @@ if fichier_ventes is not None:
                 fig1.add_trace(go.Scatter(
                     x=df_real['Date'], y=df_real[col_prev_aff], 
                     mode='lines+markers', name='Réalisé', 
-                    line=dict(color='#009640', width=3, shape='spline'),
-                    fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
+                    line=dict(color='#704214', width=3, shape='spline'), # Sépia
+                    fill='tozeroy', fillcolor='rgba(112, 66, 20, 0.15)' # Sépia clair
                 ))
             if not df_prev.empty:
                 fig1.add_trace(go.Scatter(
                     x=df_prev['Date'], y=df_prev[col_prev_aff], 
                     mode='lines+markers', name='Prévision', 
-                    line=dict(color='#E30613', width=3, dash='dash', shape='spline'),
-                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
+                    line=dict(color='#39FF14', width=3, dash='dash', shape='spline'), # Vert Néon
+                    fill='tozeroy', fillcolor='rgba(57, 255, 20, 0.1)' # Vert Néon clair
                 ))
 
             fig1.update_layout(

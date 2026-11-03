@@ -10,10 +10,9 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (FOND BLANC PUR + BRANDING STAR)
+# CONFIGURATION ET DESIGN
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐")
-st.cache_data.clear()
 
 LOGO_PATH = Path(__file__).parent / "LOGO_STAR.png"
 
@@ -21,16 +20,12 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    
     .stApp { background-color: #F8F9FA !important; }
     [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 4px solid #E30613; }
-    
     [data-testid="stHorizontalBlock"] { gap: 1rem; border: none !important; }
     [data-testid="column"] { border: none !important; box-shadow: none !important; }
-    
     h1 { color: #E30613 !important; font-weight: 900 !important; margin-bottom: 0 !important; }
     h2, h3 { color: #009640 !important; font-weight: 700 !important; }
-    
     .kpi-card {
         background-color: #FFFFFF; border-radius: 8px; padding: 20px;
         border: 1px solid #E5E7EB; border-left: 6px solid #E30613; 
@@ -41,7 +36,6 @@ st.markdown("""
     .kpi-icon { font-size: 1.5rem; }
     .kpi-value { font-size: 2.4rem; font-weight: 800; color: #111827; margin-top: 5px; }
     .kpi-footer { font-size: 0.9rem; color: #6B7280; font-weight: 500;}
-    
     .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 45px; background-color: #F9FAFB; color: #4B5563;
@@ -51,18 +45,13 @@ st.markdown("""
         background-color: #E30613 !important; color: #FFFFFF !important;
         border: 1px solid #E30613 !important;
     }
-    
     div[data-testid="stDataFrame"] { 
         background-color: #FFFFFF; padding: 15px; border-radius: 8px; 
         border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
     }
-
     div[data-testid="stPlotlyChart"] {
-        background-color: #FFFFFF;
-        padding: 15px;
-        border-radius: 8px;
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        background-color: #FFFFFF; padding: 15px; border-radius: 8px;
+        border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -83,7 +72,7 @@ with col_titre:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==============================================================================
-# RÉFÉRENTIEL ET MAPPING (DONNÉES INTÉGRÉES)
+# RÉFÉRENTIEL ET MAPPING
 # ==============================================================================
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
@@ -131,24 +120,33 @@ MAPPING_REGIONS = {
 
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
-def normaliser_mois(valeur) -> int:
-    if pd.isna(valeur): return 1
-    if isinstance(valeur, (int, float)):
-        if 1 <= valeur <= 12: return int(valeur)
-        try: return pd.to_datetime(valeur, unit='D', origin='1899-12-30').month
-        except: return 1
-    if isinstance(valeur, (pd.Timestamp, datetime.datetime, datetime.date)): return valeur.month
-    texte = unicodedata.normalize("NFD", str(valeur)).encode("ascii", "ignore").decode("utf-8").lower().strip()
+# --- OPTIMISATION 1 : Fonction normaliser_mois vectorisée ---
+def normaliser_mois(serie: pd.Series) -> pd.Series:
+    # On essaie de convertir directement en datetime (gère beaucoup de formats de dates Excel)
+    series_clean = serie.astype(str).str.strip()
+    try:
+        # Si c'est un timestamp numérique Excel
+        numeric_series = pd.to_numeric(series_clean, errors='coerce')
+        if numeric_series.notna().all():
+            dates = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
+            if dates.notna().all():
+                return dates.dt.month
+    except:
+        pass
+
+    # Sinon, on mappe les noms de mois
     mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
-    if texte in mois_map: return mois_map[texte]
-    try: return pd.to_datetime(valeur).month
-    except: return 1
+    texte_series = series_clean.apply(lambda x: unicodedata.normalize("NFD", str(x)).encode("ascii", "ignore").decode("utf-8").lower())
+    return texte_series.map(mois_map).fillna(1).astype(int)
+
 
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
+# --- OPTIMISATION 2 : Mise en cache du chargement ---
+@st.cache_data(show_spinner="Chargement et enrichissement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.DataFrame:
     if ref_bytes is not None:
         df_ref = pd.read_excel(io.BytesIO(ref_bytes), sheet_name="Ref actif")
@@ -168,7 +166,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"])}
     df = df_raw.rename(columns=rename).copy()
     df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
-    df["mois"] = df["mois"].apply(normaliser_mois)
+    df["mois"] = normaliser_mois(df["mois"]) # Appel de la version optimisée
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
     
     masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) | df["nature"].isna()
@@ -197,14 +195,18 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5)
+# CALCULS (ÉTAPES 3 À 5) - ENTIÈREMENT VECTORISÉ
 # ==============================================================================
+# --- OPTIMISATION 3 : Remplacement des boucles par des merges (Cross Join) ---
+@st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
+    # 1. Données Réalisées
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre
 
+    # 2. Historique complet (pour indices et CAGR)
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
     if df_hist.empty: return None, None, None, None, df_realise
 
@@ -212,7 +214,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_hist_complet = df_hist.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
     if df_hist_complet.empty: return None, None, None, None, df_realise
 
-    # Étape 4 : Indices & SARR
+    # 3. Indices & SARR
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
     vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
@@ -225,7 +227,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # Étape 5.1 : Momentum
+    # 4. Momentum & Base
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -234,81 +236,83 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     for (ag, art), group in df_derniers.groupby(['agence', 'article']):
         def get_val(rang, col): return group[group['rang'] == rang][col].values[0] if len(group[group['rang'] == rang]) > 0 else 0
         sarr_m, sarr_m1, sarr_m2, sarr_m3 = get_val(0, 'SARR_HL'), get_val(1, 'SARR_HL'), get_val(2, 'SARR_HL'), get_val(3, 'SARR_HL')
-        
         momentum = np.mean([sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3])
         base = max(sarr_m, np.mean([sarr_m1, sarr_m2, sarr_m3]))
-        
         info_art = group.iloc[0]
-        resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum, "contenance_cl": info_art['contenance_cl']})
+        resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum})
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # On inclut TOUS les articles du périmètre
-    articles_perimetre = df_perimetre[['agence', 'article']].drop_duplicates()
+    # 5. Calcul du CAGR
+    cagr_data = []
+    if annee_cible > annee_cloture:
+        for (ag, art), group in df_hist_complet.groupby(['agence', 'article']):
+            a_deb, a_fin = group['annee'].min(), group['annee'].max()
+            v_deb = group[group['annee'] == a_deb]['hl'].sum()
+            v_fin = group[group['annee'] == a_fin]['hl'].sum()
+            nb_ans = a_fin - a_deb
+            cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
+            cagr_data.append({"agence": ag, "article": art, "CAGR_val": cagr_val})
     
-    # Fusion 1 : Ajout des bases et momentum aux articles du périmètre
-    df_momentum_complet = pd.merge(articles_perimetre, df_momentum, on=['agence', 'article'], how='left')
-    
-    df_momentum_complet['Base_HL'] = df_momentum_complet['Base_HL'].fillna(0.0)
-    df_momentum_complet['Momentum_HL'] = df_momentum_complet['Momentum_HL'].fillna(0.0)
-    
-    # Fusion 2 : Récupération de la contenance (on garde 'contenance_cl' venant de df_perimetre)
-    conte_df = df_perimetre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
-    
-    # On supprime 'contenance_cl' de df_momentum_complet s'il existe pour éviter le conflit _x / _y
-    if 'contenance_cl' in df_momentum_complet.columns:
-        df_momentum_complet = df_momentum_complet.drop(columns=['contenance_cl'])
-        
-    df_momentum_complet = pd.merge(df_momentum_complet, conte_df, on=['agence', 'article'], how='left')
-    df_momentum_complet['contenance_cl'] = df_momentum_complet['contenance_cl'].fillna(100.0)
+    df_cagr = pd.DataFrame(cagr_data) if cagr_data else pd.DataFrame(columns=['agence', 'article', 'CAGR_val'])
 
-    # Étape 5.2 : Prévisions
-    resultats_previsions = []
-    dict_realises = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().to_dict()
+    # 6. Préparation du Cross Join (Le secret de la rapidité)
+    # On récupère tous les articles du périmètre et leur contenance
+    df_perim_unique = df_perimetre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
+    
+    # On fusionne le périmètre avec le momentum et le CAGR
+    df_base = pd.merge(df_perim_unique, df_momentum, on=['agence', 'article'], how='left')
+    df_base = pd.merge(df_base, df_cagr, on=['agence', 'article'], how='left')
+    
+    df_base['Base_HL'] = df_base['Base_HL'].fillna(0.0)
+    df_base['Momentum_HL'] = df_base['Momentum_HL'].fillna(0.0)
+    df_base['CAGR_val'] = df_base['CAGR_val'].fillna(0.0)
+    
+    # Création des années et mois cibles
+    annees_cibles = list(range(annee_cloture, annee_cible + 1))
+    mois_cibles = list(range(1, 13))
+    
+    # Création de la grille complète (Cross Join)
+    df_cross = df_base.assign(key=1).merge(pd.DataFrame({'annee': annees_cibles, 'key': 1}), on='key').drop('key', axis=1)
+    df_cross = df_cross.assign(key=1).merge(pd.DataFrame({'mois': mois_cibles, 'key': 1}), on='key').drop('key', axis=1)
+    
+    # Ajout des Indices
+    df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
+    df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
+    
+    # Ajout des Réalisés
+    df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
+    df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
+    
+    # 7. Calculs finaux (Vectorisés)
+    df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
+    df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
+    
+    # Calcul du multiplicateur CAGR
+    df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
+    
+    # Formule de prévision
+    df_cross['Prevision_HL'] = np.maximum(0.0, ((df_cross['Indice'].round(2) * df_cross['Base_HL'].round(2)) + df_cross['Momentum_HL'].round(2)) * df_cross['multiplicateur_cagr'])
+    
+    # Application du réalisé ou de la prévision
+    df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
+    
+    # Conversion en Cols
+    df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'])
+    
+    # Formatage final
+    df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
+    df_cross['Date'] = df_cross['mois'].apply(lambda m: MOIS_NOMS[m-1]) + '-' + df_cross['annee'].astype(str).str[-2:]
+    
+    cols_finales = ["annee", "mois", "agence", "article", "Date", "Statut", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", "Volume_HL", "Volume_Cols"]
+    
+    df_previsions = df_cross[cols_finales].copy()
+    
+    # On remet les noms de colonnes exacts attendus par l'UI
+    df_previsions = df_previsions.rename(columns={"Indice": "Indice", "Base_HL": "Base_HL", "Momentum_HL": "Momentum_HL"})
+    df_momentum = df_momentum.rename(columns={"Base_HL": "Base_HL", "Momentum_HL": "Momentum_HL"})
 
-    for _, row in df_momentum_complet.iterrows():
-        ag, art = row['agence'], row['article']
-        base, momentum, contenance = row['Base_HL'], row['Momentum_HL'], row['contenance_cl']
-        
-        cagr_val = 0.0
-        if annee_cible > annee_cloture:
-            art_hist_complet = df_hist_complet[(df_hist_complet['article'] == art) & (df_hist_complet['agence'] == ag)]
-            if not art_hist_complet.empty:
-                a_deb, a_fin = art_hist_complet['annee'].min(), art_hist_complet['annee'].max()
-                v_deb = art_hist_complet[art_hist_complet['annee'] == a_deb]['hl'].sum()
-                v_fin = art_hist_complet[art_hist_complet['annee'] == a_fin]['hl'].sum()
-                nb_ans = a_fin - a_deb
-                cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
-
-        for y in range(annee_cloture, annee_cible + 1):
-            multiplicateur_cagr = (1 + cagr_val) ** (y - annee_cloture)
-            for m in range(1, 13):
-                coef_data = table_indices[(table_indices['agence'] == ag) & (table_indices['article'] == art) & (table_indices['mois'] == m)]
-                coef_rounded = round(coef_data['Indice'].values[0], 2) if not coef_data.empty else 1.0
-                base_rounded = round(base, 2)
-                momentum_rounded = round(momentum, 2)
-                
-                if y == annee_cloture and m <= mois_cutoff:
-                    statut = "Réalisé"
-                    val_hl = dict_realises.get((y, m, ag, art), 0.0)
-                else:
-                    statut = "Prévision"
-                    val_hl = max(0.0, ((coef_rounded * base_rounded) + momentum_rounded) * multiplicateur_cagr)
-                    
-                val_cols = val_hl * (10000 / contenance)
-                
-                res_dict = {
-                    "annee": y, "mois": m, "agence": ag, "article": art, "Date": f"{MOIS_NOMS[m-1]}-{str(y)[-2:]}",
-                    "Statut": statut, "Indice": coef_rounded, "Base_HL": base_rounded, "Momentum_HL": momentum_rounded, 
-                    "Volume_HL": val_hl, "Volume_Cols": val_cols
-                }
-                
-                if annee_cible > annee_cloture:
-                    res_dict["CAGR (%)"] = cagr_val * 100
-                    
-                resultats_previsions.append(res_dict)
-                
-    return table_indices, df_sarr, df_momentum, pd.DataFrame(resultats_previsions), df_realise
+    return table_indices, df_sarr, df_momentum, df_previsions, df_realise
 
 # ==============================================================================
 # INTERFACE UTILISATEUR
@@ -373,7 +377,7 @@ if fichier_ventes is not None:
 
     if table_indices is None:
         st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique.")
-        st.info("💡 Vérifiez que vous avez bien sélectionné 2 années consécutives complètes (ex: 2024 et 2025) et que votre fichier contient bien 12 mois par an. Si vous avez filtré sur un article spécifique, vérifiez qu'il a bien 12 mois de données pour les années choisies.")
+        st.info("💡 Vérifiez que vous avez bien sélectionné 2 années consécutives complètes (ex: 2024 et 2025) et que votre fichier contient bien 12 mois par an.")
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"

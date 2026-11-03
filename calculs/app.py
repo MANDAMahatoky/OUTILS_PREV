@@ -473,8 +473,18 @@ if fichier_ventes is not None:
                         df_prev_backtest = res_backtest[3]
                         df_prev_backtest = df_prev_backtest[df_prev_backtest['annee'] == annee_cible]
 
-                        # 2. On récupère les réalisés de l'année cible
-                        df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].groupby('mois')[col_prev_aff].sum().reset_index()
+                        # 2. On récupère les réalisés de l'année cible depuis df_perimetre (avec conversion)
+                        df_real_raw = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
+                        if not df_real_raw.empty:
+                            if unite_affichage == "Cols":
+                                df_real_raw['Vol_Aff'] = df_real_raw['hl'] * (10000 / df_real_raw['contenance_cl'].replace(0, 100))
+                            else:
+                                df_real_raw['Vol_Aff'] = df_real_raw['hl']
+                            df_real_cible = df_real_raw.groupby('mois')['Vol_Aff'].sum().reset_index()
+                            df_real_cible = df_real_cible.rename(columns={'Vol_Aff': col_prev_aff})
+                        else:
+                            df_real_cible = pd.DataFrame(columns=['mois', col_prev_aff])
+
                         df_real_cible['Date_Str'] = annee_cible.astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
                         df_real_cible['Date'] = pd.to_datetime(df_real_cible['Date_Str'])
 

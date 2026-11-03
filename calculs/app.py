@@ -136,7 +136,6 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
-    # Si la première colonne n'est pas l'année, on regarde la deuxième
     if annee0.between(1990, 2100).sum() < len(df) * 0.3 and df.shape[1] >= 8:
         annee1 = pd.to_numeric(df.iloc[:, 1], errors="coerce")
         return annee1.between(1990, 2100).sum() > len(df) * 0.3
@@ -159,10 +158,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_raw = pd.read_excel(io.BytesIO(ventes_bytes), sheet_name=0, header=None)
     if not detecter_format_pivote(df_raw): return pd.DataFrame()
 
-    # CORRECTION ICI : Détection du décalage (s'il y a une colonne index au début)
     annee0 = pd.to_numeric(df_raw.iloc[:, 0], errors="coerce")
     if annee0.between(1990, 2100).sum() < len(df_raw) * 0.3 and df_raw.shape[1] >= 8:
-        # La colonne 0 est probablement un index, on décale la lecture d'un cran
         rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"], start=1)}
     else:
         rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"])}
@@ -203,9 +200,17 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
-    df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
+    # NOUVEAUTE ICI : On ne garde que les articles qui ont au moins une vente historique
+    articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
+    articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
+    df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
+    
+    if df_perimetre_filtre.empty:
+        return None, None, None, None, df_perimetre
+
+    df_limite = df_perimetre_filtre[(df_perimetre_filtre["annee"] < annee_cloture) | ((df_perimetre_filtre["annee"] == annee_cloture) & (df_perimetre_filtre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return None, None, None, None, df_perimetre
+    if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
     if df_hist.empty: return None, None, None, None, df_realise
@@ -214,7 +219,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_hist_complet = df_hist.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
     if df_hist_complet.empty: return None, None, None, None, df_realise
 
-    # Indices & SARR
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
     vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
@@ -227,7 +231,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # Momentum
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -243,7 +246,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # CAGR
     cagr_data = []
     if annee_cible > annee_cloture:
         for (ag, art), group in df_hist_complet.groupby(['agence', 'article']):
@@ -255,8 +257,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
             cagr_data.append({"agence": ag, "article": art, "CAGR_val": cagr_val})
     df_cagr = pd.DataFrame(cagr_data) if cagr_data else pd.DataFrame(columns=['agence', 'article', 'CAGR_val'])
 
-    # Cross Join
-    df_perim_unique = df_perimetre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
+    df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     df_base = pd.merge(df_perim_unique, df_momentum, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_cagr, on=['agence', 'article'], how='left')
     
@@ -429,6 +430,7 @@ if fichier_ventes is not None:
                 )
                 
             st.markdown("#### 5.2 Résultat Final")
+            
             pivot_mensuel = df_previsions.pivot_table(
                 index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
             ).fillna(0)
@@ -460,7 +462,6 @@ if fichier_ventes is not None:
         else:
             st.markdown("#### 📊 Analyse Visuelle des Prévisions")
             
-            # --- NOUVELLE FONCTIONNALITE : BACKTEST (Validation du Modèle) ---
             st.markdown("##### 🔬 Validation du Modèle (Backtest)")
             st.info("Le Backtest permet de voir ce que le modèle aurait prédit pour l'année cible s'il n'avait eu que les données des années précédentes. Il compare cette prédiction à la réalité.")
             
@@ -470,21 +471,14 @@ if fichier_ventes is not None:
                 if annee_cible <= annee_min_histo:
                     st.warning("⚠️ Pas assez d'historique pour faire un backtest sur cette année.")
                 else:
-                    # 1. On calcule les prévisions en forçant l'année de clôture à N-1
                     res_backtest = calculer_etape_5(
-                        df_perimetre, 
-                        annee_min_histo, 
-                        annee_cible - 1, # Histo max = N-1
-                        annee_cible - 1, # Clôture = N-1
-                        12,              # Cutoff à décembre de N-1
-                        annee_cible      # Cible = N
+                        df_perimetre, annee_min_histo, annee_cible - 1, annee_cible - 1, 12, annee_cible
                     )
                     
                     if res_backtest[3] is not None:
                         df_prev_backtest = res_backtest[3]
                         df_prev_backtest = df_prev_backtest[df_prev_backtest['annee'] == annee_cible]
 
-                        # 2. On récupère les réalisés de l'année cible depuis df_perimetre (avec conversion)
                         df_real_raw = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
                         if not df_real_raw.empty:
                             if unite_affichage == "Cols":
@@ -503,14 +497,12 @@ if fichier_ventes is not None:
                         df_pred_cible['Date_Str'] = str(annee_cible) + '-' + df_pred_cible['mois'].astype(str).str.zfill(2) + '-01'
                         df_pred_cible['Date'] = pd.to_datetime(df_pred_cible['Date_Str'])
 
-                        # CORRECTION ICI : On filtre les zéros pour lisser la courbe
                         df_real_cible = df_real_cible[df_real_cible[col_prev_aff] > 0]
                         df_pred_cible = df_pred_cible[df_pred_cible[col_prev_aff] > 0]
 
                         fig_bt = go.Figure()
                         
                         if not df_real_cible.empty:
-                            # AJOUT DE shape='spline'
                             fig_bt.add_trace(go.Scatter(
                                 x=df_real_cible['Date'], y=df_real_cible[col_prev_aff], 
                                 mode='lines+markers', name='Réalisé (Réel)', 
@@ -518,7 +510,6 @@ if fichier_ventes is not None:
                                 fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                             ))
                         if not df_pred_cible.empty:
-                            # AJOUT DE shape='spline'
                             fig_bt.add_trace(go.Scatter(
                                 x=df_pred_cible['Date'], y=df_pred_cible[col_prev_aff], 
                                 mode='lines+markers', name='Prévision (Backtest)', 
@@ -543,7 +534,6 @@ if fichier_ventes is not None:
 
             st.markdown("---")
             
-            # --- COURBE DE TENDANCE GLOBALE (Standard) ---
             st.markdown("##### 📈 Évolution Globale des Volumes (Réalisé vs Prévisions)")
             
             df_graph = df_previsions.copy()
@@ -555,14 +545,12 @@ if fichier_ventes is not None:
             df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
             df_prev = df_grouped[df_grouped['Statut'] == 'Prévision']
 
-            # CORRECTION ICI : On filtre les zéros pour lisser la courbe
             df_real = df_real[df_real[col_prev_aff] > 0]
             df_prev = df_prev[df_prev[col_prev_aff] > 0]
 
             fig1 = go.Figure()
             
             if not df_real.empty:
-                # AJOUT DE shape='spline'
                 fig1.add_trace(go.Scatter(
                     x=df_real['Date'], y=df_real[col_prev_aff], 
                     mode='lines+markers', name='Réalisé', 
@@ -570,7 +558,6 @@ if fichier_ventes is not None:
                     fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                 ))
             if not df_prev.empty:
-                # AJOUT DE shape='spline'
                 fig1.add_trace(go.Scatter(
                     x=df_prev['Date'], y=df_prev[col_prev_aff], 
                     mode='lines+markers', name='Prévision', 

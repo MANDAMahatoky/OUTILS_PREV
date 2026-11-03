@@ -485,11 +485,12 @@ if fichier_ventes is not None:
                         else:
                             df_real_cible = pd.DataFrame(columns=['mois', col_prev_aff])
 
-                        df_real_cible['Date_Str'] = annee_cible.astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
+                        # CORRECTION ICI : Utilisation de str() au lieu de .astype(str)
+                        df_real_cible['Date_Str'] = str(annee_cible) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
                         df_real_cible['Date'] = pd.to_datetime(df_real_cible['Date_Str'])
 
                         df_pred_cible = df_prev_backtest.groupby('mois')[col_prev_aff].sum().reset_index()
-                        df_pred_cible['Date_Str'] = annee_cible.astype(str) + '-' + df_pred_cible['mois'].astype(str).str.zfill(2) + '-01'
+                        df_pred_cible['Date_Str'] = str(annee_cible) + '-' + df_pred_cible['mois'].astype(str).str.zfill(2) + '-01'
                         df_pred_cible['Date'] = pd.to_datetime(df_pred_cible['Date_Str'])
 
                         fig_bt = go.Figure()

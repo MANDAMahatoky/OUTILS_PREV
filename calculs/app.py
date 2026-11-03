@@ -406,19 +406,25 @@ if fichier_ventes is not None:
         "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
     ])
 
-    # --- DEFINITION DES STYLES DE COULEUR (CORRIGÉS) ---
+    # --- DEFINITION DES STYLES DE COULEUR (CORRIGÉS POUR STREAMLIT) ---
     def style_green(df):
-        # On applique le vert uniquement sur les colonnes numériques pour éviter les erreurs
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        df_styled = df.copy()
+        df_styled.index = [''] * len(df_styled)
+        numeric_cols = df_styled.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) > 0:
-            return df.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols).hide(axis="index")
-        return df
+            try:
+                return df_styled.style.map(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
+            except AttributeError:
+                return df_styled.style.applymap(lambda x: 'color: #009640; font-weight: bold;', subset=numeric_cols)
+        return df_styled.style
 
     def style_pivot_previsions(df, annee_cloture, mois_cutoff):
-        styles = pd.DataFrame('', index=df.index, columns=df.columns)
-        for idx in df.index:
-            annee = df.loc[idx, 'annee']
-            for col in df.columns:
+        df_styled = df.copy()
+        df_styled.index = [''] * len(df_styled)
+        styles = pd.DataFrame('', index=df_styled.index, columns=df_styled.columns)
+        for idx in df_styled.index:
+            annee = df_styled.loc[idx, 'annee']
+            for col in df_styled.columns:
                 if col in MOIS_NOMS:
                     mois = MOIS_NOMS.index(col) + 1
                     if annee < annee_cloture or (annee == annee_cloture and mois <= mois_cutoff):
@@ -427,7 +433,7 @@ if fichier_ventes is not None:
                         styles.loc[idx, col] = 'color: #D35400; font-weight: bold;' # Orange Foncé
                 elif col == 'Total Année':
                     styles.loc[idx, col] = 'color: #000000; font-weight: bold;'
-        return df.style.apply(lambda _: styles, axis=None).hide(axis="index")
+        return df_styled.style.apply(lambda _: styles, axis=None)
 
     def style_detail_row(row):
         styles = []

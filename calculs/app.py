@@ -120,32 +120,24 @@ MAPPING_REGIONS = {
 
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
-# --- OPTIMISATION 1 : Fonction normaliser_mois vectorisée ---
 def normaliser_mois(serie: pd.Series) -> pd.Series:
-    # On essaie de convertir directement en datetime (gère beaucoup de formats de dates Excel)
     series_clean = serie.astype(str).str.strip()
     try:
-        # Si c'est un timestamp numérique Excel
         numeric_series = pd.to_numeric(series_clean, errors='coerce')
         if numeric_series.notna().all():
             dates = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
             if dates.notna().all():
                 return dates.dt.month
-    except:
-        pass
-
-    # Sinon, on mappe les noms de mois
+    except: pass
     mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
     texte_series = series_clean.apply(lambda x: unicodedata.normalize("NFD", str(x)).encode("ascii", "ignore").decode("utf-8").lower())
     return texte_series.map(mois_map).fillna(1).astype(int)
-
 
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
-# --- OPTIMISATION 2 : Mise en cache du chargement ---
 @st.cache_data(show_spinner="Chargement et enrichissement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.DataFrame:
     if ref_bytes is not None:
@@ -166,7 +158,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"])}
     df = df_raw.rename(columns=rename).copy()
     df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
-    df["mois"] = normaliser_mois(df["mois"]) # Appel de la version optimisée
+    df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
     
     masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) | df["nature"].isna()
@@ -195,18 +187,15 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - ENTIÈREMENT VECTORISÉ
+# CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
-# --- OPTIMISATION 3 : Remplacement des boucles par des merges (Cross Join) ---
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
-    # 1. Données Réalisées
     df_limite = df_perimetre[(df_perimetre["annee"] < annee_cloture) | ((df_perimetre["annee"] == annee_cloture) & (df_perimetre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre
 
-    # 2. Historique complet (pour indices et CAGR)
     df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
     if df_hist.empty: return None, None, None, None, df_realise
 
@@ -214,7 +203,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_hist_complet = df_hist.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
     if df_hist_complet.empty: return None, None, None, None, df_realise
 
-    # 3. Indices & SARR
+    # Indices & SARR
     vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
     vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
@@ -227,7 +216,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # 4. Momentum & Base
+    # Momentum
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 4].copy()
@@ -243,7 +232,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # 5. Calcul du CAGR
+    # CAGR
     cagr_data = []
     if annee_cible > annee_cloture:
         for (ag, art), group in df_hist_complet.groupby(['agence', 'article']):
@@ -253,14 +242,10 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
             nb_ans = a_fin - a_deb
             cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
             cagr_data.append({"agence": ag, "article": art, "CAGR_val": cagr_val})
-    
     df_cagr = pd.DataFrame(cagr_data) if cagr_data else pd.DataFrame(columns=['agence', 'article', 'CAGR_val'])
 
-    # 6. Préparation du Cross Join (Le secret de la rapidité)
-    # On récupère tous les articles du périmètre et leur contenance
+    # Cross Join
     df_perim_unique = df_perimetre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
-    
-    # On fusionne le périmètre avec le momentum et le CAGR
     df_base = pd.merge(df_perim_unique, df_momentum, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_cagr, on=['agence', 'article'], how='left')
     
@@ -268,51 +253,33 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_base['Momentum_HL'] = df_base['Momentum_HL'].fillna(0.0)
     df_base['CAGR_val'] = df_base['CAGR_val'].fillna(0.0)
     
-    # Création des années et mois cibles
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     
-    # Création de la grille complète (Cross Join)
     df_cross = df_base.assign(key=1).merge(pd.DataFrame({'annee': annees_cibles, 'key': 1}), on='key').drop('key', axis=1)
     df_cross = df_cross.assign(key=1).merge(pd.DataFrame({'mois': mois_cibles, 'key': 1}), on='key').drop('key', axis=1)
     
-    # Ajout des Indices
     df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
     
-    # Ajout des Réalisés
     df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
     df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
     
-    # 7. Calculs finaux (Vectorisés)
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     
-    # Calcul du multiplicateur CAGR
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
-    
-    # Formule de prévision
     df_cross['Prevision_HL'] = np.maximum(0.0, ((df_cross['Indice'].round(2) * df_cross['Base_HL'].round(2)) + df_cross['Momentum_HL'].round(2)) * df_cross['multiplicateur_cagr'])
     
-    # Application du réalisé ou de la prévision
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
-    
-    # Conversion en Cols
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'])
     
-    # Formatage final
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
     df_cross['Date'] = df_cross['mois'].apply(lambda m: MOIS_NOMS[m-1]) + '-' + df_cross['annee'].astype(str).str[-2:]
     
     cols_finales = ["annee", "mois", "agence", "article", "Date", "Statut", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", "Volume_HL", "Volume_Cols"]
     
-    df_previsions = df_cross[cols_finales].copy()
-    
-    # On remet les noms de colonnes exacts attendus par l'UI
-    df_previsions = df_previsions.rename(columns={"Indice": "Indice", "Base_HL": "Base_HL", "Momentum_HL": "Momentum_HL"})
-    df_momentum = df_momentum.rename(columns={"Base_HL": "Base_HL", "Momentum_HL": "Momentum_HL"})
-
-    return table_indices, df_sarr, df_momentum, df_previsions, df_realise
+    return table_indices, df_sarr, df_momentum, df_cross[cols_finales].copy(), df_realise
 
 # ==============================================================================
 # INTERFACE UTILISATEUR
@@ -327,7 +294,6 @@ if fichier_ventes is not None:
 
     with st.sidebar:
         st.markdown("<h2 style='font-size: 1.2rem;'>⚙️ Paramètres</h2>", unsafe_allow_html=True)
-        
         st.markdown("##### 2. Périmètre (Filtres)")
         
         regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Aucune vente"])
@@ -354,11 +320,11 @@ if fichier_ventes is not None:
         sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
         st.markdown("##### 📅 Cutoff")
-        annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2024)
-        annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2025)
-        annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
+        annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2023)
+        annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2024)
+        annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
-        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2026)
+        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=2025)
 
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)
@@ -483,6 +449,76 @@ if fichier_ventes is not None:
         else:
             st.markdown("#### 📊 Analyse Visuelle des Prévisions")
             
+            # --- NOUVELLE FONCTIONNALITE : BACKTEST (Validation du Modèle) ---
+            st.markdown("##### 🔬 Validation du Modèle (Backtest)")
+            st.info("Le Backtest permet de voir ce que le modèle aurait prédit pour l'année cible s'il n'avait eu que les données des années précédentes. Il compare cette prédiction à la réalité.")
+            
+            afficher_backtest = st.checkbox(f"Afficher les prévisions pour {annee_cible} calculées uniquement avec l'historique jusqu'à {annee_cible - 1}")
+
+            if afficher_backtest:
+                if annee_cible <= annee_min_histo:
+                    st.warning("⚠️ Pas assez d'historique pour faire un backtest sur cette année.")
+                else:
+                    # 1. On calcule les prévisions en forçant l'année de clôture à N-1
+                    res_backtest = calculer_etape_5(
+                        df_perimetre, 
+                        annee_min_histo, 
+                        annee_cible - 1, # Histo max = N-1
+                        annee_cible - 1, # Clôture = N-1
+                        12,              # Cutoff à décembre de N-1
+                        annee_cible      # Cible = N
+                    )
+                    
+                    if res_backtest[3] is not None:
+                        df_prev_backtest = res_backtest[3]
+                        df_prev_backtest = df_prev_backtest[df_prev_backtest['annee'] == annee_cible]
+
+                        # 2. On récupère les réalisés de l'année cible
+                        df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].groupby('mois')[col_prev_aff].sum().reset_index()
+                        df_real_cible['Date_Str'] = annee_cible.astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
+                        df_real_cible['Date'] = pd.to_datetime(df_real_cible['Date_Str'])
+
+                        df_pred_cible = df_prev_backtest.groupby('mois')[col_prev_aff].sum().reset_index()
+                        df_pred_cible['Date_Str'] = annee_cible.astype(str) + '-' + df_pred_cible['mois'].astype(str).str.zfill(2) + '-01'
+                        df_pred_cible['Date'] = pd.to_datetime(df_pred_cible['Date_Str'])
+
+                        fig_bt = go.Figure()
+                        
+                        if not df_real_cible.empty:
+                            fig_bt.add_trace(go.Scatter(
+                                x=df_real_cible['Date'], y=df_real_cible[col_prev_aff], 
+                                mode='lines+markers', name='Réalisé (Réel)', 
+                                line=dict(color='#009640', width=3),
+                                fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
+                            ))
+                        if not df_pred_cible.empty:
+                            fig_bt.add_trace(go.Scatter(
+                                x=df_pred_cible['Date'], y=df_pred_cible[col_prev_aff], 
+                                mode='lines+markers', name='Prévision (Backtest)', 
+                                line=dict(color='#E30613', width=3, dash='dot'),
+                                fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
+                            ))
+
+                        fig_bt.update_layout(
+                            title=dict(text=f"Backtest {annee_cible} : Réalisé vs Modèle (entraîné jusqu'en {annee_cible-1})", font=dict(size=18, color="#111827")),
+                            xaxis_title="Mois",
+                            yaxis_title=f"Volume ({unite_affichage})",
+                            hovermode="x unified",
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            margin=dict(l=40, r=40, t=60, b=40),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
+                        fig_bt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
+                        fig_bt.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
+                        
+                        st.plotly_chart(fig_bt, use_container_width=True)
+
+            st.markdown("---")
+            
+            # --- COURBE DE TENDANCE GLOBALE (Standard) ---
+            st.markdown("##### 📈 Évolution Globale des Volumes (Réalisé vs Prévisions)")
+            
             df_graph = df_previsions.copy()
             df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
             df_graph['Date'] = pd.to_datetime(df_graph['Date_Str'])
@@ -510,7 +546,7 @@ if fichier_ventes is not None:
                 ))
 
             fig1.update_layout(
-                title=dict(text="Évolution des Volumes (Réalisé vs Prévisions)", font=dict(size=18, color="#111827")),
+                title=dict(text=f"Évolution Globale (Cible: {annee_cible})", font=dict(size=18, color="#111827")),
                 xaxis_title="Mois",
                 yaxis_title=f"Volume ({unite_affichage})",
                 hovermode="x unified",

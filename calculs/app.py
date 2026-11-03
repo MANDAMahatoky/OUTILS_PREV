@@ -195,12 +195,11 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5)
+# CALCULS (ÉTAPES 3 À 5) - Avec périodes IS et CAGR distinctes
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max_histo: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
     
-    # On ne garde que les articles qui ont au moins une vente historique
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -212,14 +211,15 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    df_hist = df_realise[(df_realise["annee"] >= annee_min_histo) & (df_realise["annee"] <= annee_max_histo)].copy()
-    if df_hist.empty: return None, None, None, None, df_realise
+    # --- CALCUL DE L'INDICE DE SAISONNALITÉ (IS) SUR LA PÉRIODE DÉDIÉE ---
+    df_hist_is = df_realise[(df_realise["annee"] >= annee_min_is) & (df_realise["annee"] <= annee_max_is)].copy()
+    if df_hist_is.empty: return None, None, None, None, df_realise
 
-    mois_par_annee = df_hist.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
-    df_hist_complet = df_hist.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
-    if df_hist_complet.empty: return None, None, None, None, df_realise
+    mois_par_annee = df_hist_is.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
+    df_hist_is_complet = df_hist_is.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
+    if df_hist_is_complet.empty: return None, None, None, None, df_realise
 
-    vols = df_hist_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
+    vols = df_hist_is_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
     vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
     vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
     indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
@@ -227,6 +227,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     table_indices['mois'] = table_indices['mois'].astype(int) 
 
+    # --- CALCUL DU SARR & MOMENTUM (Sur tout l'historique disponible) ---
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
@@ -241,20 +242,22 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_histo: int, annee_max
         sarr_m, sarr_m1, sarr_m2, sarr_m3 = get_val(0, 'SARR_HL'), get_val(1, 'SARR_HL'), get_val(2, 'SARR_HL'), get_val(3, 'SARR_HL')
         momentum = np.mean([sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3])
         base = max(sarr_m, np.mean([sarr_m1, sarr_m2, sarr_m3]))
-        info_art = group.iloc[0]
         resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum})
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
+    # --- CALCUL DU CAGR SUR LA PÉRIODE DÉDIÉE ---
     cagr_data = []
     if annee_cible > annee_cloture:
-        for (ag, art), group in df_hist_complet.groupby(['agence', 'article']):
-            a_deb, a_fin = group['annee'].min(), group['annee'].max()
-            v_deb = group[group['annee'] == a_deb]['hl'].sum()
-            v_fin = group[group['annee'] == a_fin]['hl'].sum()
-            nb_ans = a_fin - a_deb
-            cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
-            cagr_data.append({"agence": ag, "article": art, "CAGR_val": cagr_val})
+        df_hist_cagr = df_realise[(df_realise["annee"] >= annee_min_cagr) & (df_realise["annee"] <= annee_max_cagr)].copy()
+        if not df_hist_cagr.empty:
+            for (ag, art), group in df_hist_cagr.groupby(['agence', 'article']):
+                a_deb, a_fin = group['annee'].min(), group['annee'].max()
+                v_deb = group[group['annee'] == a_deb]['hl'].sum()
+                v_fin = group[group['annee'] == a_fin]['hl'].sum()
+                nb_ans = a_fin - a_deb
+                cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
+                cagr_data.append({"agence": ag, "article": art, "CAGR_val": cagr_val})
     df_cagr = pd.DataFrame(cagr_data) if cagr_data else pd.DataFrame(columns=['agence', 'article', 'CAGR_val'])
 
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
@@ -331,12 +334,15 @@ if fichier_ventes is not None:
         agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
         sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
-        st.markdown("##### 📅 Cutoff")
-        annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2023)
+        st.markdown("##### 📅 Période Indice Saisonnalité (IS)")
+        annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2023)
+        annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2024, annee_min_is))
         
-        # CORRECTION ICI : value=max(2024, annee_min_histo) pour éviter l'erreur
-        annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=max(2024, annee_min_histo))
-        
+        st.markdown("##### 📈 Période CAGR")
+        annee_min_cagr = st.number_input("Année Min CAGR", min_value=2010, max_value=2030, value=2015)
+        annee_max_cagr = st.number_input("Année Max CAGR", min_value=annee_min_cagr, max_value=2030, value=max(2024, annee_min_cagr))
+
+        st.markdown("##### 🎯 Cutoff & Cible")
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
@@ -353,12 +359,15 @@ if fichier_ventes is not None:
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
     table_indices, df_sarr, df_momentum, df_previsions, df_realise = calculer_etape_5(
-        df_perimetre, annee_min_histo, annee_max_histo, annee_cloture, mois_cutoff, annee_cible
+        df_perimetre, 
+        annee_min_is, annee_max_is, 
+        annee_min_cagr, annee_max_cagr, 
+        annee_cloture, mois_cutoff, annee_cible
     )
 
     if table_indices is None:
-        st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique.")
-        st.info("💡 Vérifiez que vous avez bien sélectionné 2 années consécutives complètes (ex: 2024 et 2025) et que votre fichier contient bien 12 mois par an.")
+        st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique de l'IS.")
+        st.info("💡 Vérifiez que vous avez bien sélectionné au moins une année complète pour l'IS (ex: 2024) et que votre fichier contient bien 12 mois par an.")
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
@@ -405,7 +414,7 @@ if fichier_ventes is not None:
         st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
         c_idx, c_sarr = st.columns(2)
         with c_idx:
-            st.markdown("**Indices de Saisonnalité**")
+            st.markdown("**Indices de Saisonnalité (Basés sur la période IS)**")
             pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
             st.dataframe(pivot_indices, use_container_width=True)
@@ -444,7 +453,7 @@ if fichier_ventes is not None:
             
             st.dataframe(pivot_mensuel, use_container_width=True)
             
-            with st.expander("Voir le détail des calculs (Coef, Base, Momentum)"):
+            with st.expander("Voir le détail des calculs (Coef, Base, Momentum, CAGR)"):
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]
                 
                 if annee_cible > annee_cloture:
@@ -471,11 +480,15 @@ if fichier_ventes is not None:
             afficher_backtest = st.checkbox(f"Afficher les prévisions pour {annee_cible} calculées uniquement avec l'historique jusqu'à {annee_cible - 1}")
 
             if afficher_backtest:
-                if annee_cible <= annee_min_histo:
+                if annee_cible <= annee_min_is:
                     st.warning("⚠️ Pas assez d'historique pour faire un backtest sur cette année.")
                 else:
+                    # Backtest avec les mêmes paramètres mais bridés à l'année cible - 1
                     res_backtest = calculer_etape_5(
-                        df_perimetre, annee_min_histo, annee_cible - 1, annee_cible - 1, 12, annee_cible
+                        df_perimetre, 
+                        annee_min_is, min(annee_cible - 1, annee_max_is), 
+                        annee_min_cagr, min(annee_cible - 1, annee_max_cagr), 
+                        annee_cible - 1, 12, annee_cible
                     )
                     
                     if res_backtest[3] is not None:

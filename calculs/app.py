@@ -323,10 +323,7 @@ if fichier_ventes is not None:
         annee_min_histo = st.number_input("Année Min Historique", min_value=2015, max_value=2030, value=2023)
         annee_max_histo = st.number_input("Année Max Historique", min_value=annee_min_histo, max_value=2030, value=2024)
         annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
-        
-        # CORRECTION ICI : value=annee_cloture pour éviter l'erreur StreamlitValueBelowMinError
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
-        
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
 
         st.markdown("##### ⚙️ Affichage")
@@ -498,17 +495,19 @@ if fichier_ventes is not None:
                         fig_bt = go.Figure()
                         
                         if not df_real_cible.empty:
+                            # AJOUT DE shape='spline' ICI
                             fig_bt.add_trace(go.Scatter(
                                 x=df_real_cible['Date'], y=df_real_cible[col_prev_aff], 
                                 mode='lines+markers', name='Réalisé (Réel)', 
-                                line=dict(color='#009640', width=3),
+                                line=dict(color='#009640', width=3, shape='spline'),
                                 fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                             ))
                         if not df_pred_cible.empty:
+                            # AJOUT DE shape='spline' ICI
                             fig_bt.add_trace(go.Scatter(
                                 x=df_pred_cible['Date'], y=df_pred_cible[col_prev_aff], 
                                 mode='lines+markers', name='Prévision (Backtest)', 
-                                line=dict(color='#E30613', width=3, dash='dot'),
+                                line=dict(color='#E30613', width=3, dash='dot', shape='spline'),
                                 fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
                             ))
 
@@ -522,7 +521,6 @@ if fichier_ventes is not None:
                             margin=dict(l=40, r=40, t=60, b=40),
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                         )
-                        # CORRECTION ICI : Ajout de dtick="M1" et tickformat pour forcer l'affichage de tous les mois
                         fig_bt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
                         fig_bt.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
                         
@@ -545,17 +543,19 @@ if fichier_ventes is not None:
             df_prev = df_grouped[df_grouped['Statut'] == 'Prévision']
             
             if not df_real.empty:
+                # AJOUT DE shape='spline' ICI
                 fig1.add_trace(go.Scatter(
                     x=df_real['Date'], y=df_real[col_prev_aff], 
                     mode='lines+markers', name='Réalisé', 
-                    line=dict(color='#009640', width=3),
+                    line=dict(color='#009640', width=3, shape='spline'),
                     fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
                 ))
             if not df_prev.empty:
+                # AJOUT DE shape='spline' ICI
                 fig1.add_trace(go.Scatter(
                     x=df_prev['Date'], y=df_prev[col_prev_aff], 
                     mode='lines+markers', name='Prévision', 
-                    line=dict(color='#E30613', width=3, dash='dash'),
+                    line=dict(color='#E30613', width=3, dash='dash', shape='spline'),
                     fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
                 ))
 
@@ -569,7 +569,6 @@ if fichier_ventes is not None:
                 margin=dict(l=40, r=40, t=60, b=40),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            # CORRECTION ICI : Ajout de dtick="M1" et tickformat pour forcer l'affichage de tous les mois
             fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
             fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
             

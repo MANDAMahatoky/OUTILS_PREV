@@ -136,6 +136,10 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
 def detecter_format_pivote(df: pd.DataFrame) -> bool:
     if df.shape[1] < 7: return False
     annee0 = pd.to_numeric(df.iloc[:, 0], errors="coerce")
+    # Si la première colonne n'est pas l'année, on regarde la deuxième
+    if annee0.between(1990, 2100).sum() < len(df) * 0.3 and df.shape[1] >= 8:
+        annee1 = pd.to_numeric(df.iloc[:, 1], errors="coerce")
+        return annee1.between(1990, 2100).sum() > len(df) * 0.3
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 @st.cache_data(show_spinner="Chargement et enrichissement des données...")
@@ -155,7 +159,14 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_raw = pd.read_excel(io.BytesIO(ventes_bytes), sheet_name=0, header=None)
     if not detecter_format_pivote(df_raw): return pd.DataFrame()
 
-    rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"])}
+    # CORRECTION ICI : Détection du décalage (s'il y a une colonne index au début)
+    annee0 = pd.to_numeric(df_raw.iloc[:, 0], errors="coerce")
+    if annee0.between(1990, 2100).sum() < len(df_raw) * 0.3 and df_raw.shape[1] >= 8:
+        # La colonne 0 est probablement un index, on décale la lecture d'un cran
+        rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"], start=1)}
+    else:
+        rename = {df_raw.columns[i]: col for i, col in enumerate(["annee", "mois", "segment", "produit", "agence", "nature", "volume_brut"])}
+        
     df = df_raw.rename(columns=rename).copy()
     df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
     df["mois"] = normaliser_mois(df["mois"])

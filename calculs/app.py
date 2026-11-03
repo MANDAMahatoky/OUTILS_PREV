@@ -485,7 +485,6 @@ if fichier_ventes is not None:
                         else:
                             df_real_cible = pd.DataFrame(columns=['mois', col_prev_aff])
 
-                        # CORRECTION ICI : Utilisation de str() au lieu de .astype(str)
                         df_real_cible['Date_Str'] = str(annee_cible) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
                         df_real_cible['Date'] = pd.to_datetime(df_real_cible['Date_Str'])
 
@@ -520,7 +519,8 @@ if fichier_ventes is not None:
                             margin=dict(l=40, r=40, t=60, b=40),
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                         )
-                        fig_bt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
+                        # CORRECTION ICI : Ajout de dtick="M1" et tickformat pour forcer l'affichage de tous les mois
+                        fig_bt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
                         fig_bt.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
                         
                         st.plotly_chart(fig_bt, use_container_width=True)
@@ -566,7 +566,8 @@ if fichier_ventes is not None:
                 margin=dict(l=40, r=40, t=60, b=40),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
+            # CORRECTION ICI : Ajout de dtick="M1" et tickformat pour forcer l'affichage de tous les mois
+            fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
             fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
             
             st.plotly_chart(fig1, use_container_width=True)

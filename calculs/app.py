@@ -196,7 +196,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - Avec Période CAGR (Min & Max)
+# CALCULS (ÉTAPES 3 À 5) - Avec Période CAGR (Min & Max) et Blocage Négatifs
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
@@ -264,7 +264,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         0.0
     )
 
-    # 2. Calcul du CAGR Historique sur la période choisie
+    # 2. Calcul du CAGR Historique
     df_base['Nb_Annees'] = annee_max_cagr - annee_min_cagr
     df_base['CAGR_val'] = np.where(
         (df_base['Base_Hist'] > 0) & (df_base['Final_Hist'] > 0) & (df_base['Nb_Annees'] > 0),
@@ -290,10 +290,15 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # On applique le multiplicateur à la Projection Annuelle
-    df_cross['Prevision_HL'] = (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0)
+    # CALCUL AVEC BLOCAGE DES NÉGATIFS ET FILTRE YTD=0
+    df_cross['Prevision_HL'] = np.where(
+        df_cross['YTD_HL'] > 0,
+        np.maximum(0.0, (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0)),
+        0.0
+    )
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
+    df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL']) # Sécurité anti-négatif
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
     
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
@@ -301,7 +306,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross = df_cross.rename(columns={'Projection_CurrentYear': 'Projection_Annuelle'})
     
-    # AJOUT DE 'contenance_cl' DANS LES COLONNES FINALES POUR ÉVITER LE KEYERROR
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Projection_Annuelle", "CAGR (%)", "Volume_HL", "Volume_Cols"]
     
     return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise

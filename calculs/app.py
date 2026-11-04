@@ -169,7 +169,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
     
-    masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) | df["nature"].isna()
+    # MODIFICATION ICI : On ne supprime plus les lignes si 'nature' est vide, pour capturer tout le volume.
+    masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False)
     df = df[~masque_total].copy()
     
     df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
@@ -203,7 +204,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Somme des IS = 12)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v12"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v13"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -261,8 +262,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
     df_base['Annee_Min'] = df_base['Annee_Min'].fillna(annee_cloture)
     
-    # Cumul_Coef = somme des indices jusqu'au cutoff (comme Excel)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'] = mois_cutoff * 1.0 
+    # Cumul_Coef = 9.0 (comme dans votre Excel)
+    df_base['Cumul_Coef'] = mois_cutoff * 1.0 
 
     # --- MÉTHODE EXCEL ---
     df_base['Projection_CurrentYear'] = np.where(

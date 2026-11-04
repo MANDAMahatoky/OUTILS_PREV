@@ -10,66 +10,105 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN
+# CONFIGURATION ET DESIGN AVANCÉ
 # ==============================================================================
-st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐")
-
-LOGO_PATH = Path(__file__).parent / "LOGO_STAR.png"
+st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+    /* Importation de la police */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    
+    /* Style global */
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #F8F9FA !important; }
-    [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 4px solid #E30613; }
-    [data-testid="stHorizontalBlock"] { gap: 1rem; border: none !important; }
-    [data-testid="column"] { border: none !important; box-shadow: none !important; }
-    h1 { color: #E30613 !important; font-weight: 900 !important; margin-bottom: 0 !important; }
-    h2, h3 { color: #009640 !important; font-weight: 700 !important; }
+    .stApp { background: #F4F6F8 !important; }
+    
+    /* Barre latérale */
+    [data-testid="stSidebar"] { 
+        background-color: #FFFFFF; 
+        border-right: 1px solid #E5E7EB;
+        box-shadow: 2px 0 10px rgba(0,0,0,0.03);
+    }
+    [data-testid="stSidebar"] h2 { color: #E30613 !important; font-size: 1.4rem; font-weight: 800; }
+    [data-testid="stSidebar"] h5 { color: #4B5563 !important; font-weight: 600; margin-top: 1.5rem; }
+    
+    /* En-têtes principaux */
+    h1 { color: #E30613 !important; font-weight: 900 !important; letter-spacing: -0.02em; margin-bottom: 0 !important; }
+    h2, h3 { color: #009640 !important; font-weight: 800 !important; }
+    p { color: #4B5563; }
+    
+    /* Cartes KPI */
     .kpi-card {
-        background-color: #FFFFFF; border-radius: 8px; padding: 20px;
+        background: #FFFFFF; border-radius: 12px; padding: 24px;
         border: 1px solid #E5E7EB; border-left: 6px solid #E30613; 
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        display: flex; flex-direction: column; justify-content: space-between; height: 130px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        display: flex; flex-direction: column; justify-content: space-between; height: 140px;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
-    .kpi-header { display: flex; justify-content: space-between; align-items: center; color: #4B5563; font-size: 1rem; font-weight: 600; }
-    .kpi-icon { font-size: 1.5rem; }
-    .kpi-value { font-size: 2.4rem; font-weight: 800; color: #111827; margin-top: 5px; }
-    .kpi-footer { font-size: 0.9rem; color: #6B7280; font-weight: 500;}
-    .stTabs [data-baseweb="tab-list"] { gap: 15px; flex-wrap: wrap; background-color: transparent; }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+    .kpi-header { display: flex; justify-content: space-between; align-items: center; color: #6B7280; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .kpi-icon { font-size: 1.5rem; opacity: 0.8; }
+    .kpi-value { font-size: 2.6rem; font-weight: 800; color: #111827; margin-top: 8px; line-height: 1.1; }
+    .kpi-footer { font-size: 0.9rem; color: #9CA3AF; font-weight: 500; margin-top: 4px; }
+    
+    /* Onglets */
+    .stTabs [data-baseweb="tab-list"] { 
+        gap: 8px; background-color: transparent; padding-bottom: 8px; border-bottom: 2px solid #E5E7EB;
+    }
     .stTabs [data-baseweb="tab"] {
-        height: 45px; background-color: #F9FAFB; color: #4B5563;
-        border-radius: 8px; padding: 10px 20px; font-weight: 600; border: 1px solid #E5E7EB;
+        height: 40px; background-color: transparent; color: #6B7280;
+        border-radius: 6px; padding: 8px 16px; font-weight: 600; border: none;
+        transition: all 0.2s ease;
     }
+    .stTabs [data-baseweb="tab"]:hover { background-color: #F3F4F6; color: #111827; }
     .stTabs [aria-selected="true"] {
         background-color: #E30613 !important; color: #FFFFFF !important;
-        border: 1px solid #E30613 !important;
+        box-shadow: 0 4px 6px -1px rgba(227, 6, 19, 0.3);
     }
+    
+    /* Dataframes */
     div[data-testid="stDataFrame"] { 
-        background-color: #FFFFFF; padding: 15px; border-radius: 8px; 
+        background-color: #FFFFFF; padding: 12px; border-radius: 12px; 
         border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
     }
+    
+    /* Graphiques Plotly */
     div[data-testid="stPlotlyChart"] {
-        background-color: #FFFFFF; padding: 15px; border-radius: 8px;
+        background-color: #FFFFFF; padding: 16px; border-radius: 12px;
         border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
+    
+    /* Expanders */
+    .streamlit-expanderHeader { font-weight: 600 !important; color: #111827 !important; }
+    .streamlit-expanderContent { background-color: #FFFFFF; border-radius: 0 0 12px 12px; }
+    
+    /* Inputs */
+    .stMultiSelect, .stNumberInput, .stSelectbox { margin-bottom: 10px; }
+    div[data-baseweb="select"] > div { border-radius: 8px; border-color: #D1D5DB; }
 </style>
 """, unsafe_allow_html=True)
 
 # En-tête
-col_logo, col_titre = st.columns([1.5, 5], gap="small", vertical_alignment="center")
+LOGO_PATH = "LOGO_STAR.png"
+
+col_logo, col_titre = st.columns([1.5, 5], gap="medium", vertical_alignment="center")
 with col_logo:
-    if LOGO_PATH.exists(): st.image(str(LOGO_PATH), width="stretch")
+    try:
+        st.image(LOGO_PATH, width="stretch")
+    except:
+        st.info("Logo")
+
 with col_titre:
     st.markdown("""
-        <div style='text-align: left;'>
-            <h1 style='font-size: 2.6rem;'>PREVISIONS STAR MADAGASCAR</h1>
-            <p style='color: #4B5563; font-size: 1.1rem; font-weight: 500; margin-top: 5px;'>
+        <div style='text-align: left; padding-bottom: 10px;'>
+            <h1 style='font-size: 3rem; margin: 0;'>PREVISIONS STAR MADAGASCAR</h1>
+            <p style='color: #6B7280; font-size: 1.2rem; font-weight: 500; margin-top: 4px; letter-spacing: 0.02em;'>
                 Moteur de prévision S&OP complet (Étapes 1 à 5)
             </p>
         </div>
     """, unsafe_allow_html=True)
-st.markdown("<br>", unsafe_allow_html=True)
+
+st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 10px 0 30px 0;'>", unsafe_allow_html=True)
 
 # ==============================================================================
 # RÉFÉRENTIEL ET MAPPING
@@ -186,7 +225,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
 
-    # CORRECTION AUTOMATIQUE POUR LES FUTS DE 20L
     masque_fut20 = df_enrichi["article"].str.contains(r'20L|20 L|FUT 20', case=False, na=False, regex=True)
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
@@ -216,7 +254,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # Indice de Saisonnalité
     df_hist_is = df_realise[(df_realise["annee"] >= annee_min_is) & (df_realise["annee"] <= annee_max_is)].copy()
     if df_hist_is.empty: return None, None, None, None, df_realise
 
@@ -235,12 +272,10 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
         table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    # SARR
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(0.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # Préparation des éléments
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
@@ -260,7 +295,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0) 
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
 
-    # --- MÉTHODE EXCEL ---
     df_base['Projection_CurrentYear'] = np.where(
         df_base['Cumul_Coef'] > 0,
         df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0),
@@ -274,7 +308,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         0.0
     )
 
-    # --- PROJECTION MENSUELLE ---
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     
@@ -283,7 +316,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
     
-    # CORRECTION DU TYPEERROR ICI : np.where imbriqué pour remplacer les NaN
     df_cross['Indice'] = np.where(
         df_cross['Indice'].isna(), 
         np.where(df_cross['YTD_HL'] > 0, 1.0, 0.0), 
@@ -325,7 +357,7 @@ if fichier_ventes is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
     with st.sidebar:
-        st.markdown("<h2 style='font-size: 1.2rem;'>⚙️ Paramètres</h2>", unsafe_allow_html=True)
+        st.markdown("<h2>⚙️ Paramètres</h2>", unsafe_allow_html=True)
         st.markdown("##### 2. Périmètre (Filtres)")
         
         regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Aucune vente"])
@@ -391,6 +423,7 @@ if fichier_ventes is not None:
     df_cible = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
+    # Affichage des KPIs avec le nouveau design
     if annee_cible == annee_cloture:
         st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
             <div class="kpi-header"><span>Atterrissage {annee_cible} (Réalisé + Prévisions)</span> <span class="kpi-icon">🎯</span></div>
@@ -408,21 +441,21 @@ if fichier_ventes is not None:
     st.markdown("<br>", unsafe_allow_html=True)
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "1. Données Brutes", "2. Périmètre", "3. Réalisé Cumulé", "4. Indices & SARR", "5. Prévisions (Dynamique)"
+        "📁 Données Brutes", "⚙️ Périmètre", "📊 Réalisé Cumulé", "📈 Indices & SARR", "🔮 Prévisions"
     ])
 
     with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        st.dataframe(df_enrichi, width="stretch", hide_index=True)
+        st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
     with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
-        st.dataframe(df_perimetre, width="stretch", hide_index=True)
+        st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
-            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), width="stretch", hide_index=True)
+            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True, hide_index=True)
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
@@ -434,14 +467,14 @@ if fichier_ventes is not None:
             if not table_indices.empty:
                 pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(0.0)
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-                st.dataframe(pivot_indices, width="stretch")
+                st.dataframe(pivot_indices, use_container_width=True)
             else:
                 st.info("Pas d'historique complet (12 mois) pour calculer les indices.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois glissants)**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
             df_sarr_derniers = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article']).tail(5)
-            st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), width="stretch", hide_index=True)
+            st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Projection Annuelle & CAGR)")
@@ -461,7 +494,7 @@ if fichier_ventes is not None:
             
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             
-            st.dataframe(pivot_mensuel, width="stretch")
+            st.dataframe(pivot_mensuel, use_container_width=True)
             
             with st.expander("Voir le détail des calculs (Projection Annuelle & CAGR)"):
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", col_prev_aff]
@@ -481,7 +514,7 @@ if fichier_ventes is not None:
                         "Projection_Annuelle_Aff": st.column_config.NumberColumn(f"Projection Annuelle ({unite_affichage})", format="%.2f"),
                         col_prev_aff: st.column_config.NumberColumn(f"Volume Mensuel ({unite_affichage})", format="%.2f"),
                     },
-                    width="stretch", hide_index=True, height=400
+                    use_container_width=True, hide_index=True, height=400
                 )
 
         else:
@@ -531,7 +564,7 @@ if fichier_ventes is not None:
             fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
             fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
             
-            st.plotly_chart(fig1, width="stretch")
+            st.plotly_chart(fig1, use_container_width=True)
 
             st.markdown("---")
             st.markdown("#### 🔍 Analyse de la Saisonnalité et des Produits")
@@ -564,7 +597,7 @@ if fichier_ventes is not None:
                         margin=dict(l=20, r=20, t=50, b=20)
                     )
                     fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
-                    st.plotly_chart(fig2, width="stretch")
+                    st.plotly_chart(fig2, use_container_width=True)
 
             with col_g2:
                 df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
@@ -584,4 +617,4 @@ if fichier_ventes is not None:
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
                 fig3.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
-                st.plotly_chart(fig3, width="stretch")
+                st.plotly_chart(fig3, use_container_width=True)

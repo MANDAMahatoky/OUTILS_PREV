@@ -202,7 +202,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE AVEC GARDE-FOU CAGR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v27"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v28"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -244,15 +244,22 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
+    
+    # REMISE DU VRAI CUMUL_COEF (C'est ce qui donne 4,4M en 2026)
+    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
     # LOGIQUE HYBRIDE POUR LA BASE DU CAGR
     df_ventes_positives = df_realise[df_realise['hl'] > 0]
     df_premiere_annee = df_ventes_positives.groupby(['agence', 'article'])['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'})
 
     df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
+    df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_premiere_annee, on=['agence', 'article'], how='left')
 
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0)
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
+    
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
     
     df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
@@ -263,8 +270,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base = df_base.drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    df_base['Cumul_Coef'] = mois_cutoff
-
     df_base['Projection_CurrentYear'] = np.where(
         df_base['Cumul_Coef'] > 0,
         df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0),
@@ -273,14 +278,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
 
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
     
-    # Calcul brut du CAGR
+    # GARDE-FOU : On plafonne le CAGR entre -50% et +50% pour éviter les aberrations des nouveaux produits
     cagr_brut = np.where(
         (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
         ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
         0.0
     )
-    
-    # GARDE-FOU : On plafonne le CAGR entre -50% et +50% pour éviter les aberrations des nouveaux produits
     df_base['CAGR_val'] = np.clip(cagr_brut, -0.50, 0.50)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))

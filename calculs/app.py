@@ -202,9 +202,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE (Niveau Article)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v33"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v34"):
     
-    # 1. Filtrer les articles qui ont des ventes
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -216,10 +215,10 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # 2. AGREGATION AU NIVEAU ARTICLE (Comme Excel)
+    # AGREGATION AU NIVEAU ARTICLE
     df_agg = df_perimetre_filtre.groupby(['article', 'annee', 'mois'])['hl'].sum().reset_index()
 
-    # 3. Indice de Saisonnalité (Niveau Article)
+    # Indice de Saisonnalité
     df_hist_is = df_agg[(df_agg["annee"] >= annee_min_is) & (df_agg["annee"] <= annee_max_is)].copy()
     if df_hist_is.empty: return None, None, None, None, df_realise
 
@@ -241,38 +240,33 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         table_indices = indices.reset_index().melt(id_vars=['article'], var_name='mois', value_name='Indice')
         table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    # 4. Base & YTD (Niveau Article)
+    # YTD (Niveau Article)
     df_ytd = df_agg[(df_agg['annee'] == annee_cloture) & (df_agg['mois'] <= mois_cutoff)].groupby('article')['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
     
-    df_ventes_positives = df_agg[df_agg['hl'] > 0]
-    df_premiere_annee = df_ventes_positives.groupby(['article'])['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'})
+    # Base Historique (Niveau Article - Année Min CAGR Fixe)
+    df_base_hist = df_agg[df_agg['annee'] == annee_min_cagr].groupby(['article'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
 
-    df_base = pd.merge(df_ytd, df_premiere_annee, on='article', how='outer')
+    df_base = pd.merge(df_ytd, df_base_hist, on='article', how='outer')
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
-    df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
-    df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
-
-    df_base_vol = df_agg.groupby(['article', 'annee'])['hl'].sum().reset_index()
-    df_base = pd.merge(df_base, df_base_vol, left_on=['article', 'Annee_Base'], right_on=['article', 'annee'], how='left')
-    df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # 5. Cumul_Coef & Projection (Niveau Article)
+    # Cumul_Coef (Niveau Article)
     df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby('article')['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
     df_base = pd.merge(df_base, df_cumul_coef, on='article', how='left')
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
 
+    # Run-Rate
     df_base['Projection_CurrentYear'] = df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0)
 
-    # 6. CAGR (Niveau Article)
-    df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
+    # CAGR (Niveau Article - Formule SIERREUR)
+    df_base['Nb_Annees'] = annee_cloture - annee_min_cagr
     df_base['CAGR_val'] = np.where(
         (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
         ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
         0.0
     )
 
-    # 7. Calcul des Prévisions Mensuelles (Niveau Article)
+    # Prévisions Mensuelles (Niveau Article)
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     
@@ -282,7 +276,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_cross = pd.merge(df_cross, table_indices, on=['article', 'mois'], how='left')
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
     
-    # On récupère le réalisé pour l'année de clôture
     df_realise_grouped = df_agg.groupby(['annee', 'mois', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
     df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'article'], how='left')
     
@@ -294,30 +287,27 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['Volume_HL_Article'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL_Article'])
 
-    # 8. Répartition par Agence
+    # Répartition par Agence
     df_ventes_agence = df_realise.groupby(['agence', 'article'])['hl'].sum().reset_index()
     df_total_article = df_ventes_agence.groupby('article')['hl'].sum().reset_index().rename(columns={'hl': 'hl_total_art'})
     df_ventes_agence = pd.merge(df_ventes_agence, df_total_article, on='article')
     df_ventes_agence['Poids_Agence'] = df_ventes_agence['hl'] / df_ventes_agence['hl_total_art'].replace(0, 1)
 
-    # On joint les poids aux prévisions mensuelles
     df_cross = pd.merge(df_cross, df_ventes_agence[['agence', 'article', 'Poids_Agence']], on='article', how='left')
     df_cross['Poids_Agence'] = df_cross['Poids_Agence'].fillna(0.0)
     
     df_cross['Volume_HL'] = df_cross['Volume_HL_Article'] * df_cross['Poids_Agence']
     
-    # On joint la contenance pour avoir les Cols
+    # Ajout de la contenance
     df_contenance = df_perimetre_filtre[['article', 'contenance_cl']].drop_duplicates(subset=['article'])
     df_cross = pd.merge(df_cross, df_contenance, on='article', how='left')
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
 
-    # 9. Formatage pour l'affichage
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
     df_cross['Date'] = df_cross['mois'].apply(lambda m: MOIS_NOMS[m-1]) + '-' + df_cross['annee'].astype(str).str[-2:]
     df_cross = df_cross.rename(columns={'Projection_CurrentYear': 'Projection_Annuelle'})
     
-    # On reformate le df_sarr pour l'affichage (Étape 4)
     df_sarr = df_realise.merge(table_indices, on=['article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)

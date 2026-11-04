@@ -219,7 +219,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     mois_par_annee = df_hist_is.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     df_hist_is_complet = df_hist_is.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
     
-    # Si aucun historique complet, on renvoie un DataFrame vide mais on ne plante pas
     if df_hist_is_complet.empty:
         table_indices = pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
     else:
@@ -232,7 +231,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
         table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    # SARR (pour info)
+    # SARR
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(0.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
@@ -280,8 +279,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
     
-    # LA CORRECTION CLÉ : Indice neutre (1.0) si ventes YTD > 0, sinon 0.0
-    df_cross['Indice'] = df_cross['Indice'].fillna(np.where(df_cross['YTD_HL'] > 0, 1.0, 0.0))
+    # CORRECTION DU TYPEERROR ICI : np.where imbriqué pour remplacer les NaN
+    df_cross['Indice'] = np.where(
+        df_cross['Indice'].isna(), 
+        np.where(df_cross['YTD_HL'] > 0, 1.0, 0.0), 
+        df_cross['Indice']
+    )
     
     df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
     df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')

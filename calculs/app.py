@@ -204,7 +204,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL HYBRIDE (Min/Max + Début auto)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v21"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v23"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -248,7 +248,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
     
-    # VRAI Calcul du Cumul_Coef
     df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
     # --- LOGIQUE HYBRIDE POUR LA BASE DU CAGR ---
@@ -265,11 +264,9 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0)
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
     
-    # Si pas de vente du tout, on met l'année de clôture (pour annuler le CAGR)
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
     
     # L'Année de Base est le MAX entre l'année min paramétrée et l'année de début du produit
-    # (Ex: Si produit existe depuis 2015 et min_cagr=2017 -> base=2017. Si produit commence en 2022 -> base=2022)
     df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
 
     # 3. Récupérer le volume de l'Année_Base
@@ -277,8 +274,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base = pd.merge(df_base, df_base_vol, left_on=['agence', 'article', 'Annee_Base'], right_on=['agence', 'article', 'annee'], how='left')
     df_base = df_base.rename(columns={'hl': 'Base_Hist'})
     df_base = df_base.drop(columns=['annee'])
-    
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
+
+    # 4. Récupérer le volume de l'Année_Max
+    df_final_hist = df_realise[df_realise['annee'] == annee_max_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Final_Hist'})
+    df_base = pd.merge(df_base, df_final_hist, on=['agence', 'article'], how='left')
+    df_base['Final_Hist'] = df_base['Final_Hist'].fillna(0.0)
 
     # --- MÉTHODE EXCEL ---
     df_base['Projection_CurrentYear'] = np.where(
@@ -287,12 +288,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         0.0
     )
 
-    # Nombre d'années entre la base et la clôture
-    df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
+    # Calcul du CAGR Historique (Min/Max)
+    df_base['Nb_Annees'] = annee_max_cagr - df_base['Annee_Base']
     
     df_base['CAGR_val'] = np.where(
-        (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
-        ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
+        (df_base['Base_Hist'] > 0) & (df_base['Final_Hist'] > 0) & (df_base['Nb_Annees'] > 0),
+        ((df_base['Final_Hist'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
         0.0
     )
 

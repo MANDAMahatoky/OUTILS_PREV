@@ -200,10 +200,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Indice 1.0 et Base Dynamique)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v9"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -230,42 +230,33 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
         vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
         
-        # CORRECTION : On remplit avec 1.0 (indice neutre) au lieu de 0
-        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0) 
+        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(0.0) 
 
         table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
         table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    # SARR
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
+    df_sarr['Indice'] = df_sarr['Indice'].fillna(0.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # Préparation des éléments
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
     df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
-    # CORRECTION MAJEURE : Base Dynamique (Trouver l'année exacte de lancement)
+    # Base Historique Dynamique (comme la colonne "Année min" d'Excel)
     df_ventes_positives = df_realise[df_realise['hl'] > 0]
     df_premiere_annee = df_ventes_positives.groupby(['agence', 'article'])['annee'].min().reset_index().rename(columns={'annee': 'Annee_Min'})
     df_base_hist = pd.merge(df_ventes_positives, df_premiere_annee, left_on=['agence', 'article', 'annee'], right_on=['agence', 'article', 'Annee_Min'], how='inner')
     df_base_hist = df_base_hist.groupby(['agence', 'article', 'Annee_Min'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
 
-    # On récupère aussi le réalisé de l'année max demandée (pour le CAGR)
-    df_base_max = df_realise[df_realise['annee'] == annee_max_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Final_Hist'})
-
     df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_base_hist, on=['agence', 'article'], how='left')
-    df_base = pd.merge(df_base, df_base_max, on=['agence', 'article'], how='left')
 
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
-    df_base['Final_Hist'] = df_base['Final_Hist'].fillna(0.0)
-    df_base['Annee_Min'] = df_base['Annee_Min'].fillna(annee_min_cagr) # Fallback
-    
+    df_base['Annee_Min'] = df_base['Annee_Min'].fillna(annee_cloture) # Si pas de vente avant, on prend l'année en cours
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0) 
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
 
@@ -283,7 +274,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         0.0
     )
 
-    # --- PROJECTION MENSUELLE ---
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     
@@ -292,8 +282,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
     
-    # CORRECTION : Si l'indice est NaN, on met 1.0 (pour reproduire Excel)
-    df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
+    # Application de l'indice neutre si on est sur une année avec du YTD mais pas d'historique
+    df_cross['Indice'] = np.where(
+        df_cross['Indice'].isna(),
+        np.where(df_cross['YTD_HL'] > 0, 1.0, 0.0),
+        df_cross['Indice']
+    )
     
     df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
     df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
@@ -437,7 +431,7 @@ if fichier_ventes is not None:
         with c_idx:
             st.markdown("**Indices de Saisonnalité (Basés sur la période IS)**")
             if not table_indices.empty:
-                pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+                pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(0.0)
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                 st.dataframe(pivot_indices, width="stretch")
             else:

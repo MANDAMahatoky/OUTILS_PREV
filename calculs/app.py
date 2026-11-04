@@ -186,9 +186,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
-    # Les données brutes sont en Cols. On calcule le HL correspondant (1 HL = 10000 cl).
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
-    
     df_enrichi["region"] = df_enrichi["agence"].map(MAPPING_REGIONS).fillna("Autre")
     
     conditions = [df_enrichi["article"].str.contains(x, case=False, na=False) for x in ["booster|alcoomix", "caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", "beaufort|fresh|thb|gold|queen|skol|castel|libertalia", "cristal|cristalline|eau vive|eau", "xxl|fosa", "judor|jus", "vin", "negoce"]]
@@ -198,7 +196,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - Run-Rate et CAGR Excel
+# CALCULS (ÉTAPES 3 À 5) - Run-Rate et CAGR Excel (avec correction du fallback)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
@@ -214,7 +212,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # Indice de Saisonnalité (Filtre strict 12 mois)
+    # Indice de Saisonnalité (Filtre strict 12 mois pour le calcul)
     df_hist_is = df_realise[(df_realise["annee"] >= annee_min_is) & (df_realise["annee"] <= annee_max_is)].copy()
     if df_hist_is.empty: return None, None, None, None, df_realise
 
@@ -241,10 +239,10 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     # 1. YTD (Réalisé à date pour l'année de clôture)
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
     
-    # 2. Cumul des coefficients (pour la période de cutoff)
+    # 2. Cumul des coefficients
     df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
     
-    # 3. Base Historique (pour le CAGR) - On utilise l'année min du CAGR
+    # 3. Base Historique (pour le CAGR)
     df_base_hist = df_realise[df_realise['annee'] == annee_min_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
 
     df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
@@ -252,8 +250,10 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base = pd.merge(df_base, df_base_hist, on=['agence', 'article'], how='left')
 
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(0.0)
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
+    
+    # CORRECTION MAJEURE : Si un article n'a pas d'indice (pas de 12 mois d'historique), on considère un coefficient neutre de 1.0
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0)
 
     # --- MÉTHODE EXCEL ---
     # 1. Calcul de la Projection Annuelle (Run-Rate)
@@ -281,7 +281,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_cross = df_cross.assign(key=1).merge(pd.DataFrame({'mois': mois_cibles, 'key': 1}), on='key').drop('key', axis=1)
     
     df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
-    df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
+    df_cross['Indice'] = df_cross['Indice'].fillna(1.0) # Si pas d'indice, neutre
     
     df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
     df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
@@ -291,7 +291,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # On répartit la projection annuelle sur les mois via l'Indice (Base 1.0)
+    # On répartit la projection annuelle sur les mois
     df_cross['Prevision_HL'] = (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0)
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
@@ -300,7 +300,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
     df_cross['Date'] = df_cross['mois'].apply(lambda m: MOIS_NOMS[m-1]) + '-' + df_cross['annee'].astype(str).str[-2:]
     
-    # On renomme pour plus de clarté dans l'interface
     df_cross = df_cross.rename(columns={'Projection_CurrentYear': 'Projection_Annuelle'})
     
     cols_finales = ["annee", "mois", "agence", "article", "Date", "Statut", "Indice", "Projection_Annuelle", "CAGR (%)", "Volume_HL", "Volume_Cols"]
@@ -346,8 +345,8 @@ if fichier_ventes is not None:
         sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
         st.markdown("##### 📅 Période Indice Saisonnalité (IS)")
-        annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2023)
-        annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2024, annee_min_is))
+        annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024)
+        annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2025, annee_min_is))
         
         st.markdown("##### 📈 Période CAGR (Année de Base)")
         annee_min_cagr = st.number_input("Année de Base CAGR", min_value=2010, max_value=2030, value=2017)
@@ -457,7 +456,6 @@ if fichier_ventes is not None:
             with st.expander("Voir le détail des calculs (Projection Annuelle & CAGR)"):
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", col_prev_aff]
                 
-                # On ajoute les colonnes clés pour comparer avec Excel
                 if 'Projection_Annuelle' in df_previsions.columns:
                     df_previsions['Projection_Annuelle_Aff'] = df_previsions['Projection_Annuelle'] * (10000 / df_previsions['contenance_cl'].replace(0, 100)) if unite_affichage == "Cols" else df_previsions['Projection_Annuelle']
                     cols_to_show.insert(-1, "Projection_Annuelle_Aff")

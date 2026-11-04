@@ -1,5 +1,7 @@
-streamlit==1.36.0
+streamlit
 pandas
 numpy
-openpyxl
 plotly
+openpyxl
+pillow>=11.2.1
+

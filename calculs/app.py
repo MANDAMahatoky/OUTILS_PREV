@@ -59,7 +59,7 @@ st.markdown("""
 # En-tête
 col_logo, col_titre = st.columns([1.5, 5], gap="small", vertical_alignment="center")
 with col_logo:
-    if LOGO_PATH.exists(): st.image(str(LOGO_PATH), use_container_width=True)
+    if LOGO_PATH.exists(): st.image(str(LOGO_PATH), width="stretch")
 with col_titre:
     st.markdown("""
         <div style='text-align: left;'>
@@ -185,7 +185,11 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
-    df_enrichi["hl"] = df_enrichi["volume_brut"]
+    
+    # CORRECTION MAJEURE : Les données brutes sont en Cols.
+    # On calcule le HL correspondant (1 HL = 100 litres = 10000 cl).
+    df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
+    
     df_enrichi["region"] = df_enrichi["agence"].map(MAPPING_REGIONS).fillna("Autre")
     
     conditions = [df_enrichi["article"].str.contains(x, case=False, na=False) for x in ["booster|alcoomix", "caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", "beaufort|fresh|thb|gold|queen|skol|castel|libertalia", "cristal|cristalline|eau vive|eau", "xxl|fosa", "judor|jus", "vin", "negoce"]]
@@ -195,7 +199,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Momentum & 5 Mois)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
@@ -293,11 +297,13 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # LA FORMULE EXACTE DU CODE D'ORIGINE : (Indice * Base) + Momentum) * CAGR
+    # FORMULE EXACTE (calculée en HL)
     df_cross['Prevision_HL'] = np.maximum(0.0, ((df_cross['Indice'].round(2) * df_cross['Base_HL'].round(2)) + df_cross['Momentum_HL'].round(2)) * df_cross['multiplicateur_cagr'])
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
-    df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'])
+    
+    # CONVERSION FINALE : On repasse de HL en Cols (1 HL = 10000 cl / contenance)
+    df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
     
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
     df_cross['Date'] = df_cross['mois'].apply(lambda m: MOIS_NOMS[m-1]) + '-' + df_cross['annee'].astype(str).str[-2:]
@@ -407,16 +413,16 @@ if fichier_ventes is not None:
 
     with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
+        st.dataframe(df_enrichi, width="stretch", hide_index=True)
 
     with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
-        st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
+        st.dataframe(df_perimetre, width="stretch", hide_index=True)
 
     with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
-            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), use_container_width=True, hide_index=True)
+            st.dataframe(df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'])[['hl']].sum().reset_index(), width="stretch", hide_index=True)
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
@@ -427,13 +433,13 @@ if fichier_ventes is not None:
             st.markdown("**Indices de Saisonnalité (Basés sur la période IS)**")
             pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
             pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            st.dataframe(pivot_indices, use_container_width=True)
+            st.dataframe(pivot_indices, width="stretch")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois glissants)**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
             # On affiche les 5 derniers mois pour correspondre à l'image
             df_sarr_derniers = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article']).tail(5)
-            st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
+            st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), width="stretch", hide_index=True)
 
     with tab5:
         st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
@@ -450,7 +456,7 @@ if fichier_ventes is not None:
                         "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
                         "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
                     },
-                    use_container_width=True, hide_index=True
+                    width="stretch", hide_index=True
                 )
                 
             st.markdown("#### 5.2 Résultat Final")
@@ -463,7 +469,7 @@ if fichier_ventes is not None:
             
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             
-            st.dataframe(pivot_mensuel, use_container_width=True)
+            st.dataframe(pivot_mensuel, width="stretch")
             
             with st.expander("Voir le détail des calculs (Coef, Base, Momentum, CAGR)"):
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]
@@ -480,7 +486,7 @@ if fichier_ventes is not None:
                         "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
                         col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
                     },
-                    use_container_width=True, hide_index=True, height=400
+                    width="stretch", hide_index=True, height=400
                 )
 
         else:
@@ -557,7 +563,7 @@ if fichier_ventes is not None:
                         fig_bt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
                         fig_bt.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
                         
-                        st.plotly_chart(fig_bt, use_container_width=True)
+                        st.plotly_chart(fig_bt, width="stretch")
 
             st.markdown("---")
             
@@ -605,7 +611,7 @@ if fichier_ventes is not None:
             fig1.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
             fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
             
-            st.plotly_chart(fig1, use_container_width=True)
+            st.plotly_chart(fig1, width="stretch")
 
             st.markdown("---")
             st.markdown("#### 🔍 Analyse de la Saisonnalité et des Produits")
@@ -637,7 +643,7 @@ if fichier_ventes is not None:
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
                 fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width="stretch")
 
             with col_g2:
                 df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
@@ -657,4 +663,4 @@ if fichier_ventes is not None:
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
                 fig3.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig3, width="stretch")

@@ -199,10 +199,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE (Niveau Article)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE ET HYBRIDE
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v34"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v35"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -243,14 +243,23 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     # YTD (Niveau Article)
     df_ytd = df_agg[(df_agg['annee'] == annee_cloture) & (df_agg['mois'] <= mois_cutoff)].groupby('article')['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
     
-    # Base Historique (Niveau Article - Année Min CAGR Fixe)
-    df_base_hist = df_agg[df_agg['annee'] == annee_min_cagr].groupby(['article'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
+    # LOGIQUE HYBRIDE DEMANDEE
+    df_ventes_positives = df_agg[df_agg['hl'] > 0]
+    df_premiere_annee = df_ventes_positives.groupby(['article'])['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'})
 
-    df_base = pd.merge(df_ytd, df_base_hist, on='article', how='outer')
+    df_base = pd.merge(df_ytd, df_premiere_annee, on='article', how='outer')
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
+    df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
+    
+    # L'Année de Base est le MAX entre l'année min paramétrée et l'année de début du produit
+    df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
+
+    df_base_vol = df_agg.groupby(['article', 'annee'])['hl'].sum().reset_index()
+    df_base = pd.merge(df_base, df_base_vol, left_on=['article', 'Annee_Base'], right_on=['article', 'annee'], how='left')
+    df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # Cumul_Coef (Niveau Article)
+    # Cumul_Coef
     df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby('article')['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
     df_base = pd.merge(df_base, df_cumul_coef, on='article', how='left')
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
@@ -258,15 +267,18 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     # Run-Rate
     df_base['Projection_CurrentYear'] = df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0)
 
-    # CAGR (Niveau Article - Formule SIERREUR)
-    df_base['Nb_Annees'] = annee_cloture - annee_min_cagr
-    df_base['CAGR_val'] = np.where(
+    # CAGR
+    df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
+    cagr_brut = np.where(
         (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
         ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
         0.0
     )
+    
+    # GARDE-FOU POUR LES NOUVEAUX PRODUITS (On plafonne à 50%)
+    df_base['CAGR_val'] = np.clip(cagr_brut, -0.50, 0.50)
 
-    # Prévisions Mensuelles (Niveau Article)
+    # Prévisions Mensuelles
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     
@@ -298,7 +310,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['Volume_HL'] = df_cross['Volume_HL_Article'] * df_cross['Poids_Agence']
     
-    # Ajout de la contenance
     df_contenance = df_perimetre_filtre[['article', 'contenance_cl']].drop_duplicates(subset=['article'])
     df_cross = pd.merge(df_cross, df_contenance, on='article', how='left')
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))

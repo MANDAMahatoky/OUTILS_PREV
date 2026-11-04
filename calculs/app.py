@@ -198,7 +198,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5)
+# CALCULS (ÉTAPES 3 À 5) - Run-Rate et CAGR Excel
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
@@ -230,50 +230,50 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    # SARR
+    # SARR (pour info)
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # Momentum & Base (5 derniers mois M-1 à M-5)
-    df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
-    df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
-    df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 5].copy()
-    
-    resultats_momentum = []
-    for (ag, art), group in df_derniers.groupby(['agence', 'article']):
-        def get_val(rang, col): return group[group['rang'] == rang][col].values[0] if len(group[group['rang'] == rang]) > 0 else 0
-        sarr_m, sarr_m1, sarr_m2, sarr_m3, sarr_m4 = get_val(0, 'SARR_HL'), get_val(1, 'SARR_HL'), get_val(2, 'SARR_HL'), get_val(3, 'SARR_HL'), get_val(4, 'SARR_HL')
-        
-        momentum = np.mean([sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3])
-        base = max(sarr_m, np.mean([sarr_m, sarr_m1, sarr_m2, sarr_m3, sarr_m4]))
-        
-        resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum})
-        
-    df_momentum = pd.DataFrame(resultats_momentum)
-
-    # CAGR (Période dédiée)
-    cagr_data = []
-    if annee_cible > annee_cloture:
-        df_hist_cagr = df_realise[(df_realise["annee"] >= annee_min_cagr) & (df_realise["annee"] <= annee_max_cagr)].copy()
-        if not df_hist_cagr.empty:
-            for (ag, art), group in df_hist_cagr.groupby(['agence', 'article']):
-                a_deb, a_fin = group['annee'].min(), group['annee'].max()
-                v_deb = group[group['annee'] == a_deb]['hl'].sum()
-                v_fin = group[group['annee'] == a_fin]['hl'].sum()
-                nb_ans = a_fin - a_deb
-                cagr_val = ((v_fin / v_deb) ** (1 / nb_ans)) - 1 if nb_ans > 0 and v_deb > 0 and v_fin > 0 else 0.0
-                cagr_data.append({"agence": ag, "article": art, "CAGR_val": cagr_val})
-    df_cagr = pd.DataFrame(cagr_data) if cagr_data else pd.DataFrame(columns=['agence', 'article', 'CAGR_val'])
-
+    # Calcul des éléments clés pour la méthode Excel
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
-    df_base = pd.merge(df_perim_unique, df_momentum, on=['agence', 'article'], how='left')
-    df_base = pd.merge(df_base, df_cagr, on=['agence', 'article'], how='left')
     
-    df_base['Base_HL'] = df_base['Base_HL'].fillna(0.0)
-    df_base['Momentum_HL'] = df_base['Momentum_HL'].fillna(0.0)
-    df_base['CAGR_val'] = df_base['CAGR_val'].fillna(0.0)
+    # 1. YTD (Réalisé à date pour l'année de clôture)
+    df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
     
+    # 2. Cumul des coefficients (pour la période de cutoff)
+    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
+    
+    # 3. Base Historique (pour le CAGR) - On utilise l'année min du CAGR
+    df_base_hist = df_realise[df_realise['annee'] == annee_min_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
+
+    df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
+    df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
+    df_base = pd.merge(df_base, df_base_hist, on=['agence', 'article'], how='left')
+
+    df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(0.0)
+    df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
+
+    # --- MÉTHODE EXCEL ---
+    # 1. Calcul de la Projection Annuelle (Run-Rate)
+    # =SIERREUR(CP39/(CQ39/12);0)
+    df_base['Projection_CurrentYear'] = np.where(
+        df_base['Cumul_Coef'] > 0,
+        df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0),
+        0.0
+    )
+
+    # 2. Calcul du CAGR
+    # =SIERREUR(((CR39/CN39)^(1/CO39))-1;0)
+    df_base['Nb_Annees'] = annee_cloture - annee_min_cagr
+    df_base['CAGR_val'] = np.where(
+        (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
+        ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
+        0.0
+    )
+
+    # --- PROJECTION MENSUELLE ---
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     
@@ -291,20 +291,21 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # Formule finale
-    df_cross['Prevision_HL'] = np.maximum(0.0, ((df_cross['Indice'].round(2) * df_cross['Base_HL'].round(2)) + df_cross['Momentum_HL'].round(2)) * df_cross['multiplicateur_cagr'])
+    # On répartit la projection annuelle sur les mois via l'Indice (Base 1.0)
+    df_cross['Prevision_HL'] = (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0)
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
-    
-    # Conversion finale en Cols
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
     
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
     df_cross['Date'] = df_cross['mois'].apply(lambda m: MOIS_NOMS[m-1]) + '-' + df_cross['annee'].astype(str).str[-2:]
     
-    cols_finales = ["annee", "mois", "agence", "article", "Date", "Statut", "Indice", "Base_HL", "Momentum_HL", "CAGR (%)", "Volume_HL", "Volume_Cols"]
+    # On renomme pour plus de clarté dans l'interface
+    df_cross = df_cross.rename(columns={'Projection_CurrentYear': 'Projection_Annuelle'})
     
-    return table_indices, df_sarr, df_momentum, df_cross[cols_finales].copy(), df_realise
+    cols_finales = ["annee", "mois", "agence", "article", "Date", "Statut", "Indice", "Projection_Annuelle", "CAGR (%)", "Volume_HL", "Volume_Cols"]
+    
+    return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise
 
 # ==============================================================================
 # INTERFACE UTILISATEUR
@@ -348,12 +349,11 @@ if fichier_ventes is not None:
         annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2023)
         annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2024, annee_min_is))
         
-        st.markdown("##### 📈 Période CAGR")
-        annee_min_cagr = st.number_input("Année Min CAGR", min_value=2010, max_value=2030, value=2015)
-        annee_max_cagr = st.number_input("Année Max CAGR", min_value=annee_min_cagr, max_value=2030, value=max(2024, annee_min_cagr))
+        st.markdown("##### 📈 Période CAGR (Année de Base)")
+        annee_min_cagr = st.number_input("Année de Base CAGR", min_value=2010, max_value=2030, value=2017)
 
         st.markdown("##### 🎯 Cutoff & Cible")
-        annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2025)
+        annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
         annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
         mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
 
@@ -368,10 +368,10 @@ if fichier_ventes is not None:
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 
-    table_indices, df_sarr, df_momentum, df_previsions, df_realise = calculer_etape_5(
+    table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(
         df_perimetre, 
         annee_min_is, annee_max_is, 
-        annee_min_cagr, annee_max_cagr, 
+        annee_min_cagr, annee_min_cagr, 
         annee_cloture, mois_cutoff, annee_cible
     )
 
@@ -435,24 +435,14 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), width="stretch", hide_index=True)
 
     with tab5:
-        st.markdown("### Étape 5 : Dynamique (Momentum & Prévisions Finales)")
+        st.markdown("### Étape 5 : Dynamique (Projection Annuelle & CAGR)")
         
         mode_affichage = st.radio("Choisir le mode d'affichage :", ["📊 Tableau", "📈 Graphiques Data Analyst"], horizontal=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
         if mode_affichage == "📊 Tableau":
-            with st.expander("5.1 Table du Momentum et de la Base (M-1 à M-5)"):
-                st.dataframe(
-                    df_momentum,
-                    column_config={
-                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
-                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
-                    },
-                    width="stretch", hide_index=True
-                )
-                
-            st.markdown("#### 5.2 Résultat Final")
+            st.markdown("#### 5.1 Résultat Final")
             
             pivot_mensuel = df_previsions.pivot_table(
                 index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
@@ -464,9 +454,14 @@ if fichier_ventes is not None:
             
             st.dataframe(pivot_mensuel, width="stretch")
             
-            with st.expander("Voir le détail des calculs (Coef, Base, Momentum, CAGR)"):
-                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_HL", "Momentum_HL", col_prev_aff]
+            with st.expander("Voir le détail des calculs (Projection Annuelle & CAGR)"):
+                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", col_prev_aff]
                 
+                # On ajoute les colonnes clés pour comparer avec Excel
+                if 'Projection_Annuelle' in df_previsions.columns:
+                    df_previsions['Projection_Annuelle_Aff'] = df_previsions['Projection_Annuelle'] * (10000 / df_previsions['contenance_cl'].replace(0, 100)) if unite_affichage == "Cols" else df_previsions['Projection_Annuelle']
+                    cols_to_show.insert(-1, "Projection_Annuelle_Aff")
+                    
                 if annee_cible > annee_cloture:
                     cols_to_show.insert(-1, "CAGR (%)")
                     
@@ -474,91 +469,15 @@ if fichier_ventes is not None:
                     df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
                     column_config={
                         "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
-                        "Base_HL": st.column_config.NumberColumn("Base (HL)", format="%.2f"),
-                        "Momentum_HL": st.column_config.NumberColumn("Momentum (HL)", format="%.2f"),
                         "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
-                        col_prev_aff: st.column_config.NumberColumn(f"Volume ({unite_affichage})", format="%.2f"),
+                        "Projection_Annuelle_Aff": st.column_config.NumberColumn(f"Projection Annuelle ({unite_affichage})", format="%.2f"),
+                        col_prev_aff: st.column_config.NumberColumn(f"Volume Mensuel ({unite_affichage})", format="%.2f"),
                     },
                     width="stretch", hide_index=True, height=400
                 )
 
         else:
             st.markdown("#### 📊 Analyse Visuelle des Prévisions")
-            
-            st.markdown("##### 🔬 Validation du Modèle (Backtest)")
-            st.info("Le Backtest permet de voir ce que le modèle aurait prédit pour l'année cible s'il n'avait eu que les données des années précédentes. Il compare cette prédiction à la réalité.")
-            
-            afficher_backtest = st.checkbox(f"Afficher les prévisions pour {annee_cible} calculées uniquement avec l'historique jusqu'à {annee_cible - 1}")
-
-            if afficher_backtest:
-                if annee_cible <= annee_min_is:
-                    st.warning("⚠️ Pas assez d'historique pour faire un backtest sur cette année.")
-                else:
-                    res_backtest = calculer_etape_5(
-                        df_perimetre, 
-                        annee_min_is, min(annee_cible - 1, annee_max_is), 
-                        annee_min_cagr, min(annee_cible - 1, annee_max_cagr), 
-                        annee_cible - 1, 12, annee_cible
-                    )
-                    
-                    if res_backtest[3] is not None:
-                        df_prev_backtest = res_backtest[3]
-                        df_prev_backtest = df_prev_backtest[df_prev_backtest['annee'] == annee_cible]
-
-                        df_real_raw = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
-                        if not df_real_raw.empty:
-                            if unite_affichage == "Cols":
-                                df_real_raw['Vol_Aff'] = df_real_raw['hl'] * (10000 / df_real_raw['contenance_cl'].replace(0, 100))
-                            else:
-                                df_real_raw['Vol_Aff'] = df_real_raw['hl']
-                            df_real_cible = df_real_raw.groupby('mois')['Vol_Aff'].sum().reset_index()
-                            df_real_cible = df_real_cible.rename(columns={'Vol_Aff': col_prev_aff})
-                        else:
-                            df_real_cible = pd.DataFrame(columns=['mois', col_prev_aff])
-
-                        df_real_cible['Date_Str'] = str(annee_cible) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
-                        df_real_cible['Date'] = pd.to_datetime(df_real_cible['Date_Str'])
-
-                        df_pred_cible = df_prev_backtest.groupby('mois')[col_prev_aff].sum().reset_index()
-                        df_pred_cible['Date_Str'] = str(annee_cible) + '-' + df_pred_cible['mois'].astype(str).str.zfill(2) + '-01'
-                        df_pred_cible['Date'] = pd.to_datetime(df_pred_cible['Date_Str'])
-
-                        df_real_cible = df_real_cible[df_real_cible[col_prev_aff] > 0]
-                        df_pred_cible = df_pred_cible[df_pred_cible[col_prev_aff] > 0]
-
-                        fig_bt = go.Figure()
-                        
-                        if not df_real_cible.empty:
-                            fig_bt.add_trace(go.Scatter(
-                                x=df_real_cible['Date'], y=df_real_cible[col_prev_aff], 
-                                mode='lines+markers', name='Réalisé (Réel)', 
-                                line=dict(color='#009640', width=3, shape='spline'),
-                                fill='tozeroy', fillcolor='rgba(0, 150, 64, 0.1)'
-                            ))
-                        if not df_pred_cible.empty:
-                            fig_bt.add_trace(go.Scatter(
-                                x=df_pred_cible['Date'], y=df_pred_cible[col_prev_aff], 
-                                mode='lines+markers', name='Prévision (Backtest)', 
-                                line=dict(color='#E30613', width=3, dash='dot', shape='spline'),
-                                fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.05)'
-                            ))
-
-                        fig_bt.update_layout(
-                            title=dict(text=f"Backtest {annee_cible} : Réalisé vs Modèle (entraîné jusqu'en {annee_cible-1})", font=dict(size=18, color="#111827")),
-                            xaxis_title="Mois",
-                            yaxis_title=f"Volume ({unite_affichage})",
-                            hovermode="x unified",
-                            plot_bgcolor='white',
-                            paper_bgcolor='white',
-                            margin=dict(l=40, r=40, t=60, b=40),
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                        )
-                        fig_bt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB', dtick="M1", tickformat="%b-%y")
-                        fig_bt.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
-                        
-                        st.plotly_chart(fig_bt, width="stretch")
-
-            st.markdown("---")
             
             st.markdown("##### 📈 Évolution Globale des Volumes (Réalisé vs Prévisions)")
             

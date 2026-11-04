@@ -199,10 +199,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Cumul_Coef fixe et Projection pour CAGR)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE AVEC GARDE-FOU CAGR
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v26"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v27"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -263,23 +263,25 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base = df_base.drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # --- FORCER LE CUMUL_COEF A 9.0 COMME EXCEL ---
     df_base['Cumul_Coef'] = mois_cutoff
 
-    # 1. Calcul de la Projection (Run-Rate)
     df_base['Projection_CurrentYear'] = np.where(
         df_base['Cumul_Coef'] > 0,
         df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0),
         0.0
     )
 
-    # 2. Calcul du CAGR en utilisant la Projection (comme Excel : CR39/CN39)
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
-    df_base['CAGR_val'] = np.where(
+    
+    # Calcul brut du CAGR
+    cagr_brut = np.where(
         (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
         ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
         0.0
     )
+    
+    # GARDE-FOU : On plafonne le CAGR entre -50% et +50% pour éviter les aberrations des nouveaux produits
+    df_base['CAGR_val'] = np.clip(cagr_brut, -0.50, 0.50)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))

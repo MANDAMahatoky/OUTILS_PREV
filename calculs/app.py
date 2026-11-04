@@ -301,7 +301,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross = df_cross.rename(columns={'Projection_CurrentYear': 'Projection_Annuelle'})
     
-    cols_finales = ["annee", "mois", "agence", "article", "Date", "Statut", "Indice", "Projection_Annuelle", "CAGR (%)", "Volume_HL", "Volume_Cols"]
+    # AJOUT DE 'contenance_cl' DANS LES COLONNES FINALES POUR ÉVITER LE KEYERROR
+    cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Projection_Annuelle", "CAGR (%)", "Volume_HL", "Volume_Cols"]
     
     return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise
 

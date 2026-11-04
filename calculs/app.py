@@ -186,8 +186,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
     
-    # CORRECTION MAJEURE : Les données brutes sont en Cols.
-    # On calcule le HL correspondant (1 HL = 100 litres = 10000 cl).
+    # Les données brutes sont en Cols. On calcule le HL correspondant (1 HL = 10000 cl).
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
     
     df_enrichi["region"] = df_enrichi["agence"].map(MAPPING_REGIONS).fillna("Autre")
@@ -199,7 +198,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE
+# CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
@@ -215,7 +214,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # --- CALCUL DE L'INDICE DE SAISONNALITÉ (IS) AVEC FILTRE STRICT 12 MOIS ---
+    # Indice de Saisonnalité (Filtre strict 12 mois)
     df_hist_is = df_realise[(df_realise["annee"] >= annee_min_is) & (df_realise["annee"] <= annee_max_is)].copy()
     if df_hist_is.empty: return None, None, None, None, df_realise
 
@@ -231,16 +230,14 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
     table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    # --- CALCUL DU SARR SUR TOUT L'HISTORIQUE ---
+    # SARR
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    # --- CALCUL DU MOMENTUM ET DE LA BASE (5 DERNIERS MOIS) ---
+    # Momentum & Base (5 derniers mois M-1 à M-5)
     df_sarr_sorted = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
     df_sarr_sorted['rang'] = df_sarr_sorted.groupby(['agence', 'article']).cumcount(ascending=False)
-    
-    # On prend les 5 derniers mois (M-1 à M-5) comme dans Excel
     df_derniers = df_sarr_sorted[df_sarr_sorted['rang'] < 5].copy()
     
     resultats_momentum = []
@@ -248,17 +245,14 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         def get_val(rang, col): return group[group['rang'] == rang][col].values[0] if len(group[group['rang'] == rang]) > 0 else 0
         sarr_m, sarr_m1, sarr_m2, sarr_m3, sarr_m4 = get_val(0, 'SARR_HL'), get_val(1, 'SARR_HL'), get_val(2, 'SARR_HL'), get_val(3, 'SARR_HL'), get_val(4, 'SARR_HL')
         
-        # Le Momentum est la moyenne des variations des 3 derniers mois (comme dans le code original)
         momentum = np.mean([sarr_m - sarr_m1, sarr_m1 - sarr_m2, sarr_m2 - sarr_m3])
-        
-        # La Base est le max entre le SARR du dernier mois et la moyenne des 5 mois
         base = max(sarr_m, np.mean([sarr_m, sarr_m1, sarr_m2, sarr_m3, sarr_m4]))
         
         resultats_momentum.append({"agence": ag, "article": art, "Base_HL": base, "Momentum_HL": momentum})
         
     df_momentum = pd.DataFrame(resultats_momentum)
 
-    # --- CALCUL DU CAGR SUR LA PÉRIODE DÉDIÉE ---
+    # CAGR (Période dédiée)
     cagr_data = []
     if annee_cible > annee_cloture:
         df_hist_cagr = df_realise[(df_realise["annee"] >= annee_min_cagr) & (df_realise["annee"] <= annee_max_cagr)].copy()
@@ -297,12 +291,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # FORMULE EXACTE (calculée en HL)
+    # Formule finale
     df_cross['Prevision_HL'] = np.maximum(0.0, ((df_cross['Indice'].round(2) * df_cross['Base_HL'].round(2)) + df_cross['Momentum_HL'].round(2)) * df_cross['multiplicateur_cagr'])
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     
-    # CONVERSION FINALE : On repasse de HL en Cols (1 HL = 10000 cl / contenance)
+    # Conversion finale en Cols
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
     
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
@@ -437,7 +431,6 @@ if fichier_ventes is not None:
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois glissants)**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
-            # On affiche les 5 derniers mois pour correspondre à l'image
             df_sarr_derniers = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article']).tail(5)
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), width="stretch", hide_index=True)
 

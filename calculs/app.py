@@ -196,7 +196,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - Avec Période CAGR et Blocage Négatifs / Mois Sans Ventes
+# CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
 def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int):
@@ -218,19 +218,21 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
 
     mois_par_annee = df_hist_is.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
     df_hist_is_complet = df_hist_is.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
-    if df_hist_is_complet.empty: return None, None, None, None, df_realise
-
-    vols = df_hist_is_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
-    vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
-    vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
     
-    # Remplacer par 0.0 pour tuer les prévisions fantômes sur les mois sans ventes
-    indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(0.0) 
+    # Si aucun historique complet, on renvoie un DataFrame vide mais on ne plante pas
+    if df_hist_is_complet.empty:
+        table_indices = pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
+    else:
+        vols = df_hist_is_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
+        vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
+        vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
+        
+        indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(0.0) 
 
-    table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
-    table_indices['mois'] = table_indices['mois'].astype(int) 
+        table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
+        table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    # SARR
+    # SARR (pour info)
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(0.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
@@ -238,13 +240,9 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     # Préparation des éléments
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
-    # 1. YTD
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
-    
-    # 2. Cumul des coefficients
     df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
-    # 3. Base Historique
     df_base_min = df_realise[df_realise['annee'] == annee_min_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
     df_base_max = df_realise[df_realise['annee'] == annee_max_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Final_Hist'})
 
@@ -256,7 +254,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
     df_base['Final_Hist'] = df_base['Final_Hist'].fillna(0.0)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0) # Éviter la division par 0
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0) 
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
 
     # --- MÉTHODE EXCEL ---
     df_base['Projection_CurrentYear'] = np.where(
@@ -281,8 +280,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
     
-    # Si l'indice est manquant, on met 0 (pas de vente prévue)
-    df_cross['Indice'] = df_cross['Indice'].fillna(0.0) 
+    # LA CORRECTION CLÉ : Indice neutre (1.0) si ventes YTD > 0, sinon 0.0
+    df_cross['Indice'] = df_cross['Indice'].fillna(np.where(df_cross['YTD_HL'] > 0, 1.0, 0.0))
     
     df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
     df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
@@ -292,7 +291,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # Formule avec indice 0 si pas de vente historique
     df_cross['Prevision_HL'] = np.maximum(0.0, (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0))
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
@@ -378,8 +376,7 @@ if fichier_ventes is not None:
     )
 
     if table_indices is None:
-        st.warning("⚠️ Aucune année complète (12 mois) trouvée dans l'intervalle historique de l'IS.")
-        st.info("💡 Vérifiez que vous avez bien sélectionné au moins une année complète pour l'IS (ex: 2024) et que votre fichier contient bien 12 mois par an.")
+        st.warning("⚠️ Impossible de calculer les prévisions. Vérifiez vos filtres.")
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
@@ -427,9 +424,12 @@ if fichier_ventes is not None:
         c_idx, c_sarr = st.columns(2)
         with c_idx:
             st.markdown("**Indices de Saisonnalité (Basés sur la période IS)**")
-            pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(0.0)
-            pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
-            st.dataframe(pivot_indices, width="stretch")
+            if not table_indices.empty:
+                pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(0.0)
+                pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
+                st.dataframe(pivot_indices, width="stretch")
+            else:
+                st.info("Pas d'historique complet (12 mois) pour calculer les indices.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois glissants)**")
             df_sarr["SARR_Aff"] = df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"]
@@ -532,31 +532,32 @@ if fichier_ventes is not None:
             col_g1, col_g2 = st.columns(2)
 
             with col_g1:
-                df_saison = table_indices.groupby('mois')['Indice'].mean().reset_index()
-                df_saison['Mois_Nom'] = df_saison['mois'].apply(lambda m: MOIS_NOMS[m-1])
-                
-                colors = ['#009640' if val < 1 else '#E30613' for val in df_saison['Indice']]
-                
-                fig2 = go.Figure(data=[go.Bar(
-                    x=df_saison['Mois_Nom'], 
-                    y=df_saison['Indice'], 
-                    marker_color=colors,
-                    text=df_saison['Indice'].round(2),
-                    textposition='auto'
-                )])
-                
-                fig2.add_hline(y=1.0, line_dash="dash", line_color="#4B5563", annotation_text="Moyenne (1.0)", annotation_position="bottom right")
+                if not table_indices.empty:
+                    df_saison = table_indices.groupby('mois')['Indice'].mean().reset_index()
+                    df_saison['Mois_Nom'] = df_saison['mois'].apply(lambda m: MOIS_NOMS[m-1])
+                    
+                    colors = ['#009640' if val < 1 else '#E30613' for val in df_saison['Indice']]
+                    
+                    fig2 = go.Figure(data=[go.Bar(
+                        x=df_saison['Mois_Nom'], 
+                        y=df_saison['Indice'], 
+                        marker_color=colors,
+                        text=df_saison['Indice'].round(2),
+                        textposition='auto'
+                    )])
+                    
+                    fig2.add_hline(y=1.0, line_dash="dash", line_color="#4B5563", annotation_text="Moyenne (1.0)", annotation_position="bottom right")
 
-                fig2.update_layout(
-                    title=dict(text="Profil de Saisonnalité (Indice Moyen)", font=dict(size=16, color="#111827")),
-                    xaxis_title="Mois",
-                    yaxis_title="Indice (Base 1.0)",
-                    plot_bgcolor='white',
-                    paper_bgcolor='white',
-                    margin=dict(l=20, r=20, t=50, b=20)
-                )
-                fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
-                st.plotly_chart(fig2, width="stretch")
+                    fig2.update_layout(
+                        title=dict(text="Profil de Saisonnalité (Indice Moyen)", font=dict(size=16, color="#111827")),
+                        xaxis_title="Mois",
+                        yaxis_title="Indice (Base 1.0)",
+                        plot_bgcolor='white',
+                        paper_bgcolor='white',
+                        margin=dict(l=20, r=20, t=50, b=20)
+                    )
+                    fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6', linecolor='#E5E7EB')
+                    st.plotly_chart(fig2, width="stretch")
 
             with col_g2:
                 df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()

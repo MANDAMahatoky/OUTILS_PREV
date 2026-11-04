@@ -297,7 +297,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['Prevision_HL'] = np.maximum(0.0, (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0))
     
-    df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_real'].fillna(0.0), df_cross['Prevision_HL'])
+    # CORRECTION ICI : 'hl_reel' au lieu de 'hl_real'
+    df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
     

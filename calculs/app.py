@@ -201,10 +201,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE 100% EXCEL
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE 100% EXCEL (Utilisation de annee_min_cagr)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v17"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v18"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -251,11 +251,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     # VRAI Calcul du Cumul_Coef (Somme des indices jusqu'au cutoff)
     df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
-    # Base Historique Dynamique
-    df_ventes_positives = df_realise[df_realise['hl'] > 0]
-    df_premiere_annee = df_ventes_positives.groupby(['agence', 'article'])['annee'].min().reset_index().rename(columns={'annee': 'Annee_Min'})
-    df_base_hist = pd.merge(df_ventes_positives, df_premiere_annee, left_on=['agence', 'article', 'annee'], right_on=['agence', 'article', 'Annee_Min'], how='inner')
-    df_base_hist = df_base_hist.groupby(['agence', 'article', 'Annee_Min'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
+    # Base Historique (Utilisation de l'année min définie dans la sidebar)
+    df_base_hist = df_realise[df_realise['annee'] == annee_min_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
 
     df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
@@ -263,7 +260,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
 
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
-    df_base['Annee_Min'] = df_base['Annee_Min'].fillna(annee_cloture)
     
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0)
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
@@ -275,7 +271,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         0.0
     )
 
-    df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Min']
+    df_base['Nb_Annees'] = annee_cloture - annee_min_cagr
     df_base['CAGR_val'] = np.where(
         (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
         ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,

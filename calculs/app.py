@@ -169,7 +169,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
     
-    # MODIFICATION ICI : On ne supprime plus les lignes si 'nature' est vide, pour capturer tout le volume.
     masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False)
     df = df[~masque_total].copy()
     
@@ -179,7 +178,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
 
     df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
-    df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"])
+    df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
@@ -204,7 +203,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Somme des IS = 12)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v13"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v14"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -326,11 +325,12 @@ if fichier_ventes is not None:
         st.markdown("<h2>⚙️ Paramètres</h2>", unsafe_allow_html=True)
         st.markdown("##### 2. Périmètre (Filtres)")
         
-        regions_dispo = sorted([r for r in df_enrichi["region"].unique() if pd.notna(r) and r != "Aucune vente"])
+        # CORRECTION DU TYPEERROR ICI : On force le format string et on ignore les NaN
+        regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) != "Aucune vente"])
         sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
         df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
 
-        positionnements_dispo = sorted([p for p in df_temp["positionnement"].unique() if pd.notna(p)])
+        positionnements_dispo = sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)])
         sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
         df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
 
@@ -338,15 +338,15 @@ if fichier_ventes is not None:
         sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
         df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
 
-        segments_dispo = sorted([s for s in df_temp["segment"].unique() if pd.notna(s)])
+        segments_dispo = sorted([str(s) for s in df_temp["segment"].unique() if pd.notna(s)])
         sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
         df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
 
-        articles_dispo = sorted(df_temp["article"].unique())
+        articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
         sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
 
-        agences_dispo = sorted([a for a in df_temp["agence"].unique() if a != "Aucune vente"])
+        agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
         sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
 
         st.markdown("##### 📅 Période Indice Saisonnalité (IS)")

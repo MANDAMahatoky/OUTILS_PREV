@@ -169,7 +169,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
     
-    # Filtre strict pour éviter de compter les totaux
     masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) | df["nature"].isna()
     df = df[~masque_total].copy()
     
@@ -187,7 +186,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
 
-    # Correction Fûts 20L
     masque_fut20 = df_enrichi["article"].str.contains(r'20L|20 L|FUT 20', case=False, na=False, regex=True)
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
@@ -201,10 +199,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL HYBRIDE (Min/Max + Début auto)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Cumul_Coef fixe et Projection pour CAGR)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v24"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v26"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -233,7 +231,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0) 
         
-        # NORMALISATION POUR FORCER LA SOMME A 12 (Règle absolue)
         sum_indices = indices.sum(axis=1)
         indices = indices.div(sum_indices, axis=0) * 12.0
 
@@ -247,54 +244,40 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
-    
-    # VRAI Calcul du Cumul_Coef
-    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
-    # --- LOGIQUE HYBRIDE POUR LA BASE DU CAGR ---
-    # 1. Trouver la première année de vente de chaque produit (l'algorithme)
+    # LOGIQUE HYBRIDE POUR LA BASE DU CAGR
     df_ventes_positives = df_realise[df_realise['hl'] > 0]
     df_premiere_annee = df_ventes_positives.groupby(['agence', 'article'])['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'})
 
-    # 2. Fusionner
     df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
-    df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_premiere_annee, on=['agence', 'article'], how='left')
 
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
-    
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
     
-    # L'Année de Base est le MAX entre l'année min paramétrée et l'année de début du produit
     df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
 
-    # 3. Récupérer le volume de l'Année_Base
     df_base_vol = df_realise.groupby(['agence', 'article', 'annee'])['hl'].sum().reset_index()
     df_base = pd.merge(df_base, df_base_vol, left_on=['agence', 'article', 'Annee_Base'], right_on=['agence', 'article', 'annee'], how='left')
     df_base = df_base.rename(columns={'hl': 'Base_Hist'})
     df_base = df_base.drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # 4. Récupérer le volume de l'Année_Max
-    df_final_hist = df_realise[df_realise['annee'] == annee_max_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Final_Hist'})
-    df_base = pd.merge(df_base, df_final_hist, on=['agence', 'article'], how='left')
-    df_base['Final_Hist'] = df_base['Final_Hist'].fillna(0.0)
+    # --- FORCER LE CUMUL_COEF A 9.0 COMME EXCEL ---
+    df_base['Cumul_Coef'] = mois_cutoff
 
-    # --- MÉTHODE EXCEL ---
+    # 1. Calcul de la Projection (Run-Rate)
     df_base['Projection_CurrentYear'] = np.where(
         df_base['Cumul_Coef'] > 0,
         df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0),
         0.0
     )
 
-    # Calcul du CAGR Historique (Min/Max)
-    df_base['Nb_Annees'] = annee_max_cagr - df_base['Annee_Base']
-    
+    # 2. Calcul du CAGR en utilisant la Projection (comme Excel : CR39/CN39)
+    df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
     df_base['CAGR_val'] = np.where(
-        (df_base['Base_Hist'] > 0) & (df_base['Final_Hist'] > 0) & (df_base['Nb_Annees'] > 0),
-        ((df_base['Final_Hist'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
+        (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
+        ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
         0.0
     )
 

@@ -199,10 +199,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE ET HYBRIDE
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE AVEC CAP CAGR A 20%
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v35"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v36"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -251,7 +251,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
     
-    # L'Année de Base est le MAX entre l'année min paramétrée et l'année de début du produit
     df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
 
     df_base_vol = df_agg.groupby(['article', 'annee'])['hl'].sum().reset_index()
@@ -275,8 +274,8 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         0.0
     )
     
-    # GARDE-FOU POUR LES NOUVEAUX PRODUITS (On plafonne à 50%)
-    df_base['CAGR_val'] = np.clip(cagr_brut, -0.50, 0.50)
+    # GARDE-FOU SERRÉ (Max +20% et Min -20%)
+    df_base['CAGR_val'] = np.clip(cagr_brut, -0.20, 0.20)
 
     # Prévisions Mensuelles
     annees_cibles = list(range(annee_cloture, annee_cible + 1))

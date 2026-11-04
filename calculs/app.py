@@ -199,11 +199,12 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - STRICTEMENT EXCEL (SIERREUR)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE (Niveau Article)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v31"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v33"):
     
+    # 1. Filtrer les articles qui ont des ventes
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -215,94 +216,111 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # Indice de Saisonnalité
-    df_hist_is = df_realise[(df_realise["annee"] >= annee_min_is) & (df_realise["annee"] <= annee_max_is)].copy()
+    # 2. AGREGATION AU NIVEAU ARTICLE (Comme Excel)
+    df_agg = df_perimetre_filtre.groupby(['article', 'annee', 'mois'])['hl'].sum().reset_index()
+
+    # 3. Indice de Saisonnalité (Niveau Article)
+    df_hist_is = df_agg[(df_agg["annee"] >= annee_min_is) & (df_agg["annee"] <= annee_max_is)].copy()
     if df_hist_is.empty: return None, None, None, None, df_realise
 
-    mois_par_annee = df_hist_is.groupby(['agence', 'article', 'annee'])['mois'].nunique().reset_index()
-    df_hist_is_complet = df_hist_is.merge(mois_par_annee[mois_par_annee['mois'] == 12][['agence', 'article', 'annee']], on=['agence', 'article', 'annee'], how='inner')
+    mois_par_annee = df_hist_is.groupby(['article', 'annee'])['mois'].nunique().reset_index()
+    df_hist_is_complet = df_hist_is.merge(mois_par_annee[mois_par_annee['mois'] == 12][['article', 'annee']], on=['article', 'annee'], how='inner')
     
     if df_hist_is_complet.empty:
-        table_indices = pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
+        table_indices = pd.DataFrame(columns=['article', 'mois', 'Indice'])
     else:
-        vols = df_hist_is_complet.groupby(['agence', 'article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
-        vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
-        vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
+        vols = df_hist_is_complet.groupby(['article', 'annee', 'mois'])['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0) 
+        vols_mois_cumules = vols.groupby(['article']).sum()
+        vols_annuels_cumules = vols.sum(axis=1).groupby(['article']).sum()
         
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0) 
         
         sum_indices = indices.sum(axis=1)
         indices = indices.div(sum_indices, axis=0) * 12.0
 
-        table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
+        table_indices = indices.reset_index().melt(id_vars=['article'], var_name='mois', value_name='Indice')
         table_indices['mois'] = table_indices['mois'].astype(int) 
 
-    df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
-    df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
-
-    df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
+    # 4. Base & YTD (Niveau Article)
+    df_ytd = df_agg[(df_agg['annee'] == annee_cloture) & (df_agg['mois'] <= mois_cutoff)].groupby('article')['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
     
-    df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
-    
-    # VRAI Calcul du Cumul_Coef
-    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
+    df_ventes_positives = df_agg[df_agg['hl'] > 0]
+    df_premiere_annee = df_ventes_positives.groupby(['article'])['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'})
 
-    # On utilise STRICTEMENT l'Année Min CAGR de la barre latérale
-    df_base_hist = df_realise[df_realise['annee'] == annee_min_cagr].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
-
-    df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
-    df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
-    df_base = pd.merge(df_base, df_base_hist, on=['agence', 'article'], how='left')
-
+    df_base = pd.merge(df_ytd, df_premiere_annee, on='article', how='outer')
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
+    df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
+    df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
+
+    df_base_vol = df_agg.groupby(['article', 'annee'])['hl'].sum().reset_index()
+    df_base = pd.merge(df_base, df_base_vol, left_on=['article', 'Annee_Base'], right_on=['article', 'annee'], how='left')
+    df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
 
-    # Run-Rate
-    df_base['Projection_CurrentYear'] = np.where(
-        df_base['Cumul_Coef'] > 0,
-        df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0),
-        0.0
-    )
+    # 5. Cumul_Coef & Projection (Niveau Article)
+    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby('article')['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
+    df_base = pd.merge(df_base, df_cumul_coef, on='article', how='left')
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
 
-    df_base['Nb_Annees'] = annee_cloture - annee_min_cagr
-    
-    # Formule SIERREUR exacte d'Excel
+    df_base['Projection_CurrentYear'] = df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0)
+
+    # 6. CAGR (Niveau Article)
+    df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
     df_base['CAGR_val'] = np.where(
         (df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0),
         ((df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees'])) - 1,
         0.0
     )
 
+    # 7. Calcul des Prévisions Mensuelles (Niveau Article)
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     
     df_cross = df_base.assign(key=1).merge(pd.DataFrame({'annee': annees_cibles, 'key': 1}), on='key').drop('key', axis=1)
     df_cross = df_cross.assign(key=1).merge(pd.DataFrame({'mois': mois_cibles, 'key': 1}), on='key').drop('key', axis=1)
     
-    df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
+    df_cross = pd.merge(df_cross, table_indices, on=['article', 'mois'], how='left')
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
     
-    df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
-    df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
+    # On récupère le réalisé pour l'année de clôture
+    df_realise_grouped = df_agg.groupby(['annee', 'mois', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
+    df_cross = pd.merge(df_cross, df_realise_grouped, on=['annee', 'mois', 'article'], how='left')
     
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
-    df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    df_cross['Prevision_HL'] = np.maximum(0.0, (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0))
+    df_cross['Prevision_HL_Article'] = np.maximum(0.0, (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0))
     
-    df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
-    df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
+    df_cross['Volume_HL_Article'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL_Article'])
+
+    # 8. Répartition par Agence
+    df_ventes_agence = df_realise.groupby(['agence', 'article'])['hl'].sum().reset_index()
+    df_total_article = df_ventes_agence.groupby('article')['hl'].sum().reset_index().rename(columns={'hl': 'hl_total_art'})
+    df_ventes_agence = pd.merge(df_ventes_agence, df_total_article, on='article')
+    df_ventes_agence['Poids_Agence'] = df_ventes_agence['hl'] / df_ventes_agence['hl_total_art'].replace(0, 1)
+
+    # On joint les poids aux prévisions mensuelles
+    df_cross = pd.merge(df_cross, df_ventes_agence[['agence', 'article', 'Poids_Agence']], on='article', how='left')
+    df_cross['Poids_Agence'] = df_cross['Poids_Agence'].fillna(0.0)
+    
+    df_cross['Volume_HL'] = df_cross['Volume_HL_Article'] * df_cross['Poids_Agence']
+    
+    # On joint la contenance pour avoir les Cols
+    df_contenance = df_perimetre_filtre[['article', 'contenance_cl']].drop_duplicates(subset=['article'])
+    df_cross = pd.merge(df_cross, df_contenance, on='article', how='left')
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
-    
+
+    # 9. Formatage pour l'affichage
+    df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
     df_cross['Date'] = df_cross['mois'].apply(lambda m: MOIS_NOMS[m-1]) + '-' + df_cross['annee'].astype(str).str[-2:]
-    
     df_cross = df_cross.rename(columns={'Projection_CurrentYear': 'Projection_Annuelle'})
+    
+    # On reformate le df_sarr pour l'affichage (Étape 4)
+    df_sarr = df_realise.merge(table_indices, on=['article', 'mois'], how='left')
+    df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
+    df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Projection_Annuelle", "CAGR (%)", "Volume_HL", "Volume_Cols"]
     
@@ -427,7 +445,7 @@ if fichier_ventes is not None:
         with c_idx:
             st.markdown("**Indices de Saisonnalité (Basés sur la période IS)**")
             if not table_indices.empty:
-                pivot_indices = table_indices.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
+                pivot_indices = table_indices.pivot_table(index=['article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
                 pivot_indices.columns = [MOIS_NOMS[c-1] for c in pivot_indices.columns]
                 st.dataframe(pivot_indices, width="stretch")
             else:

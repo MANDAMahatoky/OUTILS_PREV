@@ -200,10 +200,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE 100% EXCEL
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Somme des IS = 12)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v10"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v12"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -230,8 +230,12 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
         vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
         
-        # Ici on met 1.0 au lieu de 0.0 pour reproduire Excel
+        # Calcul des indices bruts
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0) 
+        
+        # NORMALISATION POUR FORCER LA SOMME A 12 (Règle absolue)
+        sum_indices = indices.sum(axis=1)
+        indices = indices.div(sum_indices, axis=0) * 12.0
 
         table_indices = indices.reset_index().melt(id_vars=['agence', 'article'], var_name='mois', value_name='Indice')
         table_indices['mois'] = table_indices['mois'].astype(int) 
@@ -243,7 +247,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
-    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
     # Base Historique Dynamique
     df_ventes_positives = df_realise[df_realise['hl'] > 0]
@@ -252,15 +255,14 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base_hist = df_base_hist.groupby(['agence', 'article', 'Annee_Min'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
 
     df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
-    df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_base_hist, on=['agence', 'article'], how='left')
 
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
     df_base['Annee_Min'] = df_base['Annee_Min'].fillna(annee_cloture)
     
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0) 
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
+    # Cumul_Coef = somme des indices jusqu'au cutoff (comme Excel)
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'] = mois_cutoff * 1.0 
 
     # --- MÉTHODE EXCEL ---
     df_base['Projection_CurrentYear'] = np.where(
@@ -283,8 +285,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_cross = df_cross.assign(key=1).merge(pd.DataFrame({'mois': mois_cibles, 'key': 1}), on='key').drop('key', axis=1)
     
     df_cross = pd.merge(df_cross, table_indices, on=['agence', 'article', 'mois'], how='left')
-    
-    # L'indice est systématiquement à 1.0 s'il manque (pour reproduire Excel)
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
     
     df_realise_grouped = df_realise.groupby(['annee', 'mois', 'agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})
@@ -297,7 +297,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     
     df_cross['Prevision_HL'] = np.maximum(0.0, (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0))
     
-    # CORRECTION ICI : 'hl_reel' au lieu de 'hl_real'
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))

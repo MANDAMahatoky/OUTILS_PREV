@@ -169,7 +169,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").fillna(0.0)
     
-    masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False)
+    # CORRECTION : On filtre strictement les valeurs nulles et les totaux pour ne pas doubler le volume
+    masque_total = df["segment"].astype(str).str.contains("total", case=False, na=False) | df["produit"].astype(str).str.contains("total", case=False, na=False) | df["agence"].astype(str).str.contains("total", case=False, na=False) | df["nature"].astype(str).str.contains("total", case=False, na=False) | df["nature"].isna()
     df = df[~masque_total].copy()
     
     df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
@@ -200,10 +201,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL STRICTE (Somme des IS = 12)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE 100% EXCEL
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v14"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v16"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -230,7 +231,6 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
         vols_mois_cumules = vols.groupby(['agence', 'article']).sum()
         vols_annuels_cumules = vols.sum(axis=1).groupby(['agence', 'article']).sum()
         
-        # Calcul des indices bruts
         indices = vols_mois_cumules.div(vols_annuels_cumules / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0) 
         
         # NORMALISATION POUR FORCER LA SOMME A 12 (Règle absolue)
@@ -247,6 +247,9 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
     df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
+    
+    # Calcul correct du Cumul_Coef (Somme des indices jusqu'au cutoff)
+    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
 
     # Base Historique Dynamique
     df_ventes_positives = df_realise[df_realise['hl'] > 0]
@@ -255,14 +258,15 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base_hist = df_base_hist.groupby(['agence', 'article', 'Annee_Min'])['hl'].sum().reset_index().rename(columns={'hl': 'Base_Hist'})
 
     df_base = pd.merge(df_perim_unique, df_ytd, on=['agence', 'article'], how='left')
+    df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
     df_base = pd.merge(df_base, df_base_hist, on=['agence', 'article'], how='left')
 
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
     df_base['Annee_Min'] = df_base['Annee_Min'].fillna(annee_cloture)
     
-    # Cumul_Coef = 9.0 (comme dans votre Excel)
-    df_base['Cumul_Coef'] = mois_cutoff * 1.0 
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0)
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].replace(0, 1.0)
 
     # --- MÉTHODE EXCEL ---
     df_base['Projection_CurrentYear'] = np.where(
@@ -325,7 +329,6 @@ if fichier_ventes is not None:
         st.markdown("<h2>⚙️ Paramètres</h2>", unsafe_allow_html=True)
         st.markdown("##### 2. Périmètre (Filtres)")
         
-        # CORRECTION DU TYPEERROR ICI : On force le format string et on ignore les NaN
         regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) != "Aucune vente"])
         sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
         df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi

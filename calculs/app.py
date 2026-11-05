@@ -917,7 +917,9 @@ if fichier_ventes is not None:
             # On prend le Top 15 pour le graphique pour qu'il soit lisible
             df_pareto_graph = df_pareto.head(15).copy()
             
-            # Raccourcir les noms d'articles
+            # CORRECTION ICI : On crée une colonne d'index numérique (0, 1, 2...)
+            # pour forcer Plotly à garder l'ordre décroissant sans bug
+            df_pareto_graph['Index'] = range(len(df_pareto_graph))
             df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
                 lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...'
             )
@@ -925,58 +927,67 @@ if fichier_ventes is not None:
             fig2 = go.Figure()
             couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
 
-            # Ajouter les barres par classe (on enlève les labels textuels qui surchargeaient le graphique)
+            # Ajouter les barres par classe avec l'INDEX
             for classe in ['A', 'B', 'C']:
                 df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
                 if not df_class.empty:
                     fig2.add_trace(go.Bar(
-                        x=df_class['Article_Court'], 
+                        x=df_class['Index'], # Utilisation de l'index
                         y=df_class[col_prev_aff],
                         name=f'Classe {classe}',
                         marker_color=couleurs[classe],
-                        textposition='none' # On enlève les chiffres au dessus des barres
+                        customdata=df_class['article'], # Nom complet au survol
+                        hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"
                     ))
 
-            # Ligne : % Cumulé (Ligne pleine, sans marqueurs excessifs)
+            # Ligne : % Cumulé avec l'INDEX
             fig2.add_trace(go.Scatter(
-                x=df_pareto_graph['Article_Court'], 
+                x=df_pareto_graph['Index'], 
                 y=df_pareto_graph['Cumul_Pct'],
                 name='% Cumulé',
                 mode='lines+markers',
                 line=dict(color='#111827', width=2),
-                marker=dict(size=5, color='#111827'),
+                marker=dict(size=6, color='#111827'),
                 yaxis='y2',
-                hovertemplate="% Cumulé: %{y:.1f}%<extra></extra>"
+                customdata=df_pareto_graph['article'],
+                hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"
             ))
             
-            # Lignes de seuils (80% et 95%) discrètes
-            for seuil, color in [(80, '#EF4444'), (95, '#F59E0B')]:
+            # Lignes de seuils
+            for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
                 fig2.add_shape(
                     type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
-                    line=dict(color=color, width=1.5, dash="dash"), xref='x', yref='y2'
+                    line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2'
                 )
 
             fig2.update_layout(
-                plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
+                plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), # Marge en bas pour l'axe X
                 yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
                 yaxis2=dict(
                     title="% Cumulé", 
                     overlaying='y', 
                     side='right', 
-                    range=[0, 110], # Forcer le range
-                    tickvals=[0, 20, 40, 60, 80, 100], # Forcer les graduations
+                    range=[0, 110],
+                    tickvals=[0, 20, 40, 60, 80, 100],
                     showgrid=False, 
                     ticksuffix="%"
                 ),
-                xaxis=dict(showticklabels=True, tickangle=-45, showgrid=False, tickfont=dict(size=11)),
-                legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
+                xaxis=dict(
+                    tickmode='array',
+                    tickvals=df_pareto_graph['Index'], # On place les ticks sur l'index
+                    ticktext=df_pareto_graph['Article_Court'], # On affiche le nom
+                    tickangle=-45, 
+                    showgrid=False, 
+                    tickfont=dict(size=10)
+                ),
+                legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5),
                 height=450,
                 bargap=0.3,
                 hovermode="x unified"
             )
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             
-            # TABLEAU DE DETAILS (en dessous du graphique)
+            # TABLEAU DE DETAILS
             st.markdown("#### Détail par article")
             df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
             df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']

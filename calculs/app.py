@@ -68,33 +68,38 @@ st.markdown("""
     }
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* ONGLETS : ESPACEMENT MAXIMAL, PLUS GRANDS ET EN GRAS */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 200px !important; /* Espacement très large entre les onglets */
-        background-color: transparent;
-        border-bottom: 2px solid #E5E7EB;
-        padding-bottom: 0px;
-        margin-bottom: 40px;
+    /* =========================================================
+       CORRECTION MAJEURE DES ONGLETS (TRÈS ESPACÉS, GRANDS, GRAS) 
+       ========================================================= */
+    div[data-baseweb="tab-list"] {
+        gap: 80px !important; /* Force un espacement horizontal énorme */
+        justify-content: flex-start !important;
+        border-bottom: 2px solid #E5E7EB !important;
+        margin-bottom: 30px !important;
     }
-    .stTabs [data-baseweb="tab"] {
-        color: #6B7280; 
-        font-size: 1.8rem;
-        font-weight: 800;
-        padding: 20px 0px;
+
+    button[data-baseweb="tab"] {
+        font-size: 1.5rem !important; /* Police très grande */
+        font-weight: 800 !important;  /* Très gras */
+        color: #6B7280 !important; 
+        padding: 15px 0px !important;
+        margin-right: 40px !important; /* Sécurité supplémentaire pour l'espacement */
         background-color: transparent !important; 
-        border: none;
-        border-bottom: 4px solid transparent;
-        border-radius: 0;
-        transition: all 0.2s ease;
-        white-space: nowrap; /* Empêche le texte de passer à la ligne */
+        border: none !important;
+        border-bottom: 4px solid transparent !important;
+        transition: all 0.2s ease !important;
     }
-    .stTabs [data-baseweb="tab"]:hover { color: #111827; }
-    .stTabs [aria-selected="true"] {
+
+    button[data-baseweb="tab"]:hover {
+        color: #111827 !important;
+    }
+
+    button[aria-selected="true"] {
         color: #E30613 !important; 
-        border-bottom: 5px solid #E30613 !important; 
+        border-bottom: 4px solid #E30613 !important; 
         background-color: transparent !important; 
         box-shadow: none !important;
-        font-weight: 900;
+        font-weight: 900 !important; /* Extra gras */
     }
     
     /* Masquer les marges inutiles */
@@ -627,12 +632,10 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
-        # --- TITRE IDENTIQUE AUX AUTRES ONGLETS (###) ---
         st.markdown("### Résultat Final")
         st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Barre d'outils (Recherche + Export)
         col_search, col_export = st.columns([3, 1])
         
         with col_search:
@@ -653,7 +656,6 @@ if fichier_ventes is not None:
                 use_container_width=True
             )
 
-        # Préparation de l'affichage du DataFrame
         pivot_mensuel_reset = pivot_mensuel.reset_index()
         pivot_mensuel_reset.columns = [
             "Année" if str(c).lower() == "annee" else 
@@ -684,7 +686,6 @@ if fichier_ventes is not None:
         if "Total Année" in pivot_mensuel_display.columns:
              col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
 
-        # Affichage du tableau
         st.dataframe(
             pivot_mensuel_display,
             use_container_width=True,

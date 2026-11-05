@@ -435,6 +435,16 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
 
 # 1. SIDEBAR POUR TOUS LES FILTRES
 with st.sidebar:
+    # --- AJOUT DU LOGO ICI ---
+    BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
+    LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
+    
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), use_container_width=True)
+    else:
+        st.warning("⚠️ Logo non trouvé")
+    # --------------------------
+    
     st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
     
     with st.expander("📁 Importer vos fichiers", expanded=False):
@@ -593,7 +603,7 @@ if fichier_ventes is not None:
             <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
-        df_graph = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+        df_graph = df_previsions_filtre[df_previsions_filtre['annee'] <= annee_cible].copy()
         df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
         df_graph['Date_Plot'] = pd.to_datetime(df_graph['Date_Str'])
         

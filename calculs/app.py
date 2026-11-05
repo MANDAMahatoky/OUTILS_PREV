@@ -336,7 +336,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_Hist'] = 0.0
 
-    # CORRECTIONS CAGR : SEUIL ET PLAFONNEMENT
     df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
     df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
@@ -690,7 +689,26 @@ if fichier_ventes is not None:
             elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             
-            csv = pivot_mensuel.to_csv().encode('utf-8')
+            # --- AJOUT DU NETTOYAGE POUR LE CSV ---
+            pivot_mensuel_export = pivot_mensuel.copy()
+            
+            # Nettoyage des noms de colonnes
+            pivot_mensuel_export.columns = [
+                unicodedata.normalize('NFKD', str(c)).encode('ascii', 'ignore').decode('utf-8')
+                for c in pivot_mensuel_export.columns
+            ]
+            
+            # Nettoyage du contenu (Agence, Article)
+            for col in pivot_mensuel_export.columns:
+                if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
+                    pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(
+                        lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else ""
+                    )
+
+            # Export avec séparateur point-virgule (standard Excel FR) et encodage UTF-8 avec BOM
+            csv = pivot_mensuel_export.to_csv(sep=';').encode('utf-8-sig')
+            # -------------------------------------
+
             st.download_button(
                 label="Exporter en CSV",
                 data=csv,

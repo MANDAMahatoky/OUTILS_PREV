@@ -652,26 +652,26 @@ if fichier_ventes is not None:
     with col_g1:
         st.markdown(f"""
         <div class="white-card">
-            <div class="section-title">Superposition Réalisé vs Prévision (Jusqu'à {annee_cible})</div>
-            <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
+            <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
+            <div class="section-subtitle">Comparaison mensuelle pour l'année {annee_cible}</div>
         """, unsafe_allow_html=True)
         
-        # CORRECTION MAJEURE ICI : On récupère le réalisé depuis le périmètre brut,
-        # indépendamment du cutoff de calcul.
-        df_graph_real = df_perimetre[df_perimetre['annee'] <= annee_cible].copy()
-        df_graph_real['Date_Str'] = df_graph_real['annee'].astype(str) + '-' + df_graph_real['mois'].astype(str).str.zfill(2) + '-01'
-        df_graph_real['Date_Plot'] = pd.to_datetime(df_graph_real['Date_Str'])
+        # 1. PRÉPARATION DU RÉALISÉ POUR L'ANNÉE CIBLE (Extrait directement du fichier Excel)
+        df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
+        df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
+        df_real_cible['Date_Plot'] = pd.to_datetime(df_real_cible['Date_Str'])
         
-        # Calcul de l'unité pour le réalisé
-        contenance_safe = df_graph_real['contenance_cl'].replace(0, 100).fillna(100.0)
-        df_graph_real['Volume_Aff'] = df_graph_real['hl'] * (10000.0 / contenance_safe) if unite_affichage == "Cols" else df_graph_real['hl']
-        df_real_plot = df_graph_real.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
+        contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100.0)
+        df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
+        
+        df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-        # On récupère la prévision calculée
-        df_graph_prev = df_previsions_filtre[df_previsions_filtre['annee'] <= annee_cible].copy()
-        df_graph_prev['Date_Str'] = df_graph_prev['annee'].astype(str) + '-' + df_graph_prev['mois'].astype(str).str.zfill(2) + '-01'
-        df_graph_prev['Date_Plot'] = pd.to_datetime(df_graph_prev['Date_Str'])
-        df_prev_plot = df_graph_prev.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
+        # 2. PRÉPARATION DE LA PRÉVISION POUR L'ANNÉE CIBLE
+        df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+        df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
+        df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
+        
+        df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
 
         fig1 = go.Figure()
 
@@ -694,7 +694,7 @@ if fichier_ventes is not None:
         fig1.update_layout(
             plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
             legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
-            xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y"),
+            xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1"),
             yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False),
             height=320,
             hovermode="x unified"

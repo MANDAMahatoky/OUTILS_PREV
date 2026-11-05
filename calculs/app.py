@@ -437,7 +437,6 @@ if fichier_ventes is not None:
             sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
             df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
         with f3:
-            # LA MARQUE EST MAINTENANT STRICTEMENT CELLE DU RÉFÉRENTIEL
             marques_dispo = sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"])
             sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes")
             df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
@@ -518,10 +517,10 @@ if fichier_ventes is not None:
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
-    # CAGR PONDÉRÉ POUR LA KPI
-    vol_total = df_previsions_filtre[col_prev_aff].sum()
-    if vol_total > 0:
-        cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre[col_prev_aff]).sum() / vol_total
+    # CAGR PONDÉRÉ POUR LA KPI (Toujours basé sur le Volume HL pour la stabilité)
+    vol_total_hl = df_previsions_filtre["Volume_HL"].sum()
+    if vol_total_hl > 0:
+        cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre["Volume_HL"]).sum() / vol_total_hl
     else:
         cagr_applique = 0.0
 
@@ -539,7 +538,7 @@ if fichier_ventes is not None:
         <div class="white-card">
             <div class="kpi-label">CAGR Pondéré</div>
             <div class="kpi-value kpi-value-dark">{cagr_applique:,.2f}%</div>
-            <div class="kpi-footer">Croissance moyenne pondérée</div>
+            <div class="kpi-footer">Croissance moyenne pondérée (base HL)</div>
         </div>""", unsafe_allow_html=True)
     with k3:
         ytd_val = 0

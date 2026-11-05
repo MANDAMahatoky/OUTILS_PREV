@@ -108,7 +108,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# FONCTION DE MAPPING ROBUSTE POUR LES RÉGIONS
+# FONCTIONS UTILITAIRES (Régions et Marques)
 # ==============================================================================
 def get_region(agence):
     if pd.isna(agence): return "Autre"
@@ -118,8 +118,17 @@ def get_region(agence):
     if "tanjombato" in a or "tamatave" in a: return "Est"
     if "diego" in a or "majunga" in a or "ambanja" in a or "sambava" in a or "nosybe" in a: return "Nord"
     if "tulear" in a or "fianarantsoa" in a or "ihosy" in a or "manakara" in a or "morondava" in a or "dauphin" in a: return "Sud"
-    
     return "Autre"
+
+def extraire_marque(article):
+    if pd.isna(article): return "Inconnu"
+    a = str(article).strip()
+    a_low = a.lower()
+    # Gestion des marques composées
+    if "world cola" in a_low: return "World Cola"
+    if "eau vive" in a_low: return "Eau Vive"
+    # Par défaut, le premier mot
+    return a.split()[0]
 
 # ==============================================================================
 # RÉFÉRENTIEL ET MAPPING
@@ -198,6 +207,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
         df_ref["occasion"] = "Non renseigné"
     
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
+    
+    # EXTRACTION DE LA MARQUE DEPUIS LE RÉFÉRENTIEL STRICT
+    df_ref["marque"] = df_ref["article_original"].apply(extraire_marque)
+
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
@@ -223,11 +236,15 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["annee"] = df["annee"].fillna(2026).astype(int)
     df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
 
+    # LA MARQUE VIENT DU RÉFÉRENTIEL
     df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
+    
+    # Les articles non trouvés dans le référentiel sont marqués "Inconnu" et n'apparaîtront pas dans le filtre
+    df_enrichi["marque"] = df_enrichi["marque"].fillna("Inconnu")
     
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
@@ -237,13 +254,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
     
-    # UTILISATION DE LA FONCTION ROBUSTE POUR LES RÉGIONS
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
-    
-    # EXTRACTION AUTOMATIQUE DE LA MARQUE (1er mot de l'article)
-    df_enrichi["marque"] = df_enrichi["article"].apply(lambda x: str(x).split()[0] if pd.notna(x) and len(str(x).split()) > 0 else "Inconnu")
-    
-    # NETTOYAGE DE L'OCCASION
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
     
     conditions = [df_enrichi["article"].str.contains(x, case=False, na=False) for x in ["booster|alcoomix", "caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", "beaufort|fresh|thb|gold|queen|skol|castel|libertalia", "cristal|cristalline|eau vive|eau", "xxl|fosa", "judor|jus", "vin", "negoce"]]
@@ -426,6 +437,7 @@ if fichier_ventes is not None:
             sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
             df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
         with f3:
+            # LA MARQUE EST MAINTENANT STRICTEMENT CELLE DU RÉFÉRENTIEL
             marques_dispo = sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"])
             sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes")
             df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp

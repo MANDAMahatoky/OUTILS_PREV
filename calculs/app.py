@@ -37,25 +37,29 @@ st.markdown("""
     .hero-header {
         background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%);
         color: white;
-        padding: 25px 20px; /* Réduction de la hauteur */
+        padding: 25px 20px;
         border-radius: 0 0 20px 20px;
         margin-top: -60px;
         margin-bottom: 30px;
         position: relative;
         overflow: hidden;
         box-shadow: 0 10px 20px -5px rgba(227, 6, 19, 0.4);
-        text-align: center; /* CENTRAGE DU CONTENU */
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
     }
     .hero-header h1 { 
         color: white !important; 
-        font-size: 2.2rem; /* Taille réduite */
+        font-size: 2.2rem; 
         font-weight: 900; 
         margin-bottom: 8px; 
         letter-spacing: -0.02em; 
     }
     .hero-header p { 
         color: #FECACA; 
-        font-size: 1rem; /* Taille réduite */
+        font-size: 1rem; 
         margin-bottom: 15px; 
         font-weight: 500; 
     }
@@ -447,7 +451,6 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
 
 # 1. SIDEBAR POUR TOUS LES FILTRES
 with st.sidebar:
-    # --- AJOUT DU LOGO ICI ---
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
     LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
     
@@ -455,7 +458,6 @@ with st.sidebar:
         st.image(str(LOGO_PATH), use_container_width=True)
     else:
         st.warning("⚠️ Logo non trouvé")
-    # --------------------------
     
     st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
     
@@ -464,7 +466,6 @@ with st.sidebar:
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
 
     if fichier_ventes is not None:
-        # On charge les données ici pour pouvoir filtrer la liste des options dynamiquement
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
         st.markdown("#### 1. Périmètre")
@@ -519,7 +520,7 @@ with st.sidebar:
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
 
-# 2. HEADER ROUGE (Réduit et Centré)
+# 2. HEADER ROUGE (Centré et Épuré)
 st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
@@ -529,7 +530,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 3. RESTE DE L'APPLICATION (Dans la zone principale)
+# 3. RESTE DE L'APPLICATION
 if fichier_ventes is not None:
     # APPLICATION DES FILTRES
     df_perimetre = df_enrichi.copy()
@@ -565,7 +566,6 @@ if fichier_ventes is not None:
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
-    # CAGR PONDÉRÉ POUR LA KPI
     vol_total_hl = df_previsions_filtre["Volume_HL"].sum()
     if vol_total_hl > 0:
         cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre["Volume_HL"]).sum() / vol_total_hl
@@ -605,7 +605,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES (Superposition Réalisé vs Prévision)
+    # 5. GRAPHIQUES
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
@@ -683,7 +683,7 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. MENU DE NAVIGATION PERSONNALISÉ
+    # 6. MENU DE NAVIGATION
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
@@ -691,7 +691,7 @@ if fichier_ventes is not None:
 
     N_MAX_DISPLAY = 5000
 
-    # 7. AFFICHAGE DES TABLEAUX DANS DES EXPANDERS (VISIBLES PAR DÉFAUT)
+    # 7. AFFICHAGE DES TABLEAUX
     if active_tab == "Données Brutes":
         st.markdown("### Étape 1 : Données Brutes Enrichies")
         with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
@@ -731,11 +731,36 @@ if fichier_ventes is not None:
                 else:
                     st.info("Pas d'historique complet.")
         with c_sarr:
-            st.markdown("**Table SARR (5 derniers mois)**")
-            with st.expander("📊 Afficher le SARR", expanded=True):
-                df_sarr["SARR_Aff"] = (df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"])
-                df_sarr_derniers = (df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article'], observed=True).tail(5))
-                st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
+            st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
+            with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
+                # Préparation des données pour calculer le momentum
+                df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
+                
+                # Conversion en unité d'affichage
+                df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
+                
+                # Calcul du SARR M-1 (décalage de 1)
+                df_sarr_calc["SARR_M1"] = df_sarr_calc.groupby(['agence', 'article'])["SARR_Aff"].shift(1)
+                
+                # Calcul du Momentum (Variation en %)
+                df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1"]) / df_sarr_calc["SARR_M1"] * 100).replace([np.inf, -np.inf], np.nan)
+                
+                # Filtrage sur les 5 derniers mois
+                df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
+                
+                # Affichage formaté
+                st.dataframe(
+                    df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff", "SARR_M1", "Momentum_M (%)"]]
+                    .rename(columns={"SARR_Aff": "SARR M", "SARR_M1": "SARR M-1", "Momentum_M (%)": "Momentum M (%)"})
+                    .sort_values(["agence", "article", "annee", "mois"]),
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "SARR M": st.column_config.NumberColumn(format="%.0f"),
+                        "SARR M-1": st.column_config.NumberColumn(format="%.0f"),
+                        "Momentum M (%)": st.column_config.NumberColumn(format="%.2f %%"),
+                    }
+                )
 
     elif active_tab == "Prévisions Détaillées":
         st.markdown("### Résultat Final")
@@ -753,7 +778,6 @@ if fichier_ventes is not None:
             elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             
-            # Nettoyage pour le CSV
             pivot_mensuel_export = pivot_mensuel.copy()
             pivot_mensuel_export.columns = [
                 unicodedata.normalize('NFKD', str(c)).encode('ascii', 'ignore').decode('utf-8')

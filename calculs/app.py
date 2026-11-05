@@ -202,7 +202,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE AVEC CAP CAGR A 20%
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v36"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v37"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -379,6 +379,9 @@ if fichier_ventes is not None:
 
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)
+        
+        # NOUVEAU FILTRE : Mois Cible
+        mois_cible_label = st.selectbox("Mois cible (Filtre)", options=["Tous les mois"] + MOIS_NOMS, index=0)
 
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
@@ -401,20 +404,28 @@ if fichier_ventes is not None:
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
-    df_cible = df_previsions[df_previsions['annee'] == annee_cible]
+    # --- APPLICATION DU FILTRE MOIS CIBLE ---
+    if mois_cible_label == "Tous les mois":
+        df_previsions_filtre = df_previsions
+    else:
+        mois_cible_num = MOIS_NOMS.index(mois_cible_label) + 1
+        df_previsions_filtre = df_previsions[df_previsions['mois'] == mois_cible_num].copy()
+
+    df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
+    # Affichage des KPIs
     if annee_cible == annee_cloture:
         st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
-            <div class="kpi-header"><span>Atterrissage {annee_cible} (Réalisé + Prévisions)</span> <span class="kpi-icon">🎯</span></div>
+            <div class="kpi-header"><span>Atterrissage {annee_cible} ({mois_cible_label}) - Réalisé + Prévisions</span> <span class="kpi-icon">🎯</span></div>
             <div class="kpi-value">{atterrissage_cible:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} (Projection finale)</div>
         </div>""", unsafe_allow_html=True)
     else:
-        cagr_applique = df_previsions['CAGR (%)'].mean() if not df_previsions.empty else 0.0
+        cagr_applique = df_previsions_filtre['CAGR (%)'].mean() if not df_previsions_filtre.empty else 0.0
         kpi1, kpi2 = st.columns(2)
         with kpi1:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible}</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible} ({mois_cible_label})</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
         with kpi2:
             st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
 
@@ -457,7 +468,7 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), width="stretch", hide_index=True)
 
     with tab5:
-        st.markdown("### Étape 5 : Dynamique (Projection Annuelle & CAGR)")
+        st.markdown(f"### Étape 5 : Dynamique ({mois_cible_label})")
         
         mode_affichage = st.radio("Choisir le mode d'affichage :", ["📊 Tableau", "📈 Graphiques Data Analyst"], horizontal=True)
 
@@ -466,7 +477,7 @@ if fichier_ventes is not None:
         if mode_affichage == "📊 Tableau":
             st.markdown("#### 5.1 Résultat Final")
             
-            pivot_mensuel = df_previsions.pivot_table(
+            pivot_mensuel = df_previsions_filtre.pivot_table(
                 index=['annee', 'agence', 'article'], columns='mois', values=col_prev_aff, aggfunc='sum'
             ).fillna(0)
             pivot_mensuel.columns = [MOIS_NOMS[c-1] for c in pivot_mensuel.columns]
@@ -479,15 +490,15 @@ if fichier_ventes is not None:
             with st.expander("Voir le détail des calculs (Projection Annuelle & CAGR)"):
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", col_prev_aff]
                 
-                if 'Projection_Annuelle' in df_previsions.columns:
-                    df_previsions['Projection_Annuelle_Aff'] = df_previsions['Projection_Annuelle'] * (10000 / df_previsions['contenance_cl'].replace(0, 100)) if unite_affichage == "Cols" else df_previsions['Projection_Annuelle']
+                if 'Projection_Annuelle' in df_previsions_filtre.columns:
+                    df_previsions_filtre['Projection_Annuelle_Aff'] = df_previsions_filtre['Projection_Annuelle'] * (10000 / df_previsions_filtre['contenance_cl'].replace(0, 100)) if unite_affichage == "Cols" else df_previsions_filtre['Projection_Annuelle']
                     cols_to_show.insert(-1, "Projection_Annuelle_Aff")
                     
                 if annee_cible > annee_cloture:
                     cols_to_show.insert(-1, "CAGR (%)")
                     
                 st.dataframe(
-                    df_previsions[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
+                    df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]),
                     column_config={
                         "Indice": st.column_config.NumberColumn("Coef", format="%.2f"),
                         "CAGR (%)": st.column_config.NumberColumn("CAGR (%)", format="%.2f"),
@@ -502,7 +513,7 @@ if fichier_ventes is not None:
             
             st.markdown("##### 📈 Évolution Globale des Volumes (Réalisé vs Prévisions)")
             
-            df_graph = df_previsions.copy()
+            df_graph = df_previsions_filtre.copy()
             df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
             df_graph['Date'] = pd.to_datetime(df_graph['Date_Str'])
             
@@ -532,8 +543,8 @@ if fichier_ventes is not None:
                 ))
 
             fig1.update_layout(
-                title=dict(text=f"Évolution Globale (Cible: {annee_cible})", font=dict(size=18, color="#111827")),
-                xaxis_title="Mois",
+                title=dict(text=f"Évolution Globale ({mois_cible_label} - Cible: {annee_cible})", font=dict(size=18, color="#111827")),
+                xaxis_title="Date",
                 yaxis_title=f"Volume ({unite_affichage})",
                 hovermode="x unified",
                 plot_bgcolor='white',
@@ -580,7 +591,7 @@ if fichier_ventes is not None:
                     st.plotly_chart(fig2, width="stretch")
 
             with col_g2:
-                df_top = df_previsions.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
+                df_top = df_previsions_filtre.groupby('article')[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
                 
                 fig3 = go.Figure(data=[go.Bar(
                     x=df_top[col_prev_aff], 
@@ -590,7 +601,7 @@ if fichier_ventes is not None:
                 )])
                 
                 fig3.update_layout(
-                    title=dict(text="Top 10 Articles (Volume Total Projeté)", font=dict(size=16, color="#111827")),
+                    title=dict(text=f"Top 10 Articles ({mois_cible_label})", font=dict(size=16, color="#111827")),
                     xaxis_title=f"Volume ({unite_affichage})",
                     plot_bgcolor='white',
                     paper_bgcolor='white',

@@ -81,6 +81,8 @@ st.markdown("""
     .kpi-label { color: #6B7280; font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
     .kpi-value { color: #E30613; font-size: 2.6rem; font-weight: 900; line-height: 1.1; }
     .kpi-value-dark { color: #111827; }
+    .kpi-value-green { color: #009640; }
+    .kpi-value-red { color: #E30613; }
     .kpi-footer { color: #9CA3AF; font-size: 0.85rem; margin-top: 8px; font-weight: 500; }
 
     /* Titres de sections */
@@ -382,7 +384,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # CORRECTION SPECIFIQUE FOSA : On ne prend que les mois actifs pour le Cumul_Coef
     df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
                      .groupby(['agence', 'article'], observed=True)['mois'].min()
                      .reset_index().rename(columns={'mois': 'Mois_Debut'}))
@@ -437,7 +438,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
     
-    # Plafonnement de sécurité
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
@@ -470,7 +470,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
-    cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols"]
+    cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel"]
     df_realise_out = df_realise[df_realise['article'].isin(articles_avec_vente)].copy()
 
     return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise_out
@@ -546,6 +546,9 @@ with st.sidebar:
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027)
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
+        # NOUVEAU CHAMP OBJECTIF
+        objectif_annuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=0.0)
+        
         methode_croissance = st.selectbox(
             "Méthode de croissance", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
@@ -609,12 +612,33 @@ if fichier_ventes is not None:
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
+    # CALCUL DU GAP
+    gap = objectif_annuel - atterrissage_cible
+    
+    # CALCUL DES METRIQUES DE FIABILITE (MAE, MAPE, SMAPE)
+    df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
+    # On évite les divisions par zéro
+    df_eval = df_eval[(df_eval[col_prev_aff] > 0) & (df_eval[col_prev_pure] > 0)]
+    
+    if not df_eval.empty:
+        y_true = df_eval[col_prev_aff].values
+        y_pred = df_eval[col_prev_pure].values
+        
+        mae = np.mean(np.abs(y_true - y_pred))
+        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+        smape = np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred))) * 100
+    else:
+        mae, mape, smape = 0.0, 0.0, 0.0
+
     vol_total_hl = df_previsions_filtre["Volume_HL"].sum()
     if vol_total_hl > 0:
         cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre["Volume_HL"]).sum() / vol_total_hl
     else:
         cagr_applique = 0.0
 
+    # =========================================================================
+    # AFFICHAGE DES NOUVEAUX KPI (LIGNE 1 : ATTERRISSAGE, OBJECTIF, GAP)
+    # =========================================================================
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -623,30 +647,55 @@ if fichier_ventes is not None:
             <div class="kpi-value">{atterrissage_cible:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div>
         </div>""", unsafe_allow_html=True)
+    
     with k2:
         st.markdown(f"""
         <div class="white-card">
-            <div class="kpi-label">CAGR Pondéré</div>
-            <div class="kpi-value kpi-value-dark">{cagr_applique:,.2f}%</div>
-            <div class="kpi-footer">Méthode : {methode_croissance}</div>
+            <div class="kpi-label">Objectif Annuel</div>
+            <div class="kpi-value kpi-value-dark">{objectif_annuel:,.0f}</div>
+            <div class="kpi-footer">{unite_affichage} (Cible fixée)</div>
         </div>""", unsafe_allow_html=True)
+    
     with k3:
-        ytd_val = 0
-        if df_realise is not None and not df_realise.empty:
-            ytd_df = df_realise[df_realise['annee'] == annee_cloture]
-            if unite_affichage == "Cols":
-                ytd_val = ytd_df.apply(lambda r: r['hl'] * (10000 / r['contenance_cl']) if r['contenance_cl'] > 0 else r['hl'], axis=1).sum()
-            else:
-                ytd_val = ytd_df['hl'].sum()
+        gap_color = "kpi-value-green" if gap <= 0 else "kpi-value-red"
+        gap_label = "Objectif Atteint" if gap <= 0 else "Écart Restant"
         st.markdown(f"""
         <div class="white-card">
-            <div class="kpi-label">Volume Réalisé (YTD)</div>
-            <div class="kpi-value">{ytd_val:,.0f}</div>
-            <div class="kpi-footer">{unite_affichage} jusqu'au cutoff</div>
+            <div class="kpi-label">GAP (Objectif - Atterrissage)</div>
+            <div class="kpi-value {gap_color}">{gap:+,.0f}</div>
+            <div class="kpi-footer">{gap_label} en {unite_affichage}</div>
+        </div>""", unsafe_allow_html=True)
+
+    # =========================================================================
+    # AFFICHAGE DES METRIQUES DE FIABILITE (LIGNE 2 : MAE, MAPE, SMAPE)
+    # =========================================================================
+    st.markdown("<br>", unsafe_allow_html=True)
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.markdown(f"""
+        <div class="white-card" style="border-top: 4px solid #4B5563;">
+            <div class="kpi-label">MAE (Erreur Absolue Moyenne)</div>
+            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mae:,.0f}</div>
+            <div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div>
+        </div>""", unsafe_allow_html=True)
+    with m2:
+        st.markdown(f"""
+        <div class="white-card" style="border-top: 4px solid #4B5563;">
+            <div class="kpi-label">MAPE (Erreur % Moyenne)</div>
+            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mape:,.2f}%</div>
+            <div class="kpi-footer">Précision du modèle (plus bas = mieux)</div>
+        </div>""", unsafe_allow_html=True)
+    with m3:
+        st.markdown(f"""
+        <div class="white-card" style="border-top: 4px solid #4B5563;">
+            <div class="kpi-label">SMAPE (Erreur % Symétrique)</div>
+            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div>
+            <div class="kpi-footer">Idéal pour les faibles volumes</div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # GRAPHIQUES
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
@@ -659,7 +708,7 @@ if fichier_ventes is not None:
         # 1. PRÉPARATION DU RÉALISÉ POUR L'ANNÉE CIBLE
         df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
         
-        # CORRECTION ICI : On coupe la ligne réalisée au mois de cutoff pour éviter la chute à zéro
+        # On coupe la ligne réalisée au mois de cutoff pour éviter la chute à zéro
         if annee_cible == annee_cloture:
             df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
 
@@ -739,6 +788,7 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
+    # ... ONGLETS ...
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]

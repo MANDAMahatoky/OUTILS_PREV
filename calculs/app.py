@@ -401,7 +401,8 @@ if fichier_ventes is not None:
         
         f1, f2, f3, f4 = st.columns(4)
         with f1:
-            regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) != "Aucune vente"])
+            # SUPPRESSION DE "AUTRE" DE LA LISTE DES RÉGIONS
+            regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
             sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
             df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
         with f2:

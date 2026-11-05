@@ -68,34 +68,32 @@ st.markdown("""
     }
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* --- MODIFICATION CIBLÉE DES ONGLETS : TRÈS ESPACÉS, GRANDS ET GRAS --- */
+    /* --- ONGLETS : TRÈS ESPACÉS, PLUS GRANDS ET EN GRAS --- */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 60px; /* Très espacé */
+        gap: 100px; /* Espacement maximal entre les onglets */
         background-color: transparent;
         border-bottom: 2px solid #E5E7EB;
         padding-bottom: 0px;
-        margin-bottom: 40px; /* Plus d'espace sous les onglets */
+        margin-bottom: 40px;
     }
     .stTabs [data-baseweb="tab"] {
         color: #6B7280; 
-        font-size: 1.6rem; /* Police très grande */
-        font-weight: 800;  /* Très gras */
-        padding: 20px 0px; /* Plus d'espace vertical */
+        font-size: 1.8rem; /* Police encore plus grande */
+        font-weight: 800;  /* Gras */
+        padding: 20px 0px;
         background-color: transparent !important; 
         border: none;
         border-bottom: 4px solid transparent;
         border-radius: 0;
         transition: all 0.2s ease;
     }
-    .stTabs [data-baseweb="tab"]:hover {
-        color: #111827;
-    }
+    .stTabs [data-baseweb="tab"]:hover { color: #111827; }
     .stTabs [aria-selected="true"] {
         color: #E30613 !important; 
         border-bottom: 5px solid #E30613 !important; 
         background-color: transparent !important; 
         box-shadow: none !important;
-        font-weight: 900; /* Le plus gras possible pour l'actif */
+        font-weight: 900; /* Le plus gras possible */
     }
     
     /* Masquer les marges inutiles */
@@ -628,16 +626,21 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
-        # --- TITRE "RÉSULTAT FINAL" TRÈS ESPACÉ, GRAND ET GRAS ---
+        # --- TITRE RÉDUIT ET NON-GRAS (SELON VOTRE DEMANDE) ---
         st.markdown(f"""
-        <div style="margin-bottom: 40px; margin-top: 20px;">
-            <h2 style="font-size: 2.5rem; color: #111827; font-weight: 900; margin: 0; letter-spacing: -0.03em; text-transform: uppercase;">Résultat Final</h2>
-            <p style="color: #4B5563; font-size: 1.3rem; margin-top: 15px; font-weight: 700;">Projections mensuelles pour : <span style="color: #E30613; font-weight: 900; font-size: 1.4rem;">{label_mois_str}</span></p>
+        <div style="margin-bottom: 20px; margin-top: 10px;">
+            <h2 style="font-size: 1.4rem; color: #4B5563; font-weight: 500; margin: 0;">Résultat Final</h2>
+            <p style="color: #9CA3AF; font-size: 1rem; margin-top: 5px; font-weight: 400;">Projections mensuelles pour : <span style="color: #E30613; font-weight: 500;">{label_mois_str}</span></p>
         </div>
         """, unsafe_allow_html=True)
 
-        col_t5_1, col_t5_2 = st.columns([3, 1])
-        with col_t5_2:
+        # Barre d'outils (Recherche + Export)
+        col_search, col_export = st.columns([3, 1])
+        
+        with col_search:
+            search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed")
+            
+        with col_export:
             pivot_mensuel = _pivot_mensuel_cached(df_previsions_filtre, col_prev_aff).copy()
             if len(mois_cibles_selection) > 1: pivot_mensuel['Total Période'] = pivot_mensuel.sum(axis=1)
             elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
@@ -652,8 +655,7 @@ if fichier_ventes is not None:
                 use_container_width=True
             )
 
-        search_query = st.text_input("Rechercher un article ou une agence", "", placeholder="Tapez un nom pour filtrer...")
-
+        # Préparation de l'affichage du DataFrame
         pivot_mensuel_reset = pivot_mensuel.reset_index()
         pivot_mensuel_reset.columns = [
             "Année" if str(c).lower() == "annee" else 
@@ -684,6 +686,7 @@ if fichier_ventes is not None:
         if "Total Année" in pivot_mensuel_display.columns:
              col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
 
+        # Affichage du tableau
         st.dataframe(
             pivot_mensuel_display,
             use_container_width=True,

@@ -316,7 +316,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (AVEC CORRECTION NOUVEAU PRODUIT ET METHODES CAGR)
+# LOGIQUE DE CALCUL (AVEC CORRECTION NOUVEAU PRODUIT)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -354,7 +354,18 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
-    if table_indices.empty: return None, None, None, None, df_realise
+    
+    # =========================================================================
+    # CORRECTION POUR LES NOUVEAUX PRODUITS (FALLBACK)
+    # Si le tableau d'indices est vide (car moins de 12 mois d'historique),
+    # on crée un indice neutre de 1.0 pour tous les mois.
+    # =========================================================================
+    if table_indices.empty:
+        df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
+        df_ag_art['key'] = 1
+        df_mois = pd.DataFrame({'mois': list(range(1, 13)), 'key': 1})
+        table_indices = pd.merge(df_ag_art, df_mois, on='key').drop('key', axis=1)
+        table_indices['Indice'] = 1.0
 
     df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
@@ -375,10 +386,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # =========================================================================
-    # CORRECTION POUR LES NOUVEAUX PRODUITS (EX: FOSA EN AOUT)
-    # On identifie le premier mois de vente pour ne pas fausser le Cumul_Coef
-    # =========================================================================
+    # CORRECTION SPECIFIQUE FOSA : On ne prend que les mois actifs pour le Cumul_Coef
     df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
                      .groupby(['agence', 'article'], observed=True)['mois'].min()
                      .reset_index().rename(columns={'mois': 'Mois_Debut'}))
@@ -386,7 +394,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.merge(df_mois_debut, on=['agence', 'article'], how='left')
     df_base['Mois_Debut'] = df_base['Mois_Debut'].fillna(1).astype(int)
 
-    # On calcule le coefficient de saisonnalité uniquement sur les mois actifs
     df_indices_temp = df_base[['agence', 'article', 'Mois_Debut']].merge(table_indices, on=['agence', 'article'], how='left')
     df_cumul = (df_indices_temp[(df_indices_temp['mois'] >= df_indices_temp['Mois_Debut']) & (df_indices_temp['mois'] <= mois_cutoff)]
                 .groupby(['agence', 'article'], observed=True)['Indice'].sum()
@@ -588,7 +595,7 @@ if fichier_ventes is not None:
     )
 
     if table_indices is None:
-        st.warning("⚠️ Impossible de calculer les prévisions. Vérifiez vos filtres.")
+        st.warning("⚠️ Impossible de calculer les prévisions. Vérifiez vos filtres (ex: pas de vente avant le cutoff).")
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"

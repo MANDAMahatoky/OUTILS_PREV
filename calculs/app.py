@@ -68,9 +68,9 @@ st.markdown("""
     }
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* --- ONGLETS : TRÈS ESPACÉS, PLUS GRANDS ET EN GRAS --- */
+    /* ONGLETS : ESPACEMENT MAXIMAL, PLUS GRANDS ET EN GRAS */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 100px; /* Espacement maximal entre les onglets */
+        gap: 200px !important; /* Espacement très large entre les onglets */
         background-color: transparent;
         border-bottom: 2px solid #E5E7EB;
         padding-bottom: 0px;
@@ -78,14 +78,15 @@ st.markdown("""
     }
     .stTabs [data-baseweb="tab"] {
         color: #6B7280; 
-        font-size: 1.8rem; /* Police encore plus grande */
-        font-weight: 800;  /* Gras */
+        font-size: 1.8rem;
+        font-weight: 800;
         padding: 20px 0px;
         background-color: transparent !important; 
         border: none;
         border-bottom: 4px solid transparent;
         border-radius: 0;
         transition: all 0.2s ease;
+        white-space: nowrap; /* Empêche le texte de passer à la ligne */
     }
     .stTabs [data-baseweb="tab"]:hover { color: #111827; }
     .stTabs [aria-selected="true"] {
@@ -93,7 +94,7 @@ st.markdown("""
         border-bottom: 5px solid #E30613 !important; 
         background-color: transparent !important; 
         box-shadow: none !important;
-        font-weight: 900; /* Le plus gras possible */
+        font-weight: 900;
     }
     
     /* Masquer les marges inutiles */
@@ -626,13 +627,10 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
-        # --- TITRE RÉDUIT ET NON-GRAS (SELON VOTRE DEMANDE) ---
-        st.markdown(f"""
-        <div style="margin-bottom: 20px; margin-top: 10px;">
-            <h2 style="font-size: 1.4rem; color: #4B5563; font-weight: 500; margin: 0;">Résultat Final</h2>
-            <p style="color: #9CA3AF; font-size: 1rem; margin-top: 5px; font-weight: 400;">Projections mensuelles pour : <span style="color: #E30613; font-weight: 500;">{label_mois_str}</span></p>
-        </div>
-        """, unsafe_allow_html=True)
+        # --- TITRE IDENTIQUE AUX AUTRES ONGLETS (###) ---
+        st.markdown("### Résultat Final")
+        st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
         # Barre d'outils (Recherche + Export)
         col_search, col_export = st.columns([3, 1])

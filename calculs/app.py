@@ -69,27 +69,45 @@ st.markdown("""
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
-       NAVIGATION (RADIO STYLISÉ EN ONGLETS TRÈS ESPACÉS)
+       CORRECTION DES BOUTONS RADIO (Unité) ET ONGLETS
        ========================================================= */
-    div[role="radiogroup"] {
+    /* On remet les boutons radio normaux (pour le filtre Unité) */
+    div[role="radiogroup"] { gap: 20px !important; border-bottom: none !important; margin-bottom: 0px !important; }
+    div[role="radiogroup"] label { background: transparent !important; border: none !important; padding: 0 !important; }
+    div[role="radiogroup"] label div p { font-size: 1rem !important; font-weight: 400 !important; color: inherit !important; }
+    div[role="radiogroup"] label > div:first-child { display: block !important; } 
+    
+    /* On cible UNIQUEMENT les onglets du bas */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
         gap: 80px !important; /* Espacement massif */
         border-bottom: 2px solid #E5E7EB !important;
         padding-bottom: 0px !important;
         margin-bottom: 30px !important;
-        display: flex !important;
-        flex-wrap: wrap !important;
     }
-    div[role="radiogroup"] label {
-        background: transparent !important; border: none !important; border-bottom: 4px solid transparent !important;
-        border-radius: 0 !important; padding: 10px 0px !important; margin: 0 !important;
+    [data-testid="stTabs"] button[data-baseweb="tab"] {
+        font-size: 1.6rem !important; /* Police très grande */
+        font-weight: 800 !important;  /* Très gras */
+        color: #6B7280 !important; 
+        padding: 15px 0px !important;
+        background-color: transparent !important; 
+        border: none !important;
+        border-bottom: 4px solid transparent !important;
     }
-    div[role="radiogroup"] label div p {
-        font-size: 1.6rem !important; font-weight: 800 !important; color: #6B7280 !important; transition: color 0.2s ease !important;
+    [data-testid="stTabs"] button[data-baseweb="tab"] div,
+    [data-testid="stTabs"] button[data-baseweb="tab"] p {
+        font-size: 1.6rem !important;
+        font-weight: 800 !important;
     }
-    div[role="radiogroup"] label:hover div p { color: #111827 !important; }
-    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 900 !important; }
-    div[role="radiogroup"] label:has(input:checked) { border-bottom: 4px solid #E30613 !important; }
-    div[role="radiogroup"] label > div:first-child { display: none !important; }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        color: #E30613 !important; 
+        border-bottom: 4px solid #E30613 !important; 
+        background-color: transparent !important; 
+        box-shadow: none !important;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] div,
+    [data-testid="stTabs"] button[aria-selected="true"] p {
+        font-weight: 900 !important; /* Extra gras */
+    }
     
     /* Masquer les marges inutiles */
     .block-container { padding-top: 2rem !important; }
@@ -581,15 +599,16 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. MENU DE NAVIGATION PERSONNALISÉ
+    # 6. ONGLETS DÉTAILLÉS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
-    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
-    active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"
+    ])
 
     N_MAX_DISPLAY = 5000
 
-    if active_tab == "Données Brutes":
+    with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
         if len(df_enrichi) > N_MAX_DISPLAY:
             st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
@@ -597,7 +616,7 @@ if fichier_ventes is not None:
         else:
             st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
-    elif active_tab == "Périmètre":
+    with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
         if len(df_perimetre) > N_MAX_DISPLAY:
             st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
@@ -605,7 +624,7 @@ if fichier_ventes is not None:
         else:
             st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
-    elif active_tab == "Réalisé Cumulé":
+    with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
             df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
@@ -613,7 +632,7 @@ if fichier_ventes is not None:
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
-    elif active_tab == "Indices & SARR":
+    with tab4:
         st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
         c_idx, c_sarr = st.columns(2)
         with c_idx:
@@ -629,7 +648,7 @@ if fichier_ventes is not None:
             df_sarr_derniers = (df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article'], observed=True).tail(5))
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
-    elif active_tab == "Prévisions Détaillées":
+    with tab5:
         st.markdown("### Résultat Final")
         st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)

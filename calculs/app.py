@@ -68,6 +68,43 @@ st.markdown("""
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
+       DESIGN AMÉLIORÉ DES TABLEAUX ET EXPANDERS
+       ========================================================= */
+    /* Style global de l'expander */
+    div[data-testid="stExpander"] {
+        background-color: white !important;
+        border-radius: 12px !important;
+        border: 1px solid #E5E7EB !important;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02) !important;
+        margin-bottom: 20px !important;
+    }
+    
+    /* En-tête de l'expander */
+    div[data-testid="stExpander"] > details > summary {
+        background-color: #F9FAFB !important;
+        border-radius: 12px !important;
+        font-weight: 700 !important;
+        color: #111827 !important;
+        padding: 15px 20px !important;
+        border-bottom: 1px solid transparent !important;
+    }
+    
+    /* En-tête quand ouvert */
+    div[data-testid="stExpander"] > details[open] > summary {
+        border-bottom: 1px solid #E5E7EB !important;
+        border-bottom-left-radius: 0 !important;
+        border-bottom-right-radius: 0 !important;
+    }
+
+    /* Conteneur du tableau à l'intérieur de l'expander */
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #E5E7EB !important;
+        border-radius: 8px !important;
+        padding: 10px !important;
+        background-color: white !important;
+    }
+    
+    /* =========================================================
        NAVIGATION (BOUTONS RADIO STYLISÉS)
        ========================================================= */
     div[role="radiogroup"] {
@@ -633,10 +670,10 @@ if fichier_ventes is not None:
 
     N_MAX_DISPLAY = 5000
 
-    # 7. AFFICHAGE DES TABLEAUX DANS DES EXPANDERS
+    # 7. AFFICHAGE DES TABLEAUX DANS DES EXPANDERS (VISIBLES PAR DÉFAUT)
     if active_tab == "Données Brutes":
         st.markdown("### Étape 1 : Données Brutes Enrichies")
-        with st.expander("📊 Afficher le tableau des données brutes", expanded=False):
+        with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
             if len(df_enrichi) > N_MAX_DISPLAY:
                 st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
                 st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
@@ -645,7 +682,7 @@ if fichier_ventes is not None:
 
     elif active_tab == "Périmètre":
         st.markdown("### Étape 2 : Périmètre Filtré")
-        with st.expander("📊 Afficher le tableau du périmètre", expanded=False):
+        with st.expander("📊 Afficher le tableau du périmètre", expanded=True):
             if len(df_perimetre) > N_MAX_DISPLAY:
                 st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
                 st.dataframe(df_perimetre.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
@@ -654,7 +691,7 @@ if fichier_ventes is not None:
 
     elif active_tab == "Réalisé Cumulé":
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
-        with st.expander("📊 Afficher le tableau du réalisé", expanded=False):
+        with st.expander("📊 Afficher le tableau du réalisé", expanded=True):
             if df_realise is not None and not df_realise.empty:
                 df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
                 st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
@@ -666,7 +703,7 @@ if fichier_ventes is not None:
         c_idx, c_sarr = st.columns(2)
         with c_idx:
             st.markdown("**Indices de Saisonnalité**")
-            with st.expander("📊 Afficher les indices", expanded=False):
+            with st.expander("📊 Afficher les indices", expanded=True):
                 if not table_indices.empty:
                     pivot_indices = _pivot_indices_cached(table_indices)
                     st.dataframe(pivot_indices, use_container_width=True)
@@ -674,7 +711,7 @@ if fichier_ventes is not None:
                     st.info("Pas d'historique complet.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois)**")
-            with st.expander("📊 Afficher le SARR", expanded=False):
+            with st.expander("📊 Afficher le SARR", expanded=True):
                 df_sarr["SARR_Aff"] = (df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"])
                 df_sarr_derniers = (df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article'], observed=True).tail(5))
                 st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)

@@ -50,7 +50,7 @@ st.markdown("""
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        min-height: 150px; /* Hauteur minimale pour accueillir les images */
+        min-height: 150px;
     }
     .hero-header h1 { 
         color: white !important; 
@@ -556,7 +556,8 @@ with st.sidebar:
 # ==============================================================================
 # GESTION DES IMAGES DU HEADER (Dossier local "images/" ou Web)
 # ==============================================================================
-BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
+# On utilise resolve() pour être sûr à 100% du chemin absolu
+BASE_DIR = Path(__file__).resolve().parent if "__file__" in locals() else Path.cwd()
 IMAGES_DIR = BASE_DIR / "images"
 
 # Chargement des images locales (avec les noms exacts de votre dossier)
@@ -569,17 +570,17 @@ src_left = f"data:image/png;base64,{img_left_b64}" if img_left_b64 else "https:/
 src_center = f"data:image/png;base64,{img_center_b64}" if img_center_b64 else "https://commons.wikimedia.org/wiki/Special:FilePath/Boissons_gazeuses.jpg"
 src_right = f"data:image/png;base64,{img_right_b64}" if img_right_b64 else "https://commons.wikimedia.org/wiki/Special:FilePath/Eau_vive.jpg"
 
-# 2. HEADER ROUGE (Avec images de produits)
+# 2. HEADER ROUGE (Avec images de produits, alt="" pour cacher le texte si erreur)
 st.markdown(f"""
 <div class="hero-header">
     <div class="product-image-container left">
-        <img src="{src_left}" alt="THB">
+        <img src="{src_left}" alt="">
     </div>
     <div class="product-image-container center-left">
-        <img src="{src_center}" alt="Sodas STAR">
+        <img src="{src_center}" alt="">
     </div>
     <div class="product-image-container right">
-        <img src="{src_right}" alt="Eau Vive">
+        <img src="{src_right}" alt="">
     </div>
     
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>

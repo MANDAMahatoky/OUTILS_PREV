@@ -108,6 +108,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
+# FONCTION DE MAPPING ROBUSTE POUR LES RÉGIONS
+# ==============================================================================
+def get_region(agence):
+    if pd.isna(agence): return "Autre"
+    a = str(agence).lower().replace("-", "").replace(" ", "").replace("_", "")
+    
+    if "andranomahery" in a or "antsirabe" in a: return "Centre"
+    if "tanjombato" in a or "tamatave" in a: return "Est"
+    if "diego" in a or "majunga" in a or "ambanja" in a or "sambava" in a or "nosybe" in a: return "Nord"
+    if "tulear" in a or "fianarantsoa" in a or "ihosy" in a or "manakara" in a or "morondava" in a or "dauphin" in a: return "Sud"
+    
+    return "Autre"
+
+# ==============================================================================
 # RÉFÉRENTIEL ET MAPPING
 # ==============================================================================
 REF_DEFAUT = [
@@ -147,12 +161,6 @@ REF_DEFAUT = [
     {"Article": "XXL 30cl VER", "Contenance (Cl)": 30, "Positionnement": "Entrée"}, {"Article": "XXL 33 cl CAN", "Contenance (Cl)": 33, "Positionnement": "Entrée"},
     {"Article": "XXL 35cl PET", "Contenance (Cl)": 35, "Positionnement": "Entrée"}
 ]
-
-MAPPING_REGIONS = {
-    "11-Andranomahery": "Centre", "12-Antsirabe": "Centre", "01-Tanjombato": "Est", "09-Tamatave": "Est",
-    "03-Usine-Diego": "Nord", "07-Majunga": "Nord", "18-Ambanja": "Nord", "19-Sambava": "Nord", "21-Nosy-Be": "Nord",
-    "04-Tulear": "Sud", "05-Fianarantsoa": "Sud", "06-Ihosy": "Sud", "08-Manakara": "Sud", "23-Morondava": "Sud", "24-Fort-Dauphin": "Sud"
-}
 
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
@@ -228,7 +236,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
-    df_enrichi["region"] = df_enrichi["agence"].map(MAPPING_REGIONS).fillna("Autre")
+    
+    # UTILISATION DE LA FONCTION ROBUSTE POUR LES RÉGIONS
+    df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     
     conditions = [df_enrichi["article"].str.contains(x, case=False, na=False) for x in ["booster|alcoomix", "caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", "beaufort|fresh|thb|gold|queen|skol|castel|libertalia", "cristal|cristalline|eau vive|eau", "xxl|fosa", "judor|jus", "vin", "negoce"]]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]

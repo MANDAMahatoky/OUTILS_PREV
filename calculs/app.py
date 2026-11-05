@@ -652,12 +652,12 @@ if fichier_ventes is not None:
     with col_g1:
         st.markdown(f"""
         <div class="white-card">
-            <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
+            <div class="section-title">Superposition Réalisé vs Prévision (Jusqu'à {annee_cible})</div>
             <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
-        # CORRECTION ICI : On filtre strictement sur l'année cible
-        df_graph = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+        # CORRECTION ICI : On affiche tout l'historique jusqu'à l'année cible (superposition)
+        df_graph = df_previsions_filtre[df_previsions_filtre['annee'] <= annee_cible].copy()
         
         df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
         df_graph['Date_Plot'] = pd.to_datetime(df_graph['Date_Str'])

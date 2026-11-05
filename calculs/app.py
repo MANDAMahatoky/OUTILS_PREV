@@ -69,27 +69,38 @@ st.markdown("""
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
-       NAVIGATION (RADIO STYLISÉ EN ONGLETS TRÈS ESPACÉS)
+       ONGLETS DU BAS (TRÈS ESPACÉS, GRANDS ET GRAS)
        ========================================================= */
-    div[role="radiogroup"] {
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
         gap: 80px !important; /* Espacement massif */
         border-bottom: 2px solid #E5E7EB !important;
         padding-bottom: 0px !important;
         margin-bottom: 30px !important;
-        display: flex !important;
-        flex-wrap: wrap !important;
     }
-    div[role="radiogroup"] label {
-        background: transparent !important; border: none !important; border-bottom: 4px solid transparent !important;
-        border-radius: 0 !important; padding: 10px 0px !important; margin: 0 !important;
+    [data-testid="stTabs"] button[data-baseweb="tab"] {
+        font-size: 1.6rem !important; /* Police très grande */
+        font-weight: 800 !important;  /* Très gras */
+        color: #6B7280 !important; 
+        padding: 15px 0px !important;
+        background-color: transparent !important; 
+        border: none !important;
+        border-bottom: 4px solid transparent !important;
     }
-    div[role="radiogroup"] label div p {
-        font-size: 1.6rem !important; font-weight: 800 !important; color: #6B7280 !important; transition: color 0.2s ease !important;
+    [data-testid="stTabs"] button[data-baseweb="tab"] div,
+    [data-testid="stTabs"] button[data-baseweb="tab"] p {
+        font-size: 1.6rem !important;
+        font-weight: 800 !important;
     }
-    div[role="radiogroup"] label:hover div p { color: #111827 !important; }
-    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 900 !important; }
-    div[role="radiogroup"] label:has(input:checked) { border-bottom: 4px solid #E30613 !important; }
-    div[role="radiogroup"] label > div:first-child { display: none !important; }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        color: #E30613 !important; 
+        border-bottom: 4px solid #E30613 !important; 
+        background-color: transparent !important; 
+        box-shadow: none !important;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] div,
+    [data-testid="stTabs"] button[aria-selected="true"] p {
+        font-weight: 900 !important; /* Extra gras */
+    }
     
     /* Masquer les marges inutiles */
     .block-container { padding-top: 2rem !important; }
@@ -307,7 +318,17 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_Hist'] = 0.0
 
-    df_base['CAGR_val'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
+    # =========================================================================
+    # SOLUTION 1 & 2 : SEUIL DE BASE ET PLAFONNEMENT DU CAGR (CLIPPING)
+    # =========================================================================
+    # On calcule le CAGR brut
+    df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
+    
+    # Si la base historique est trop faible (< 100 HL), on ignore le calcul brut et on prend le CAGR historique
+    df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
+    
+    # On plafonne (clip) la croissance entre -20% et +30% maximum par an
+    df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
@@ -334,7 +355,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     
     contenance_safe = df_cross['contenance_cl'].replace(0, 100).fillna(100.0)
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000.0 / contenance_safe)
-    df_cross['Prevision_Cols'] = df_cross['Prevision_HL'] * (10000.0 / contenance_safe) # Ajout pour superposition en Cols
+    df_cross['Prevision_Cols'] = df_cross['Prevision_HL'] * (10000.0 / contenance_safe)
     
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
@@ -463,7 +484,15 @@ if fichier_ventes is not None:
 
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
-    cagr_applique = df_previsions_filtre['CAGR (%)'].mean() if not df_previsions_filtre.empty else 0.0
+
+    # =========================================================================
+    # SOLUTION 3 : CAGR PONDÉRÉ POUR LA KPI (Évite que les petits articles biaisent la moyenne)
+    # =========================================================================
+    vol_total = df_previsions_filtre[col_prev_aff].sum()
+    if vol_total > 0:
+        cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre[col_prev_aff]).sum() / vol_total
+    else:
+        cagr_applique = 0.0
 
     # 4. CARTES KPI
     k1, k2, k3 = st.columns(3)
@@ -477,9 +506,9 @@ if fichier_ventes is not None:
     with k2:
         st.markdown(f"""
         <div class="white-card">
-            <div class="kpi-label">CAGR Appliqué</div>
+            <div class="kpi-label">CAGR Pondéré Appliqué</div>
             <div class="kpi-value kpi-value-green">{cagr_applique:,.2f}%</div>
-            <div class="kpi-footer">Croissance annuelle moyenne</div>
+            <div class="kpi-footer">Croissance moyenne pondérée par les volumes</div>
         </div>""", unsafe_allow_html=True)
     with k3:
         ytd_val = 0
@@ -498,7 +527,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES (Filtré sur l'année cible)
+    # 5. GRAPHIQUES (Superposition Réalisé vs Prévision)
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
@@ -508,7 +537,7 @@ if fichier_ventes is not None:
             <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
-        # ICI : On filtre pour n'afficher QUE l'année cible
+        # On filtre pour n'afficher QUE l'année cible
         df_graph = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
         
         df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
@@ -577,19 +606,20 @@ if fichier_ventes is not None:
 
     st.markdown("""
     <p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
-        Projection basée sur la logique SARR et CAGR. Les chiffres sont donnés à titre indicatif.
+        Projection basée sur la logique SARR et CAGR (plafonné entre -20% et +30%). Les chiffres sont donnés à titre indicatif.
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. MENU DE NAVIGATION PERSONNALISÉ
+    # 6. ONGLETS DÉTAILLÉS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
-    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
-    active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"
+    ])
 
     N_MAX_DISPLAY = 5000
 
-    if active_tab == "Données Brutes":
+    with tab1:
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
         if len(df_enrichi) > N_MAX_DISPLAY:
             st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
@@ -597,7 +627,7 @@ if fichier_ventes is not None:
         else:
             st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
-    elif active_tab == "Périmètre":
+    with tab2:
         st.markdown("### Étape 2 : Périmètre Filtré")
         if len(df_perimetre) > N_MAX_DISPLAY:
             st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
@@ -605,7 +635,7 @@ if fichier_ventes is not None:
         else:
             st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
-    elif active_tab == "Réalisé Cumulé":
+    with tab3:
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
             df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
@@ -613,7 +643,7 @@ if fichier_ventes is not None:
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
-    elif active_tab == "Indices & SARR":
+    with tab4:
         st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
         c_idx, c_sarr = st.columns(2)
         with c_idx:
@@ -629,7 +659,7 @@ if fichier_ventes is not None:
             df_sarr_derniers = (df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article'], observed=True).tail(5))
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
-    elif active_tab == "Prévisions Détaillées":
+    with tab5:
         st.markdown("### Résultat Final")
         st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)

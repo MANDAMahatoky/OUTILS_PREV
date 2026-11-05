@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (Header Blanc + Brand STAR)
+# CONFIGURATION ET DESIGN (Header Blanc + Brand STAR + Onglets Modernes)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="collapsed")
 
@@ -21,7 +21,7 @@ st.markdown("""
     /* Reset et Fond */
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #F4F6F8 !important; }
-    [data-testid="stSidebar"] { display: none; } /* Masqué pour correspondre à la structure */
+    [data-testid="stSidebar"] { display: none; }
     
     /* Header Blanc (Brand STAR) */
     .hero-header {
@@ -33,56 +33,71 @@ st.markdown("""
         margin-bottom: 30px;
         position: relative;
         overflow: hidden;
-        border-bottom: 4px solid #E30613; /* Touche STAR */
+        border-bottom: 4px solid #E30613;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
     .hero-header h1 { color: #E30613 !important; font-size: 2.8rem; font-weight: 900; margin-bottom: 10px; letter-spacing: -0.02em; }
     .hero-header p { color: #6B7280; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; }
     .badge-demo {
-        background-color: #FEF2F2;
-        color: #E30613;
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 700;
-        display: inline-block;
-        border: 1px solid #FECACA;
+        background-color: #FEF2F2; color: #E30613; padding: 6px 14px;
+        border-radius: 20px; font-size: 0.8rem; font-weight: 700;
+        display: inline-block; border: 1px solid #FECACA;
     }
     
-    /* Cartes Blanches (KPIs, Filtres, Graphiques) */
+    /* Cartes Blanches */
     .white-card {
-        background: white;
-        border-radius: 12px;
-        padding: 24px;
+        background: white; border-radius: 12px; padding: 24px;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
-        border: 1px solid #E5E7EB;
-        margin-bottom: 20px;
-        height: 100%;
+        border: 1px solid #E5E7EB; margin-bottom: 20px; height: 100%;
     }
     
-    /* KPI Cards (Brand STAR) */
+    /* KPI Cards */
     .kpi-label { color: #6B7280; font-size: 0.95rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
     .kpi-value { color: #111827; font-size: 2.6rem; font-weight: 800; line-height: 1.1; }
-    .kpi-value-green { color: #009640; } /* Vert STAR */
-    .kpi-value-red { color: #E30613; } /* Rouge STAR */
+    .kpi-value-green { color: #009640; }
+    .kpi-value-red { color: #E30613; }
     .kpi-footer { color: #9CA3AF; font-size: 0.85rem; margin-top: 8px; font-weight: 500; }
 
     /* Titres de sections */
     .section-title { color: #111827; font-size: 1.2rem; font-weight: 800; margin-bottom: 5px; }
     .section-subtitle { color: #6B7280; font-size: 0.85rem; margin-bottom: 20px; font-weight: 500; }
 
-    /* Inputs Streamlit (Style épuré) */
+    /* Inputs Streamlit */
     div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] {
         background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important;
     }
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* Onglets */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: transparent; border-bottom: 2px solid #E5E7EB; margin-top: 20px; }
-    .stTabs [data-baseweb="tab"] { color: #6B7280; font-weight: 600; padding: 10px 20px; border-radius: 6px; }
-    .stTabs [aria-selected="true"] { background-color: #E30613 !important; color: white !important; box-shadow: 0 4px 6px -1px rgba(227, 6, 19, 0.3); }
+    /* --- AMÉLIORATION DES ONGLETS (CE QUE VOUS AVEZ ENTOURÉ) --- */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 32px;
+        background-color: transparent;
+        border-bottom: 1px solid #E5E7EB;
+        padding-bottom: 0px;
+        margin-bottom: 24px; /* Espace entre les onglets et le titre */
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #6B7280; 
+        font-weight: 600; 
+        padding: 10px 0px; 
+        background-color: transparent !important; 
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        transition: all 0.2s ease;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #111827;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #E30613 !important; 
+        border-bottom: 2px solid #E30613 !important; 
+        background-color: transparent !important; 
+        box-shadow: none !important;
+        font-weight: 700;
+    }
     
-    /* Masquer les marges inutiles en haut */
+    /* Masquer les marges inutiles */
     .block-container { padding-top: 2rem !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -503,12 +518,9 @@ if fichier_ventes is not None:
         df_real = df_grouped[df_grouped['Statut'] == 'Réalisé'].sort_values('Date_Plot')
         df_prev = df_grouped[df_grouped['Statut'] == 'Prévision'].sort_values('Date_Plot')
 
-        # Continuité visuelle : on ajoute le dernier point réalisé au début de la prévision
+        # Continuité visuelle
         if not df_real.empty and not df_prev.empty:
-            df_prev = pd.concat([
-                df_real.tail(1).assign(Statut='Prévision'),
-                df_prev
-            ], ignore_index=True)
+            df_prev = pd.concat([df_real.tail(1).assign(Statut='Prévision'), df_prev], ignore_index=True)
 
         fig1 = go.Figure()
 
@@ -619,12 +631,70 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
-        st.markdown(f"### Étape 5 : Résultat Final ({label_mois_str})")
-        pivot_mensuel = _pivot_mensuel_cached(df_previsions_filtre, col_prev_aff).copy()
-        if len(mois_cibles_selection) > 1: pivot_mensuel['Total Période'] = pivot_mensuel.sum(axis=1)
-        elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
-        pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
-        st.dataframe(pivot_mensuel, use_container_width=True)
+        # --- AMÉLIORATION DU TITRE (CE QUE VOUS AVEZ ENTOURÉ) ---
+        st.markdown(f"""
+        <div style="margin-bottom: 24px;">
+            <h2 style="font-size: 1.5rem; color: #111827; font-weight: 800; margin: 0; letter-spacing: -0.02em;">Résultat Final</h2>
+            <p style="color: #6B7280; font-size: 0.9rem; margin-top: 4px; font-weight: 500;">Projections mensuelles pour : <span style="color: #E30613; font-weight: 700;">{label_mois_str}</span></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_t5_1, col_t5_2 = st.columns([3, 1])
+        with col_t5_2:
+            pivot_mensuel = _pivot_mensuel_cached(df_previsions_filtre, col_prev_aff).copy()
+            if len(mois_cibles_selection) > 1: pivot_mensuel['Total Période'] = pivot_mensuel.sum(axis=1)
+            elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
+            pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
+            
+            csv = pivot_mensuel.to_csv().encode('utf-8')
+            st.download_button(
+                label="📥 Exporter en CSV",
+                data=csv,
+                file_name=f"previsions_star_{annee_cible}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        # Barre de recherche
+        search_query = st.text_input("🔍 Rechercher un article ou une agence", "", placeholder="Tapez un nom pour filtrer...")
+
+        pivot_mensuel_reset = pivot_mensuel.reset_index()
+        pivot_mensuel_reset.columns = [
+            "Année" if str(c).lower() == "annee" else 
+            "Agence" if str(c).lower() == "agence" else 
+            "Article" if str(c).lower() == "article" else 
+            "Total Période" if "période" in str(c).lower() else
+            "Total Année" if "année" in str(c).lower() else str(c)
+            for c in pivot_mensuel_reset.columns
+        ]
+
+        if search_query:
+            mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+            pivot_mensuel_display = pivot_mensuel_reset[mask]
+        else:
+            pivot_mensuel_display = pivot_mensuel_reset
+
+        col_config = {
+            "Année": st.column_config.NumberColumn("Année", format="%d"),
+            "Agence": st.column_config.TextColumn("Agence"),
+            "Article": st.column_config.TextColumn("Article"),
+        }
+        for mois in MOIS_NOMS:
+            if mois in pivot_mensuel_display.columns:
+                col_config[mois] = st.column_config.NumberColumn(mois, format="localized")
+        
+        if "Total Période" in pivot_mensuel_display.columns:
+             col_config["Total Période"] = st.column_config.NumberColumn("Total Période", format="localized")
+        if "Total Année" in pivot_mensuel_display.columns:
+             col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
+
+        st.dataframe(
+            pivot_mensuel_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config=col_config,
+            height=500
+        )
 
         with st.expander("Voir le détail des calculs"):
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_Mensuelle", col_prev_aff]

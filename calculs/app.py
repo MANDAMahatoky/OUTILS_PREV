@@ -498,21 +498,23 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES (Superposition Réalisé vs Prévision)
+    # 5. GRAPHIQUES (Filtré sur l'année cible)
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
-        st.markdown("""
+        st.markdown(f"""
         <div class="white-card">
-            <div class="section-title">Superposition Réalisé vs Prévision</div>
+            <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
             <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
-        df_graph = df_previsions_filtre.copy()
+        # ICI : On filtre pour n'afficher QUE l'année cible
+        df_graph = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+        
         df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
         df_graph['Date_Plot'] = pd.to_datetime(df_graph['Date_Str'])
         
-        # 1. Prévision Pure (toute la période)
+        # 1. Prévision Pure (toute l'année cible)
         df_prev_pure = df_graph.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index()
         
         # 2. Réalisé (seulement jusqu'au cutoff)

@@ -345,7 +345,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v57"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v58"):
     articles_avec_vente = df_perimetre.groupby('article', observed=True)['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -357,7 +357,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     
-    # FALLBACK POUR NOUVEAUX PRODUITS
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
         df_ag_art['key'] = 1
@@ -627,7 +626,6 @@ if fichier_ventes is not None:
     if hist_n1_val > 0:
         objectif_calcule = hist_n1_val * (1 + taux_ambition / 100.0)
     else:
-        # Fallback si pas d'historique N-1 : on prend l'atterrissage + ambition
         objectif_calcule = atterrissage_cible * (1 + taux_ambition / 100.0)
 
     objectif_final = objectif_manuel if use_objectif_manuel else objectif_calcule
@@ -635,19 +633,22 @@ if fichier_ventes is not None:
     # CALCUL DU GAP
     gap = objectif_final - atterrissage_cible
     
-    # CALCUL DES METRIQUES DE FIABILITE
+    # =========================================================================
+    # CORRECTION FINALE DU CALCUL DES METRIQUES (WMAPE)
+    # =========================================================================
     df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
-    df_eval = df_eval[(df_eval[col_prev_aff] > 0) & (df_eval[col_prev_pure] > 0)]
-    
-    if not df_eval.empty:
-        y_true = df_eval[col_prev_aff].values
-        y_pred = df_eval[col_prev_pure].values
-        
+    df_eval_agg = df_eval.groupby(['annee', 'mois'], observed=True)[[col_prev_aff, col_prev_pure]].sum().reset_index()
+
+    if not df_eval_agg.empty and df_eval_agg[col_prev_aff].sum() > 0:
+        y_true = df_eval_agg[col_prev_aff].values
+        y_pred = df_eval_agg[col_prev_pure].values
+
         mae = np.mean(np.abs(y_true - y_pred))
-        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+        # WMAPE (Weighted MAPE) - standard de l'industrie
+        wmape = (np.sum(np.abs(y_true - y_pred)) / np.sum(y_true)) * 100
         smape = np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred))) * 100
     else:
-        mae, mape, smape = 0.0, 0.0, 0.0
+        mae, wmape, smape = 0.0, 0.0, 0.0
 
     vol_total_hl = df_previsions_filtre["Volume_HL"].sum()
     if vol_total_hl > 0:
@@ -655,7 +656,7 @@ if fichier_ventes is not None:
     else:
         cagr_applique = 0.0
 
-    # KPI LIGNE 1 (ATTERRISSAGE, OBJECTIF, GAP)
+    # KPI LIGNE 1
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -684,7 +685,7 @@ if fichier_ventes is not None:
             <div class="kpi-footer">{gap_label} en {unite_affichage}</div>
         </div>""", unsafe_allow_html=True)
 
-    # KPI LIGNE 2 (METRIQUES DE FIABILITE)
+    # KPI LIGNE 2
     st.markdown("<br>", unsafe_allow_html=True)
     m1, m2, m3 = st.columns(3)
     with m1:
@@ -697,9 +698,9 @@ if fichier_ventes is not None:
     with m2:
         st.markdown(f"""
         <div class="white-card" style="border-top: 4px solid #4B5563;">
-            <div class="kpi-label">MAPE (Erreur % Moyenne)</div>
-            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mape:,.2f}%</div>
-            <div class="kpi-footer">Précision du modèle</div>
+            <div class="kpi-label">WMAPE (Erreur % Pondérée)</div>
+            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{wmape:,.2f}%</div>
+            <div class="kpi-footer">Précision sur le volume total</div>
         </div>""", unsafe_allow_html=True)
     with m3:
         st.markdown(f"""

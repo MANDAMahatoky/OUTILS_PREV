@@ -343,7 +343,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v56"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v57"):
     articles_avec_vente = df_perimetre.groupby('article', observed=True)['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -656,28 +656,36 @@ if fichier_ventes is not None:
             <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
-        # CORRECTION ICI : On affiche tout l'historique jusqu'à l'année cible (superposition)
-        df_graph = df_previsions_filtre[df_previsions_filtre['annee'] <= annee_cible].copy()
+        # CORRECTION MAJEURE ICI : On récupère le réalisé depuis le périmètre brut,
+        # indépendamment du cutoff de calcul.
+        df_graph_real = df_perimetre[df_perimetre['annee'] <= annee_cible].copy()
+        df_graph_real['Date_Str'] = df_graph_real['annee'].astype(str) + '-' + df_graph_real['mois'].astype(str).str.zfill(2) + '-01'
+        df_graph_real['Date_Plot'] = pd.to_datetime(df_graph_real['Date_Str'])
         
-        df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
-        df_graph['Date_Plot'] = pd.to_datetime(df_graph['Date_Str'])
-        
-        df_prev_pure = df_graph.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index()
-        df_real = df_graph[df_graph['Statut'] == 'Réalisé'].groupby('Date_Plot', observed=True)[col_prev_aff].sum().reset_index()
+        # Calcul de l'unité pour le réalisé
+        contenance_safe = df_graph_real['contenance_cl'].replace(0, 100).fillna(100.0)
+        df_graph_real['Volume_Aff'] = df_graph_real['hl'] * (10000.0 / contenance_safe) if unite_affichage == "Cols" else df_graph_real['hl']
+        df_real_plot = df_graph_real.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
+
+        # On récupère la prévision calculée
+        df_graph_prev = df_previsions_filtre[df_previsions_filtre['annee'] <= annee_cible].copy()
+        df_graph_prev['Date_Str'] = df_graph_prev['annee'].astype(str) + '-' + df_graph_prev['mois'].astype(str).str.zfill(2) + '-01'
+        df_graph_prev['Date_Plot'] = pd.to_datetime(df_graph_prev['Date_Str'])
+        df_prev_plot = df_graph_prev.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
 
         fig1 = go.Figure()
 
-        if not df_prev_pure.empty:
+        if not df_prev_plot.empty:
             fig1.add_trace(go.Scatter(
-                x=df_prev_pure['Date_Plot'], y=df_prev_pure[col_prev_pure],
+                x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'],
                 mode='lines+markers', name='Prévision (Pure)',
                 line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3),
                 marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
             ))
 
-        if not df_real.empty:
+        if not df_real_plot.empty:
             fig1.add_trace(go.Scatter(
-                x=df_real['Date_Plot'], y=df_real[col_prev_aff],
+                x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'],
                 mode='lines+markers', name='Réalisé',
                 line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3),
                 marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))

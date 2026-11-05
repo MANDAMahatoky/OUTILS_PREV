@@ -199,10 +199,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE EXCEL AGRÉGÉE AVEC CAP CAGR A 20%
+# CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v37"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v39"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -373,15 +373,23 @@ if fichier_ventes is not None:
         annee_max_cagr = st.number_input("Année Max CAGR", min_value=annee_min_cagr, max_value=2030, value=2025)
 
         st.markdown("##### 🎯 Cutoff & Cible")
-        annee_cloture = st.number_input("Année de Clôture", min_value=2020, max_value=2030, value=2026)
-        annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
-        mois_cutoff = st.selectbox("Mois de Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{m} - {MOIS_NOMS[m-1]}")
+        
+        # Placement côte à côte pour Année Clôture et Mois Cutoff
+        col1, col2 = st.columns(2)
+        with col1:
+            annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026)
+        with col2:
+            mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}")
+            
+        # Placement côte à côte pour Année Cible et Mois Cible
+        col3, col4 = st.columns(2)
+        with col3:
+            annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
+        with col4:
+            mois_cible_label = st.selectbox("Mois Cible", options=["Tous"] + MOIS_NOMS, index=0)
 
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)
-        
-        # NOUVEAU FILTRE : Mois Cible
-        mois_cible_label = st.selectbox("Mois cible (Filtre)", options=["Tous les mois"] + MOIS_NOMS, index=0)
 
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
@@ -405,7 +413,7 @@ if fichier_ventes is not None:
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
     # --- APPLICATION DU FILTRE MOIS CIBLE ---
-    if mois_cible_label == "Tous les mois":
+    if mois_cible_label == "Tous":
         df_previsions_filtre = df_previsions
     else:
         mois_cible_num = MOIS_NOMS.index(mois_cible_label) + 1

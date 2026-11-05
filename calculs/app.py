@@ -69,36 +69,48 @@ st.markdown("""
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
-       CORRECTION MAJEURE DES ONGLETS (TRÈS ESPACÉS, GRANDS, GRAS) 
+       CORRECTION ULTIME DES ONGLETS (TRÈS ESPACÉS, GRANDS, GRAS)
        ========================================================= */
-    div[data-baseweb="tab-list"] {
-        gap: 80px !important; /* Force un espacement horizontal énorme */
-        justify-content: flex-start !important;
+    /* 1. Cible le conteneur des onglets */
+    div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+        gap: 80px !important; /* Force un espacement très large */
         border-bottom: 2px solid #E5E7EB !important;
-        margin-bottom: 30px !important;
+        padding-bottom: 10px !important;
+        display: flex !important;
+        justify-content: flex-start !important;
     }
 
-    button[data-baseweb="tab"] {
-        font-size: 1.5rem !important; /* Police très grande */
+    /* 2. Cible les boutons d'onglets eux-mêmes */
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        font-size: 1.6rem !important; /* Police beaucoup plus grande */
         font-weight: 800 !important;  /* Très gras */
         color: #6B7280 !important; 
-        padding: 15px 0px !important;
-        margin-right: 40px !important; /* Sécurité supplémentaire pour l'espacement */
+        padding: 10px 10px !important;
+        margin-right: 60px !important; /* Marge de sécurité pour l'espacement */
         background-color: transparent !important; 
         border: none !important;
         border-bottom: 4px solid transparent !important;
         transition: all 0.2s ease !important;
+        white-space: nowrap !important;
     }
 
-    button[data-baseweb="tab"]:hover {
-        color: #111827 !important;
+    /* 3. Cible le texte à l'intérieur des onglets (pour forcer le gras) */
+    div[data-testid="stTabs"] button[data-baseweb="tab"] div,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p {
+        font-size: 1.6rem !important;
+        font-weight: 800 !important;
     }
 
-    button[aria-selected="true"] {
+    /* 4. Style de l'onglet actif */
+    div[data-testid="stTabs"] button[aria-selected="true"] {
         color: #E30613 !important; 
         border-bottom: 4px solid #E30613 !important; 
         background-color: transparent !important; 
         box-shadow: none !important;
+    }
+    
+    div[data-testid="stTabs"] button[aria-selected="true"] div,
+    div[data-testid="stTabs"] button[aria-selected="true"] p {
         font-weight: 900 !important; /* Extra gras */
     }
     

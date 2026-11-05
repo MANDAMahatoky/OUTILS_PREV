@@ -69,37 +69,53 @@ st.markdown("""
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
-       ONGLETS DU BAS (TRÈS ESPACÉS, GRANDS ET GRAS)
+       NOUVEAU MENU DE NAVIGATION (RADIO STYLISÉ EN ONGLETS)
        ========================================================= */
-    [data-testid="stTabs"] [data-baseweb="tab-list"] {
-        gap: 80px !important; /* Espacement massif */
+    /* Cache les cercles radio */
+    div[role="radiogroup"] {
+        gap: 80px !important; /* ESPACEMENT MASSIF */
         border-bottom: 2px solid #E5E7EB !important;
         padding-bottom: 0px !important;
         margin-bottom: 30px !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
     }
-    [data-testid="stTabs"] button[data-baseweb="tab"] {
-        font-size: 1.6rem !important; /* Police très grande */
-        font-weight: 800 !important;  /* Très gras */
-        color: #6B7280 !important; 
-        padding: 15px 0px !important;
-        background-color: transparent !important; 
+    
+    div[role="radiogroup"] label {
+        background: transparent !important;
         border: none !important;
         border-bottom: 4px solid transparent !important;
+        border-radius: 0 !important;
+        padding: 10px 0px !important;
+        margin: 0 !important;
     }
-    [data-testid="stTabs"] button[data-baseweb="tab"] div,
-    [data-testid="stTabs"] button[data-baseweb="tab"] p {
-        font-size: 1.6rem !important;
-        font-weight: 800 !important;
+
+    /* Style du texte */
+    div[role="radiogroup"] label div p {
+        font-size: 1.6rem !important; /* POLICE TRÈS GRANDE */
+        font-weight: 800 !important;  /* TRÈS GRAS */
+        color: #6B7280 !important;
+        transition: color 0.2s ease !important;
     }
-    [data-testid="stTabs"] button[aria-selected="true"] {
-        color: #E30613 !important; 
-        border-bottom: 4px solid #E30613 !important; 
-        background-color: transparent !important; 
-        box-shadow: none !important;
+
+    /* Survol */
+    div[role="radiogroup"] label:hover div p {
+        color: #111827 !important;
     }
-    [data-testid="stTabs"] button[aria-selected="true"] div,
-    [data-testid="stTabs"] button[aria-selected="true"] p {
-        font-weight: 900 !important; /* Extra gras */
+
+    /* État Actif (Sélectionné) */
+    div[role="radiogroup"] label:has(input:checked) div p {
+        color: #E30613 !important; /* Rouge STAR */
+        font-weight: 900 !important; /* EXTRA GRAS */
+    }
+    
+    div[role="radiogroup"] label:has(input:checked) {
+        border-bottom: 4px solid #E30613 !important;
+    }
+
+    /* Cache l'input radio lui-même */
+    div[role="radiogroup"] label > div:first-child {
+        display: none !important;
     }
     
     /* Masquer les marges inutiles */
@@ -240,7 +256,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL
+# LOGIQUE DE CALCUL (AVEC CORRECTIONS CAGR)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -319,15 +335,14 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base['CAGR_Hist'] = 0.0
 
     # =========================================================================
-    # SOLUTION 1 & 2 : SEUIL DE BASE ET PLAFONNEMENT DU CAGR (CLIPPING)
+    # CORRECTIONS CAGR : SEUIL ET PLAFONNEMENT
     # =========================================================================
-    # On calcule le CAGR brut
     df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
     
-    # Si la base historique est trop faible (< 100 HL), on ignore le calcul brut et on prend le CAGR historique
+    # Seuil de base (si Base_Hist < 100, on utilise CAGR_Hist)
     df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
     
-    # On plafonne (clip) la croissance entre -20% et +30% maximum par an
+    # Plafonnement (Clipping entre -20% et +30%)
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
@@ -346,7 +361,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # Prévision PURE (pour superposition)
+    # Prévision PURE (pour superposition graphique)
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr'])
     
     # Volume mixte (Réalisé si dispo, sinon Prévision)
@@ -363,7 +378,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
-    cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Prevision_HL", "Volume_Cols", "Prevision_Cols"]
+    cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols"]
     df_realise_out = df_realise[df_realise['article'].isin(articles_avec_vente)].copy()
 
     return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise_out
@@ -486,7 +501,7 @@ if fichier_ventes is not None:
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
     # =========================================================================
-    # SOLUTION 3 : CAGR PONDÉRÉ POUR LA KPI
+    # CORRECTION KPI : CAGR PONDÉRÉ
     # =========================================================================
     vol_total = df_previsions_filtre[col_prev_aff].sum()
     if vol_total > 0:
@@ -508,7 +523,7 @@ if fichier_ventes is not None:
         <div class="white-card">
             <div class="kpi-label">CAGR Pondéré</div>
             <div class="kpi-value kpi-value-green">{cagr_applique:,.2f}%</div>
-            <div class="kpi-footer">Moyenne pondérée par les volumes</div>
+            <div class="kpi-footer">Croissance moyenne pondérée</div>
         </div>""", unsafe_allow_html=True)
     with k3:
         ytd_val = 0
@@ -610,16 +625,16 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. ONGLETS DÉTAILLÉS
+    # 6. MENU DE NAVIGATION PERSONNALISÉ (Remplaçant st.tabs)
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"
-    ])
+    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
+    # Ce radio bouton est invisible, c'est le CSS au-dessus qui le transforme en onglets
+    active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
 
     N_MAX_DISPLAY = 5000
 
-    with tab1:
+    if active_tab == "Données Brutes":
         st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
         if len(df_enrichi) > N_MAX_DISPLAY:
             st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
@@ -627,7 +642,7 @@ if fichier_ventes is not None:
         else:
             st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
-    with tab2:
+    elif active_tab == "Périmètre":
         st.markdown("### Étape 2 : Périmètre Filtré")
         if len(df_perimetre) > N_MAX_DISPLAY:
             st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
@@ -635,7 +650,7 @@ if fichier_ventes is not None:
         else:
             st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
-    with tab3:
+    elif active_tab == "Réalisé Cumulé":
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         if df_realise is not None and not df_realise.empty:
             df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
@@ -643,7 +658,7 @@ if fichier_ventes is not None:
         else:
             st.info("Aucune donnée réalisée pour le moment.")
 
-    with tab4:
+    elif active_tab == "Indices & SARR":
         st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
         c_idx, c_sarr = st.columns(2)
         with c_idx:
@@ -659,7 +674,7 @@ if fichier_ventes is not None:
             df_sarr_derniers = (df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article'], observed=True).tail(5))
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
-    with tab5:
+    elif active_tab == "Prévisions Détaillées":
         st.markdown("### Résultat Final")
         st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)

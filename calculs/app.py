@@ -316,7 +316,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (AVEC MÉTHODES DE CROISSANCE POUR GÉRER LES RUPTURES)
+# LOGIQUE DE CALCUL (AVEC CORRECTION NOUVEAU PRODUIT ET METHODES CAGR)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -343,7 +343,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v53"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v54"):
     articles_avec_vente = df_perimetre.groupby('article', observed=True)['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -375,8 +375,24 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    df_cumul = (table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'], observed=True)['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'}))
-    df_base = df_base.merge(df_cumul, on=['agence', 'article'], how='left')
+    # =========================================================================
+    # CORRECTION POUR LES NOUVEAUX PRODUITS (EX: FOSA EN AOUT)
+    # On identifie le premier mois de vente pour ne pas fausser le Cumul_Coef
+    # =========================================================================
+    df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
+                     .groupby(['agence', 'article'], observed=True)['mois'].min()
+                     .reset_index().rename(columns={'mois': 'Mois_Debut'}))
+    
+    df_base = df_base.merge(df_mois_debut, on=['agence', 'article'], how='left')
+    df_base['Mois_Debut'] = df_base['Mois_Debut'].fillna(1).astype(int)
+
+    # On calcule le coefficient de saisonnalité uniquement sur les mois actifs
+    df_indices_temp = df_base[['agence', 'article', 'Mois_Debut']].merge(table_indices, on=['agence', 'article'], how='left')
+    df_cumul = (df_indices_temp[(df_indices_temp['mois'] >= df_indices_temp['Mois_Debut']) & (df_indices_temp['mois'] <= mois_cutoff)]
+                .groupby(['agence', 'article'], observed=True)['Indice'].sum()
+                .reset_index().rename(columns={'Indice': 'Cumul_Coef'}))
+
+    df_base = df_base.drop(columns=['Mois_Debut']).merge(df_cumul, on=['agence', 'article'], how='left')
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
     df_base['Base_Mensuelle'] = df_base['YTD_HL'] / df_base['Cumul_Coef']
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
@@ -394,23 +410,17 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_Hist'] = 0.0
 
-    # =========================================================================
-    # APPLICATION DE LA MÉTHODE DE CROISSANCE CHOISIE
-    # =========================================================================
     if methode_croissance == "CAGR Classique":
         df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
         df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
     
     elif methode_croissance == "Tendance Linéaire":
-        # Calcul de la pente (slope) via régression linéaire sur l'historique
         def calc_slope(group):
             if len(group) < 2: return 0.0
             x = group['annee'].values
             y = group['hl'].values
-            # Si tous les y sont à 0, pas de croissance
             if np.sum(y) == 0: return 0.0
             slope, intercept = np.polyfit(x, y, 1)
-            # On renvoie la pente relative par rapport à la moyenne pour l'avoir en % (approximation)
             mean_y = np.mean(y)
             return (slope / mean_y) if mean_y > 0 else 0.0
             
@@ -419,13 +429,11 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base['CAGR_val'] = df_base['Slope_Rel'].fillna(df_base['CAGR_Hist'])
 
     elif methode_croissance == "Moyenne 3 ans":
-        # On calcule les taux de croissance annuels récents et on fait la moyenne
         df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl', aggfunc='sum').fillna(0)
         growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
         df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
     
-    # Plafonnement final (sécurité pour toutes les méthodes)
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
@@ -479,7 +487,6 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
 # INTERFACE UTILISATEUR
 # ==============================================================================
 
-# 1. SIDEBAR POUR TOUS LES FILTRES
 with st.sidebar:
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
     LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
@@ -535,11 +542,10 @@ with st.sidebar:
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026)
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
-        # --- NOUVEAU FILTRE POUR GÉRER LES RUPTURES DE TENDANCE ---
         methode_croissance = st.selectbox(
             "Méthode de croissance", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
-            help="Le CAGR Classique est sensible aux ruptures. Utilisez la Tendance Linéaire ou la Moyenne 3 ans pour lisser les chocs (Covid, promotions exceptionnelles)."
+            help="Le CAGR Classique est sensible aux ruptures. Utilisez la Tendance Linéaire ou la Moyenne 3 ans pour lisser les chocs."
         )
         
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
@@ -557,7 +563,6 @@ with st.sidebar:
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
 
-# 2. HEADER ROUGE (Centré et Épuré)
 st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
@@ -567,9 +572,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 3. RESTE DE L'APPLICATION
 if fichier_ventes is not None:
-    # APPLICATION DES FILTRES
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
     if sel_positionnements: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positionnements)]
@@ -580,7 +583,6 @@ if fichier_ventes is not None:
     if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
     if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
-    # CALCULS
     table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(
         df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance
     )
@@ -609,7 +611,6 @@ if fichier_ventes is not None:
     else:
         cagr_applique = 0.0
 
-    # 4. CARTES KPI
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -642,7 +643,6 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
@@ -720,7 +720,6 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. MENU DE NAVIGATION
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
@@ -728,7 +727,6 @@ if fichier_ventes is not None:
 
     N_MAX_DISPLAY = 5000
 
-    # 7. AFFICHAGE DES TABLEAUX
     if active_tab == "Données Brutes":
         st.markdown("### Étape 1 : Données Brutes Enrichies")
         with st.expander("📊 Afficher le tableau des données brutes", expanded=True):

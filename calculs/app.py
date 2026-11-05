@@ -37,30 +37,25 @@ st.markdown("""
     .hero-header {
         background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%);
         color: white;
-        padding: 25px 20px;
+        padding: 25px 20px; /* Réduction de la hauteur */
         border-radius: 0 0 20px 20px;
         margin-top: -60px;
         margin-bottom: 30px;
         position: relative;
         overflow: hidden;
         box-shadow: 0 10px 20px -5px rgba(227, 6, 19, 0.4);
-        text-align: center;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        min-height: 150px; /* Hauteur minimale pour accueillir les images */
+        text-align: center; /* CENTRAGE DU CONTENU */
     }
     .hero-header h1 { 
         color: white !important; 
-        font-size: 2.2rem; 
+        font-size: 2.2rem; /* Taille réduite */
         font-weight: 900; 
         margin-bottom: 8px; 
         letter-spacing: -0.02em; 
     }
     .hero-header p { 
         color: #FECACA; 
-        font-size: 1rem; 
+        font-size: 1rem; /* Taille réduite */
         margin-bottom: 15px; 
         font-weight: 500; 
     }
@@ -68,30 +63,6 @@ st.markdown("""
         background-color: white; color: #E30613; padding: 4px 12px;
         border-radius: 20px; font-size: 0.75rem; font-weight: 800;
         display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    
-    /* Conteneur pour les images de produits */
-    .product-image-container {
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 120px; /* Largeur des images */
-        height: 120px; /* Hauteur des images */
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0.9;
-    }
-    .product-image-container.left { left: 20px; }
-    .product-image-container.center-left { left: 25%; }
-    .product-image-container.right { right: 20px; }
-    
-    /* Style des images elles-mêmes */
-    .product-image-container img {
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-        filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
     }
     
     /* Cartes Blanches avec accent rouge */
@@ -476,6 +447,7 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
 
 # 1. SIDEBAR POUR TOUS LES FILTRES
 with st.sidebar:
+    # --- AJOUT DU LOGO ICI ---
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
     LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
     
@@ -483,6 +455,7 @@ with st.sidebar:
         st.image(str(LOGO_PATH), use_container_width=True)
     else:
         st.warning("⚠️ Logo non trouvé")
+    # --------------------------
     
     st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
     
@@ -491,6 +464,7 @@ with st.sidebar:
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
 
     if fichier_ventes is not None:
+        # On charge les données ici pour pouvoir filtrer la liste des options dynamiquement
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
         st.markdown("#### 1. Périmètre")
@@ -545,19 +519,9 @@ with st.sidebar:
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
 
-# 2. HEADER ROUGE (Avec images de produits)
+# 2. HEADER ROUGE (Réduit et Centré)
 st.markdown("""
 <div class="hero-header">
-    <div class="product-image-container left">
-        <img src="https://commons.wikimedia.org/wiki/Special:FilePath/Three_Horses_Beer.jpg" alt="THB">
-    </div>
-    <div class="product-image-container center-left">
-        <img src="https://commons.wikimedia.org/wiki/Special:FilePath/Boissons_gazeuses.jpg" alt="Sodas STAR">
-    </div>
-    <div class="product-image-container right">
-        <img src="https://commons.wikimedia.org/wiki/Special:FilePath/Eau_vive.jpg" alt="Eau Vive">
-    </div>
-    
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
     <p>Moteur de prévision complet - Explorez les tendances à venir et comparez différents scénarios.</p>
@@ -601,6 +565,7 @@ if fichier_ventes is not None:
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
+    # CAGR PONDÉRÉ POUR LA KPI
     vol_total_hl = df_previsions_filtre["Volume_HL"].sum()
     if vol_total_hl > 0:
         cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre["Volume_HL"]).sum() / vol_total_hl
@@ -640,7 +605,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES
+    # 5. GRAPHIQUES (Superposition Réalisé vs Prévision)
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
@@ -718,7 +683,7 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. MENU DE NAVIGATION
+    # 6. MENU DE NAVIGATION PERSONNALISÉ
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
@@ -726,7 +691,7 @@ if fichier_ventes is not None:
 
     N_MAX_DISPLAY = 5000
 
-    # 7. AFFICHAGE DES TABLEAUX
+    # 7. AFFICHAGE DES TABLEAUX DANS DES EXPANDERS (VISIBLES PAR DÉFAUT)
     if active_tab == "Données Brutes":
         st.markdown("### Étape 1 : Données Brutes Enrichies")
         with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
@@ -788,6 +753,7 @@ if fichier_ventes is not None:
             elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             
+            # Nettoyage pour le CSV
             pivot_mensuel_export = pivot_mensuel.copy()
             pivot_mensuel_export.columns = [
                 unicodedata.normalize('NFKD', str(c)).encode('ascii', 'ignore').decode('utf-8')

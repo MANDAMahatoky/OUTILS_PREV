@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (Header Blanc + Brand STAR + Onglets Très Lisibles)
+# CONFIGURATION ET DESIGN 
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="collapsed")
 
@@ -68,22 +68,22 @@ st.markdown("""
     }
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* --- ONGLETS : POLICE PLUS GRANDE ET EN GRAS --- */
+    /* --- MODIFICATION CIBLÉE DES ONGLETS : TRÈS ESPACÉS, GRANDS ET GRAS --- */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 40px;
+        gap: 60px; /* Très espacé */
         background-color: transparent;
         border-bottom: 2px solid #E5E7EB;
         padding-bottom: 0px;
-        margin-bottom: 24px;
+        margin-bottom: 40px; /* Plus d'espace sous les onglets */
     }
     .stTabs [data-baseweb="tab"] {
         color: #6B7280; 
-        font-size: 1.35rem; /* Police beaucoup plus grande */
-        font-weight: 800;   /* GRAS */
-        padding: 12px 0px; 
+        font-size: 1.6rem; /* Police très grande */
+        font-weight: 800;  /* Très gras */
+        padding: 20px 0px; /* Plus d'espace vertical */
         background-color: transparent !important; 
         border: none;
-        border-bottom: 3px solid transparent;
+        border-bottom: 4px solid transparent;
         border-radius: 0;
         transition: all 0.2s ease;
     }
@@ -92,10 +92,10 @@ st.markdown("""
     }
     .stTabs [aria-selected="true"] {
         color: #E30613 !important; 
-        border-bottom: 4px solid #E30613 !important; 
+        border-bottom: 5px solid #E30613 !important; 
         background-color: transparent !important; 
         box-shadow: none !important;
-        font-weight: 900; /* ENCORE PLUS GRAS POUR L'ONGLET ACTIF */
+        font-weight: 900; /* Le plus gras possible pour l'actif */
     }
     
     /* Masquer les marges inutiles */
@@ -104,7 +104,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# RÉFÉRENTIEL ET MAPPING (Inchangé)
+# RÉFÉRENTIEL ET MAPPING
 # ==============================================================================
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
@@ -236,7 +236,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (Inchangée)
+# LOGIQUE DE CALCUL
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -364,7 +364,7 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
 # INTERFACE UTILISATEUR
 # ==============================================================================
 
-# 1. HEADER BLANC (Brand STAR)
+# 1. HEADER BLANC 
 st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: #6B7280; font-weight: 700;">Perspectives • S&OP</p>
@@ -389,7 +389,6 @@ if fichier_ventes is not None:
         st.markdown('<div class="section-title">Affinez votre perspective</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Modifiez les filtres pour explorer les projections.</div>', unsafe_allow_html=True)
         
-        # Ligne 1 des filtres
         f1, f2, f3, f4 = st.columns(4)
         with f1:
             regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) != "Aucune vente"])
@@ -408,7 +407,6 @@ if fichier_ventes is not None:
             sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
             df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
 
-        # Ligne 2 des filtres
         f5, f6, f7, f8 = st.columns(4)
         with f5:
             agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
@@ -421,7 +419,6 @@ if fichier_ventes is not None:
         with f8:
             unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
-        # Paramètres avancés
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
             p1, p2, p3, p4, p5 = st.columns(5)
             with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024)
@@ -501,7 +498,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES (Courbes lisses)
+    # 5. GRAPHIQUES
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
@@ -519,7 +516,6 @@ if fichier_ventes is not None:
         df_real = df_grouped[df_grouped['Statut'] == 'Réalisé'].sort_values('Date_Plot')
         df_prev = df_grouped[df_grouped['Statut'] == 'Prévision'].sort_values('Date_Plot')
 
-        # Continuité visuelle
         if not df_real.empty and not df_prev.empty:
             df_prev = pd.concat([df_real.tail(1).assign(Statut='Prévision'), df_prev], ignore_index=True)
 
@@ -632,10 +628,11 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
+        # --- TITRE "RÉSULTAT FINAL" TRÈS ESPACÉ, GRAND ET GRAS ---
         st.markdown(f"""
-        <div style="margin-bottom: 24px;">
-            <h2 style="font-size: 1.5rem; color: #111827; font-weight: 800; margin: 0; letter-spacing: -0.02em;">Résultat Final</h2>
-            <p style="color: #6B7280; font-size: 0.9rem; margin-top: 4px; font-weight: 500;">Projections mensuelles pour : <span style="color: #E30613; font-weight: 700;">{label_mois_str}</span></p>
+        <div style="margin-bottom: 40px; margin-top: 20px;">
+            <h2 style="font-size: 2.5rem; color: #111827; font-weight: 900; margin: 0; letter-spacing: -0.03em; text-transform: uppercase;">Résultat Final</h2>
+            <p style="color: #4B5563; font-size: 1.3rem; margin-top: 15px; font-weight: 700;">Projections mensuelles pour : <span style="color: #E30613; font-weight: 900; font-size: 1.4rem;">{label_mois_str}</span></p>
         </div>
         """, unsafe_allow_html=True)
 

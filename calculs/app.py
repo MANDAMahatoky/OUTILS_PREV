@@ -124,10 +124,8 @@ def extraire_marque(article):
     if pd.isna(article): return "Inconnu"
     a = str(article).strip()
     a_low = a.lower()
-    # Gestion des marques composées
     if "world cola" in a_low: return "World Cola"
     if "eau vive" in a_low: return "Eau Vive"
-    # Par défaut, le premier mot
     return a.split()[0]
 
 # ==============================================================================
@@ -207,10 +205,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
         df_ref["occasion"] = "Non renseigné"
     
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
-    
-    # EXTRACTION DE LA MARQUE DEPUIS LE RÉFÉRENTIEL STRICT
     df_ref["marque"] = df_ref["article_original"].apply(extraire_marque)
-
     df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
@@ -236,16 +231,13 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df["annee"] = df["annee"].fillna(2026).astype(int)
     df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
 
-    # LA MARQUE VIENT DU RÉFÉRENTIEL
     df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     
-    # Les articles non trouvés dans le référentiel sont marqués "Inconnu" et n'apparaîtront pas dans le filtre
     df_enrichi["marque"] = df_enrichi["marque"].fillna("Inconnu")
-    
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
 
@@ -253,7 +245,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
-    
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
     
@@ -420,12 +411,8 @@ with st.expander("📁 Importer vos fichiers (Données Brutes)", expanded=False)
 if fichier_ventes is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
-    # 3. BARRE DE FILTRES HORIZONTALE
-    with st.container():
-        st.markdown('<div class="white-card" style="padding: 20px 24px;">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Affinez votre perspective</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Modifiez les filtres pour explorer les projections.</div>', unsafe_allow_html=True)
-        
+    # 3. BARRE DE FILTRES ENTIÈRE DANS UN EXPANDER
+    with st.expander("🎯 Affinez votre perspective (Filtres)", expanded=False):
         # Ligne 1 des filtres
         f1, f2, f3, f4 = st.columns(4)
         with f1:
@@ -481,8 +468,6 @@ if fichier_ventes is not None:
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
     # APPLICATION DES FILTRES
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
@@ -517,7 +502,7 @@ if fichier_ventes is not None:
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
-    # CAGR PONDÉRÉ POUR LA KPI (Toujours basé sur le Volume HL pour la stabilité)
+    # CAGR PONDÉRÉ POUR LA KPI
     vol_total_hl = df_previsions_filtre["Volume_HL"].sum()
     if vol_total_hl > 0:
         cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre["Volume_HL"]).sum() / vol_total_hl
@@ -576,7 +561,6 @@ if fichier_ventes is not None:
 
         fig1 = go.Figure()
 
-        # Trace Prévision (Rouge vif pointillé)
         if not df_prev_pure.empty:
             fig1.add_trace(go.Scatter(
                 x=df_prev_pure['Date_Plot'], y=df_prev_pure[col_prev_pure],
@@ -585,7 +569,6 @@ if fichier_ventes is not None:
                 marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
             ))
 
-        # Trace Réalisé (Rouge foncé plein par-dessus)
         if not df_real.empty:
             fig1.add_trace(go.Scatter(
                 x=df_real['Date_Plot'], y=df_real[col_prev_aff],
@@ -614,7 +597,6 @@ if fichier_ventes is not None:
         
         df_top = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
         
-        # Camaïeu de rouges pour le Top 10
         colors = ['#FECACA', '#FCA5A5', '#F87171', '#EF4444', '#DC2626', '#B91C1C', '#991B1B', '#7F1D1D', '#450A0A', '#E30613']
         
         fig2 = go.Figure(go.Bar(
@@ -646,45 +628,51 @@ if fichier_ventes is not None:
 
     N_MAX_DISPLAY = 5000
 
+    # 7. AFFICHAGE DES TABLEAUX DANS DES EXPANDERS
     if active_tab == "Données Brutes":
-        st.markdown("### Étape 1 : Données Brutes Enrichies (Ventes + Référentiel)")
-        if len(df_enrichi) > N_MAX_DISPLAY:
-            st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
-            st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
+        st.markdown("### Étape 1 : Données Brutes Enrichies")
+        with st.expander("📊 Afficher le tableau des données brutes", expanded=False):
+            if len(df_enrichi) > N_MAX_DISPLAY:
+                st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
+                st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
     elif active_tab == "Périmètre":
         st.markdown("### Étape 2 : Périmètre Filtré")
-        if len(df_perimetre) > N_MAX_DISPLAY:
-            st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
-            st.dataframe(df_perimetre.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
+        with st.expander("📊 Afficher le tableau du périmètre", expanded=False):
+            if len(df_perimetre) > N_MAX_DISPLAY:
+                st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
+                st.dataframe(df_perimetre.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
     elif active_tab == "Réalisé Cumulé":
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
-        if df_realise is not None and not df_realise.empty:
-            df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
-            st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-        else:
-            st.info("Aucune donnée réalisée pour le moment.")
+        with st.expander("📊 Afficher le tableau du réalisé", expanded=False):
+            if df_realise is not None and not df_realise.empty:
+                df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
+                st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucune donnée réalisée pour le moment.")
 
     elif active_tab == "Indices & SARR":
         st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
         c_idx, c_sarr = st.columns(2)
         with c_idx:
             st.markdown("**Indices de Saisonnalité**")
-            if not table_indices.empty:
-                pivot_indices = _pivot_indices_cached(table_indices)
-                st.dataframe(pivot_indices, use_container_width=True)
-            else:
-                st.info("Pas d'historique complet.")
+            with st.expander("📊 Afficher les indices", expanded=False):
+                if not table_indices.empty:
+                    pivot_indices = _pivot_indices_cached(table_indices)
+                    st.dataframe(pivot_indices, use_container_width=True)
+                else:
+                    st.info("Pas d'historique complet.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois)**")
-            df_sarr["SARR_Aff"] = (df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"])
-            df_sarr_derniers = (df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article'], observed=True).tail(5))
-            st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
+            with st.expander("📊 Afficher le SARR", expanded=False):
+                df_sarr["SARR_Aff"] = (df_sarr["SARR_HL"] * (10000 / df_sarr["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr["SARR_HL"])
+                df_sarr_derniers = (df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article'], observed=True).tail(5))
+                st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     elif active_tab == "Prévisions Détaillées":
         st.markdown("### Résultat Final")
@@ -711,45 +699,46 @@ if fichier_ventes is not None:
                 use_container_width=True
             )
 
-        pivot_mensuel_reset = pivot_mensuel.reset_index()
-        pivot_mensuel_reset.columns = [
-            "Année" if str(c).lower() == "annee" else 
-            "Agence" if str(c).lower() == "agence" else 
-            "Article" if str(c).lower() == "article" else 
-            "Total Période" if "période" in str(c).lower() else
-            "Total Année" if "année" in str(c).lower() else str(c)
-            for c in pivot_mensuel_reset.columns
-        ]
+        with st.expander("📊 Afficher le tableau des prévisions détaillées", expanded=True):
+            pivot_mensuel_reset = pivot_mensuel.reset_index()
+            pivot_mensuel_reset.columns = [
+                "Année" if str(c).lower() == "annee" else 
+                "Agence" if str(c).lower() == "agence" else 
+                "Article" if str(c).lower() == "article" else 
+                "Total Période" if "période" in str(c).lower() else
+                "Total Année" if "année" in str(c).lower() else str(c)
+                for c in pivot_mensuel_reset.columns
+            ]
 
-        if search_query:
-            mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
-            pivot_mensuel_display = pivot_mensuel_reset[mask]
-        else:
-            pivot_mensuel_display = pivot_mensuel_reset
+            if search_query:
+                mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+                pivot_mensuel_display = pivot_mensuel_reset[mask]
+            else:
+                pivot_mensuel_display = pivot_mensuel_reset
 
-        col_config = {
-            "Année": st.column_config.NumberColumn("Année", format="%d"),
-            "Agence": st.column_config.TextColumn("Agence"),
-            "Article": st.column_config.TextColumn("Article"),
-        }
-        for mois in MOIS_NOMS:
-            if mois in pivot_mensuel_display.columns:
-                col_config[mois] = st.column_config.NumberColumn(mois, format="localized")
-        
-        if "Total Période" in pivot_mensuel_display.columns:
-             col_config["Total Période"] = st.column_config.NumberColumn("Total Période", format="localized")
-        if "Total Année" in pivot_mensuel_display.columns:
-             col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
+            col_config = {
+                "Année": st.column_config.NumberColumn("Année", format="%d"),
+                "Agence": st.column_config.TextColumn("Agence"),
+                "Article": st.column_config.TextColumn("Article"),
+            }
+            for mois in MOIS_NOMS:
+                if mois in pivot_mensuel_display.columns:
+                    col_config[mois] = st.column_config.NumberColumn(mois, format="localized")
+            
+            if "Total Période" in pivot_mensuel_display.columns:
+                 col_config["Total Période"] = st.column_config.NumberColumn("Total Période", format="localized")
+            if "Total Année" in pivot_mensuel_display.columns:
+                 col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
 
-        st.dataframe(
-            pivot_mensuel_display,
-            use_container_width=True,
-            hide_index=True,
-            column_config=col_config,
-            height=500
-        )
+            st.dataframe(
+                pivot_mensuel_display,
+                use_container_width=True,
+                hide_index=True,
+                column_config=col_config,
+                height=500
+            )
 
-        with st.expander("Voir le détail des calculs"):
+        with st.expander("🔍 Voir le détail des calculs"):
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_Mensuelle", col_prev_aff]
             if annee_cible > annee_cloture: cols_to_show.insert(-1, "CAGR (%)")
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))

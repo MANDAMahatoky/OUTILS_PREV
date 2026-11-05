@@ -10,9 +10,9 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (Brand Rouge Dominant)
+# CONFIGURATION ET DESIGN (Brand Rouge Dominant + Sidebar)
 # ==============================================================================
-st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
@@ -21,8 +21,18 @@ st.markdown("""
     /* Reset et Fond */
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #F4F6F8 !important; }
-    [data-testid="stSidebar"] { display: none; }
     
+    /* Sidebar Design (Premium) */
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF !important;
+        border-right: 1px solid #E5E7EB;
+        box-shadow: 2px 0 10px rgba(0,0,0,0.03);
+    }
+    [data-testid="stSidebar"] h2 { color: #E30613 !important; font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; }
+    [data-testid="stSidebar"] .stSelectbox label, 
+    [data-testid="stSidebar"] .stNumberInput label, 
+    [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 700 !important; }
+
     /* Header Rouge (Brand STAR Premium) */
     .hero-header {
         background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%);
@@ -65,12 +75,10 @@ st.markdown("""
     div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] {
         background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important;
     }
-    .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
        DESIGN AMÉLIORÉ DES TABLEAUX ET EXPANDERS
        ========================================================= */
-    /* Style global de l'expander */
     div[data-testid="stExpander"] {
         background-color: white !important;
         border-radius: 12px !important;
@@ -79,7 +87,6 @@ st.markdown("""
         margin-bottom: 20px !important;
     }
     
-    /* En-tête de l'expander */
     div[data-testid="stExpander"] > details > summary {
         background-color: #F9FAFB !important;
         border-radius: 12px !important;
@@ -89,14 +96,12 @@ st.markdown("""
         border-bottom: 1px solid transparent !important;
     }
     
-    /* En-tête quand ouvert */
     div[data-testid="stExpander"] > details[open] > summary {
         border-bottom: 1px solid #E5E7EB !important;
         border-bottom-left-radius: 0 !important;
         border-bottom-right-radius: 0 !important;
     }
 
-    /* Conteneur du tableau à l'intérieur de l'expander */
     div[data-testid="stDataFrame"] {
         border: 1px solid #E5E7EB !important;
         border-radius: 8px !important;
@@ -428,7 +433,71 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
 # INTERFACE UTILISATEUR
 # ==============================================================================
 
-# 1. HEADER ROUGE 
+# 1. SIDEBAR POUR TOUS LES FILTRES
+with st.sidebar:
+    st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
+    
+    with st.expander("📁 Importer vos fichiers", expanded=False):
+        fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"])
+        fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
+
+    if fichier_ventes is not None:
+        # On charge les données ici pour pouvoir filtrer la liste des options dynamiquement
+        df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
+
+        st.markdown("#### 1. Périmètre")
+        regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
+        sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
+        df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
+
+        segments_dispo = sorted([str(s) for s in df_temp["segment"].unique() if pd.notna(s)])
+        sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
+        df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
+
+        marques_dispo = sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"])
+        sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes")
+        df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
+
+        articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
+        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
+        df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
+
+        agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
+        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
+        df_temp = df_temp[df_temp["agence"].isin(sel_agences)] if sel_agences else df_temp
+
+        contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
+        sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
+        df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
+
+        positionnements_dispo = sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)])
+        sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
+        df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
+
+        occasions_dispo = sorted([str(o) for o in df_temp["occasion"].unique() if pd.notna(o) and str(o) != "Non renseigné"])
+        sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes")
+        df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
+
+        st.markdown("#### 2. Paramètres de la cible")
+        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026)
+        unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
+        
+        with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
+            p1, p2 = st.columns(2)
+            with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024)
+            with p2: annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2025, annee_min_is))
+            
+            p3, p4 = st.columns(2)
+            with p3: annee_min_cagr = st.number_input("Année Min CAGR", min_value=2010, max_value=2030, value=2017)
+            with p4: annee_max_cagr = st.number_input("Année Max CAGR", min_value=annee_min_cagr, max_value=2030, value=2025)
+            
+            p5, p6 = st.columns(2)
+            with p5: annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026)
+            with p6: mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}")
+            
+            mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
+
+# 2. HEADER ROUGE (Reste dans la zone principale)
 st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700;">Perspectives • S&OP</p>
@@ -438,78 +507,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 2. IMPORTATION DES DONNÉES
-with st.expander("📁 Importer vos fichiers (Données Brutes)", expanded=False):
-    c1, c2 = st.columns(2)
-    with c1: fichier_ventes = st.file_uploader("Fichier des ventes (DATA_BRUT.xlsx)", type=["xlsx"])
-    with c2: fichier_ref = st.file_uploader("Fichier Référentiel (Optionnel)", type=["xlsx"])
-
+# 3. RESTE DE L'APPLICATION (Dans la zone principale)
 if fichier_ventes is not None:
-    df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
-
-    # 3. BARRE DE FILTRES VISIBLE (Carte blanche)
-    with st.container():
-        st.markdown('<div class="white-card" style="padding: 20px 24px;">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Affinez votre perspective</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Modifiez les filtres pour explorer les projections.</div>', unsafe_allow_html=True)
-        
-        # Ligne 1 des filtres
-        f1, f2, f3, f4 = st.columns(4)
-        with f1:
-            regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
-            sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
-            df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
-        with f2:
-            segments_dispo = sorted([str(s) for s in df_temp["segment"].unique() if pd.notna(s)])
-            sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
-            df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
-        with f3:
-            marques_dispo = sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"])
-            sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes")
-            df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
-        with f4:
-            articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
-            sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
-            df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
-
-        # Ligne 2 des filtres
-        f5, f6, f7, f8 = st.columns(4)
-        with f5:
-            agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
-            sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
-        with f6:
-            contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
-            sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
-        with f7:
-            positionnements_dispo = sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)])
-            sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
-            df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
-        with f8:
-            occasions_dispo = sorted([str(o) for o in df_temp["occasion"].unique() if pd.notna(o) and str(o) != "Non renseigné"])
-            sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes")
-            df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
-
-        # Ligne 3 des filtres
-        f9, f10, f11, f12 = st.columns(4)
-        with f9:
-            annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026)
-        with f10:
-            unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
-        
-        with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
-            p1, p2, p3, p4, p5 = st.columns(5)
-            with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024)
-            with p2: annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2025, annee_min_is))
-            with p3: annee_min_cagr = st.number_input("Année Min CAGR", min_value=2010, max_value=2030, value=2017)
-            with p4: annee_max_cagr = st.number_input("Année Max CAGR", min_value=annee_min_cagr, max_value=2030, value=2025)
-            with p5: 
-                annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026)
-                mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}")
-            
-            mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
     # APPLICATION DES FILTRES
     df_perimetre = df_enrichi.copy()
     if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]

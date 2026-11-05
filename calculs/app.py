@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (Header Blanc + Brand STAR + Onglets Modernes)
+# CONFIGURATION ET DESIGN (Header Blanc + Brand STAR + Onglets Très Lisibles)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="collapsed")
 
@@ -68,22 +68,22 @@ st.markdown("""
     }
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* --- AMÉLIORATION DES ONGLETS (SANS EMOJIS + POLICE PLUS GRANDE) --- */
+    /* --- ONGLETS : POLICE PLUS GRANDE ET EN GRAS --- */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 32px;
+        gap: 40px;
         background-color: transparent;
-        border-bottom: 1px solid #E5E7EB;
+        border-bottom: 2px solid #E5E7EB;
         padding-bottom: 0px;
         margin-bottom: 24px;
     }
     .stTabs [data-baseweb="tab"] {
         color: #6B7280; 
-        font-size: 1.1rem; /* Taille de police augmentée */
-        font-weight: 600; 
+        font-size: 1.35rem; /* Police beaucoup plus grande */
+        font-weight: 800;   /* GRAS */
         padding: 12px 0px; 
         background-color: transparent !important; 
         border: none;
-        border-bottom: 2px solid transparent;
+        border-bottom: 3px solid transparent;
         border-radius: 0;
         transition: all 0.2s ease;
     }
@@ -92,10 +92,10 @@ st.markdown("""
     }
     .stTabs [aria-selected="true"] {
         color: #E30613 !important; 
-        border-bottom: 3px solid #E30613 !important; 
+        border-bottom: 4px solid #E30613 !important; 
         background-color: transparent !important; 
         box-shadow: none !important;
-        font-weight: 700;
+        font-weight: 900; /* ENCORE PLUS GRAS POUR L'ONGLET ACTIF */
     }
     
     /* Masquer les marges inutiles */
@@ -582,7 +582,7 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. ONGLETS DÉTAILLÉS (SANS EMOJIS)
+    # 6. ONGLETS DÉTAILLÉS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs([

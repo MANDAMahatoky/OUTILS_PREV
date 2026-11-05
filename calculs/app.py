@@ -316,7 +316,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (AVEC CORRECTIONS CAGR)
+# LOGIQUE DE CALCUL (AVEC MÉTHODES DE CROISSANCE POUR GÉRER LES RUPTURES)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -343,7 +343,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, cache_bust="v52"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v53"):
     articles_avec_vente = df_perimetre.groupby('article', observed=True)['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -394,8 +394,38 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_Hist'] = 0.0
 
-    df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
-    df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
+    # =========================================================================
+    # APPLICATION DE LA MÉTHODE DE CROISSANCE CHOISIE
+    # =========================================================================
+    if methode_croissance == "CAGR Classique":
+        df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
+        df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
+    
+    elif methode_croissance == "Tendance Linéaire":
+        # Calcul de la pente (slope) via régression linéaire sur l'historique
+        def calc_slope(group):
+            if len(group) < 2: return 0.0
+            x = group['annee'].values
+            y = group['hl'].values
+            # Si tous les y sont à 0, pas de croissance
+            if np.sum(y) == 0: return 0.0
+            slope, intercept = np.polyfit(x, y, 1)
+            # On renvoie la pente relative par rapport à la moyenne pour l'avoir en % (approximation)
+            mean_y = np.mean(y)
+            return (slope / mean_y) if mean_y > 0 else 0.0
+            
+        slopes = df_hist_cagr.groupby(['agence', 'article']).apply(calc_slope).reset_index(name='Slope_Rel')
+        df_base = df_base.merge(slopes, on=['agence', 'article'], how='left')
+        df_base['CAGR_val'] = df_base['Slope_Rel'].fillna(df_base['CAGR_Hist'])
+
+    elif methode_croissance == "Moyenne 3 ans":
+        # On calcule les taux de croissance annuels récents et on fait la moyenne
+        df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl', aggfunc='sum').fillna(0)
+        growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
+        df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
+        df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
+    
+    # Plafonnement final (sécurité pour toutes les méthodes)
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
@@ -505,6 +535,13 @@ with st.sidebar:
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026)
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
+        # --- NOUVEAU FILTRE POUR GÉRER LES RUPTURES DE TENDANCE ---
+        methode_croissance = st.selectbox(
+            "Méthode de croissance", 
+            options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
+            help="Le CAGR Classique est sensible aux ruptures. Utilisez la Tendance Linéaire ou la Moyenne 3 ans pour lisser les chocs (Covid, promotions exceptionnelles)."
+        )
+        
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
             p1, p2 = st.columns(2)
             with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024)
@@ -545,7 +582,7 @@ if fichier_ventes is not None:
 
     # CALCULS
     table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(
-        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible
+        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance
     )
 
     if table_indices is None:
@@ -586,7 +623,7 @@ if fichier_ventes is not None:
         <div class="white-card">
             <div class="kpi-label">CAGR Pondéré</div>
             <div class="kpi-value kpi-value-dark">{cagr_applique:,.2f}%</div>
-            <div class="kpi-footer">Croissance moyenne pondérée (base HL)</div>
+            <div class="kpi-footer">Méthode : {methode_croissance}</div>
         </div>""", unsafe_allow_html=True)
     with k3:
         ytd_val = 0
@@ -679,7 +716,7 @@ if fichier_ventes is not None:
 
     st.markdown("""
     <p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
-        Projection basée sur la logique SARR et CAGR (plafonné entre -20% et +30%). Les chiffres sont donnés à titre indicatif.
+        Projection basée sur la logique SARR. Les chiffres sont donnés à titre indicatif.
     </p>
     """, unsafe_allow_html=True)
 
@@ -733,22 +770,12 @@ if fichier_ventes is not None:
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
-                # Préparation des données pour calculer le momentum
                 df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
-                
-                # Conversion en unité d'affichage
                 df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
-                
-                # Calcul du SARR M-1 (décalage de 1)
                 df_sarr_calc["SARR_M1"] = df_sarr_calc.groupby(['agence', 'article'])["SARR_Aff"].shift(1)
-                
-                # Calcul du Momentum (Variation en %)
                 df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1"]) / df_sarr_calc["SARR_M1"] * 100).replace([np.inf, -np.inf], np.nan)
-                
-                # Filtrage sur les 5 derniers mois
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
                 
-                # Affichage formaté
                 st.dataframe(
                     df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff", "SARR_M1", "Momentum_M (%)"]]
                     .rename(columns={"SARR_Aff": "SARR M", "SARR_M1": "SARR M-1", "Momentum_M (%)": "Momentum M (%)"})

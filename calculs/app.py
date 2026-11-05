@@ -656,8 +656,13 @@ if fichier_ventes is not None:
             <div class="section-subtitle">Comparaison mensuelle pour l'année {annee_cible}</div>
         """, unsafe_allow_html=True)
         
-        # 1. PRÉPARATION DU RÉALISÉ POUR L'ANNÉE CIBLE (Extrait directement du fichier Excel)
+        # 1. PRÉPARATION DU RÉALISÉ POUR L'ANNÉE CIBLE
         df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
+        
+        # CORRECTION ICI : On coupe la ligne réalisée au mois de cutoff pour éviter la chute à zéro
+        if annee_cible == annee_cloture:
+            df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
+
         df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
         df_real_cible['Date_Plot'] = pd.to_datetime(df_real_cible['Date_Str'])
         

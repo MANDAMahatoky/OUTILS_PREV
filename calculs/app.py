@@ -69,54 +69,27 @@ st.markdown("""
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
-       NOUVEAU MENU DE NAVIGATION (RADIO STYLISÉ EN ONGLETS)
+       NAVIGATION (RADIO STYLISÉ EN ONGLETS TRÈS ESPACÉS)
        ========================================================= */
-    /* Cache les cercles radio */
     div[role="radiogroup"] {
-        gap: 80px !important; /* ESPACEMENT MASSIF */
+        gap: 80px !important; /* Espacement massif */
         border-bottom: 2px solid #E5E7EB !important;
         padding-bottom: 0px !important;
         margin-bottom: 30px !important;
         display: flex !important;
         flex-wrap: wrap !important;
     }
-    
     div[role="radiogroup"] label {
-        background: transparent !important;
-        border: none !important;
-        border-bottom: 4px solid transparent !important;
-        border-radius: 0 !important;
-        padding: 10px 0px !important;
-        margin: 0 !important;
+        background: transparent !important; border: none !important; border-bottom: 4px solid transparent !important;
+        border-radius: 0 !important; padding: 10px 0px !important; margin: 0 !important;
     }
-
-    /* Style du texte */
     div[role="radiogroup"] label div p {
-        font-size: 1.6rem !important; /* POLICE TRÈS GRANDE */
-        font-weight: 800 !important;  /* TRÈS GRAS */
-        color: #6B7280 !important;
-        transition: color 0.2s ease !important;
+        font-size: 1.6rem !important; font-weight: 800 !important; color: #6B7280 !important; transition: color 0.2s ease !important;
     }
-
-    /* Survol */
-    div[role="radiogroup"] label:hover div p {
-        color: #111827 !important;
-    }
-
-    /* État Actif (Sélectionné) */
-    div[role="radiogroup"] label:has(input:checked) div p {
-        color: #E30613 !important; /* Rouge STAR */
-        font-weight: 900 !important; /* EXTRA GRAS */
-    }
-    
-    div[role="radiogroup"] label:has(input:checked) {
-        border-bottom: 4px solid #E30613 !important;
-    }
-
-    /* Cache l'input radio lui-même */
-    div[role="radiogroup"] label > div:first-child {
-        display: none !important;
-    }
+    div[role="radiogroup"] label:hover div p { color: #111827 !important; }
+    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 900 !important; }
+    div[role="radiogroup"] label:has(input:checked) { border-bottom: 4px solid #E30613 !important; }
+    div[role="radiogroup"] label > div:first-child { display: none !important; }
     
     /* Masquer les marges inutiles */
     .block-container { padding-top: 2rem !important; }
@@ -351,19 +324,25 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
+    
+    # Prévision PURE (pour superposition)
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr'])
+    
+    # Volume mixte (Réalisé si dispo, sinon Prévision)
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
     
     contenance_safe = df_cross['contenance_cl'].replace(0, 100).fillna(100.0)
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000.0 / contenance_safe)
+    df_cross['Prevision_Cols'] = df_cross['Prevision_HL'] * (10000.0 / contenance_safe) # Ajout pour superposition en Cols
+    
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
 
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
-    cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols"]
+    cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Prevision_HL", "Volume_Cols", "Prevision_Cols"]
     df_realise_out = df_realise[df_realise['article'].isin(articles_avec_vente)].copy()
 
     return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise_out
@@ -472,6 +451,7 @@ if fichier_ventes is not None:
         st.stop()
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
+    col_prev_pure = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
 
     if not mois_cibles_selection:
         df_previsions_filtre = df_previsions
@@ -518,43 +498,44 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES
+    # 5. GRAPHIQUES (Superposition Réalisé vs Prévision)
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
         st.markdown("""
         <div class="white-card">
-            <div class="section-title">La tendance en détail</div>
-            <div class="section-subtitle">Évolution globale des volumes - Réalisé vs Prévisions</div>
+            <div class="section-title">Superposition Réalisé vs Prévision</div>
+            <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
         df_graph = df_previsions_filtre.copy()
         df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
         df_graph['Date_Plot'] = pd.to_datetime(df_graph['Date_Str'])
-        df_grouped = df_graph.groupby(['Date_Plot', 'Statut'], observed=True)[col_prev_aff].sum().reset_index()
         
-        df_real = df_grouped[df_grouped['Statut'] == 'Réalisé'].sort_values('Date_Plot')
-        df_prev = df_grouped[df_grouped['Statut'] == 'Prévision'].sort_values('Date_Plot')
-
-        if not df_real.empty and not df_prev.empty:
-            df_prev = pd.concat([df_real.tail(1).assign(Statut='Prévision'), df_prev], ignore_index=True)
+        # 1. Prévision Pure (toute la période)
+        df_prev_pure = df_graph.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index()
+        
+        # 2. Réalisé (seulement jusqu'au cutoff)
+        df_real = df_graph[df_graph['Statut'] == 'Réalisé'].groupby('Date_Plot', observed=True)[col_prev_aff].sum().reset_index()
 
         fig1 = go.Figure()
 
+        # Trace Prévision (Rouge pointillé)
+        if not df_prev_pure.empty:
+            fig1.add_trace(go.Scatter(
+                x=df_prev_pure['Date_Plot'], y=df_prev_pure[col_prev_pure],
+                mode='lines+markers', name='Prévision (Pure)',
+                line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3),
+                marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
+            ))
+
+        # Trace Réalisé (Noir plein par-dessus)
         if not df_real.empty:
             fig1.add_trace(go.Scatter(
                 x=df_real['Date_Plot'], y=df_real[col_prev_aff],
                 mode='lines+markers', name='Réalisé',
-                line=dict(color='#111827', width=3, shape='spline', smoothing=1.3),
-                marker=dict(size=7, color='#111827', line=dict(color='white', width=1.5))
-            ))
-
-        if not df_prev.empty:
-            fig1.add_trace(go.Scatter(
-                x=df_prev['Date_Plot'], y=df_prev[col_prev_aff],
-                mode='lines+markers', name='Prévision',
-                line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3),
-                marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
+                line=dict(color='#111827', width=4, shape='spline', smoothing=1.3),
+                marker=dict(size=8, color='#111827', line=dict(color='white', width=1.5))
             ))
 
         fig1.update_layout(
@@ -598,11 +579,10 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. MENU DE NAVIGATION PERSONNALISÉ (Remplaçant st.tabs)
+    # 6. MENU DE NAVIGATION PERSONNALISÉ
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
-    # Ce radio bouton est invisible, c'est le CSS au-dessus qui le transforme en onglets
     active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
 
     N_MAX_DISPLAY = 5000

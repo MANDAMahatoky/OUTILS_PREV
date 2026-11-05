@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN 
+# CONFIGURATION ET DESIGN (Brand Rouge Dominant)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="collapsed")
 
@@ -23,39 +23,38 @@ st.markdown("""
     .stApp { background-color: #F4F6F8 !important; }
     [data-testid="stSidebar"] { display: none; }
     
-    /* Header Blanc (Brand STAR) */
+    /* Header Rouge (Brand STAR Premium) */
     .hero-header {
-        background-color: #FFFFFF;
-        color: #111827;
-        padding: 30px 40px;
+        background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%);
+        color: white;
+        padding: 40px;
         border-radius: 0 0 20px 20px;
         margin-top: -60px;
         margin-bottom: 30px;
         position: relative;
         overflow: hidden;
-        border-bottom: 4px solid #E30613;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 10px 20px -5px rgba(227, 6, 19, 0.4);
     }
-    .hero-header h1 { color: #E30613 !important; font-size: 2.8rem; font-weight: 900; margin-bottom: 10px; letter-spacing: -0.02em; }
-    .hero-header p { color: #6B7280; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; }
+    .hero-header h1 { color: white !important; font-size: 2.8rem; font-weight: 900; margin-bottom: 10px; letter-spacing: -0.02em; }
+    .hero-header p { color: #FECACA; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; }
     .badge-demo {
-        background-color: #FEF2F2; color: #E30613; padding: 6px 14px;
-        border-radius: 20px; font-size: 0.8rem; font-weight: 700;
-        display: inline-block; border: 1px solid #FECACA;
+        background-color: white; color: #E30613; padding: 6px 14px;
+        border-radius: 20px; font-size: 0.8rem; font-weight: 800;
+        display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     
-    /* Cartes Blanches */
+    /* Cartes Blanches avec accent rouge */
     .white-card {
         background: white; border-radius: 12px; padding: 24px;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
-        border: 1px solid #E5E7EB; margin-bottom: 20px; height: 100%;
+        border-top: 4px solid #E30613; 
+        margin-bottom: 20px; height: 100%;
     }
     
     /* KPI Cards */
-    .kpi-label { color: #6B7280; font-size: 0.95rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .kpi-value { color: #111827; font-size: 2.6rem; font-weight: 800; line-height: 1.1; }
-    .kpi-value-green { color: #009640; }
-    .kpi-value-red { color: #E30613; }
+    .kpi-label { color: #6B7280; font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .kpi-value { color: #E30613; font-size: 2.6rem; font-weight: 900; line-height: 1.1; }
+    .kpi-value-dark { color: #111827; }
     .kpi-footer { color: #9CA3AF; font-size: 0.85rem; margin-top: 8px; font-weight: 500; }
 
     /* Titres de sections */
@@ -69,18 +68,16 @@ st.markdown("""
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
     /* =========================================================
-       NOUVEAU MENU DE NAVIGATION (RADIO STYLISÉ EN ONGLETS)
+       NAVIGATION (BOUTONS RADIO STYLISÉS)
        ========================================================= */
-    /* Cache les cercles radio */
     div[role="radiogroup"] {
-        gap: 80px !important; /* ESPACEMENT MASSIF */
+        gap: 80px !important; 
         border-bottom: 2px solid #E5E7EB !important;
         padding-bottom: 0px !important;
         margin-bottom: 30px !important;
         display: flex !important;
         flex-wrap: wrap !important;
     }
-    
     div[role="radiogroup"] label {
         background: transparent !important;
         border: none !important;
@@ -89,34 +86,21 @@ st.markdown("""
         padding: 10px 0px !important;
         margin: 0 !important;
     }
-
-    /* Style du texte */
     div[role="radiogroup"] label div p {
-        font-size: 1.6rem !important; /* POLICE TRÈS GRANDE */
-        font-weight: 800 !important;  /* TRÈS GRAS */
+        font-size: 1.6rem !important; 
+        font-weight: 800 !important;  
         color: #6B7280 !important;
         transition: color 0.2s ease !important;
     }
-
-    /* Survol */
-    div[role="radiogroup"] label:hover div p {
-        color: #111827 !important;
-    }
-
-    /* État Actif (Sélectionné) */
+    div[role="radiogroup"] label:hover div p { color: #111827 !important; }
     div[role="radiogroup"] label:has(input:checked) div p {
-        color: #E30613 !important; /* Rouge STAR */
-        font-weight: 900 !important; /* EXTRA GRAS */
+        color: #E30613 !important; 
+        font-weight: 900 !important; 
     }
-    
     div[role="radiogroup"] label:has(input:checked) {
         border-bottom: 4px solid #E30613 !important;
     }
-
-    /* Cache l'input radio lui-même */
-    div[role="radiogroup"] label > div:first-child {
-        display: none !important;
-    }
+    div[role="radiogroup"] label > div:first-child { display: none !important; }
     
     /* Masquer les marges inutiles */
     .block-container { padding-top: 2rem !important; }
@@ -334,15 +318,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_Hist'] = 0.0
 
-    # =========================================================================
     # CORRECTIONS CAGR : SEUIL ET PLAFONNEMENT
-    # =========================================================================
     df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
-    
-    # Seuil de base (si Base_Hist < 100, on utilise CAGR_Hist)
     df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
-    
-    # Plafonnement (Clipping entre -20% et +30%)
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
@@ -361,10 +339,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # Prévision PURE (pour superposition graphique)
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr'])
-    
-    # Volume mixte (Réalisé si dispo, sinon Prévision)
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
     
@@ -399,12 +374,12 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
 # INTERFACE UTILISATEUR
 # ==============================================================================
 
-# 1. HEADER BLANC 
+# 1. HEADER ROUGE 
 st.markdown("""
 <div class="hero-header">
-    <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: #6B7280; font-weight: 700;">Perspectives • S&OP</p>
+    <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision complet - Explorez les tendances à venir et comparez différents scénarios.</p>
+    <p style="color: #FECACA;">Moteur de prévision complet - Explorez les tendances à venir et comparez différents scénarios.</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -500,9 +475,7 @@ if fichier_ventes is not None:
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
-    # =========================================================================
-    # CORRECTION KPI : CAGR PONDÉRÉ
-    # =========================================================================
+    # CAGR PONDÉRÉ POUR LA KPI
     vol_total = df_previsions_filtre[col_prev_aff].sum()
     if vol_total > 0:
         cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre[col_prev_aff]).sum() / vol_total
@@ -522,7 +495,7 @@ if fichier_ventes is not None:
         st.markdown(f"""
         <div class="white-card">
             <div class="kpi-label">CAGR Pondéré</div>
-            <div class="kpi-value kpi-value-green">{cagr_applique:,.2f}%</div>
+            <div class="kpi-value kpi-value-dark">{cagr_applique:,.2f}%</div>
             <div class="kpi-footer">Croissance moyenne pondérée</div>
         </div>""", unsafe_allow_html=True)
     with k3:
@@ -536,7 +509,7 @@ if fichier_ventes is not None:
         st.markdown(f"""
         <div class="white-card">
             <div class="kpi-label">Volume Réalisé (YTD)</div>
-            <div class="kpi-value kpi-value-red">{ytd_val:,.0f}</div>
+            <div class="kpi-value">{ytd_val:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} jusqu'au cutoff</div>
         </div>""", unsafe_allow_html=True)
 
@@ -552,21 +525,16 @@ if fichier_ventes is not None:
             <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
-        # ICI : On filtre pour n'afficher QUE l'année cible
         df_graph = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
-        
         df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'
         df_graph['Date_Plot'] = pd.to_datetime(df_graph['Date_Str'])
         
-        # 1. Prévision Pure (toute l'année cible)
         df_prev_pure = df_graph.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index()
-        
-        # 2. Réalisé (seulement jusqu'au cutoff)
         df_real = df_graph[df_graph['Statut'] == 'Réalisé'].groupby('Date_Plot', observed=True)[col_prev_aff].sum().reset_index()
 
         fig1 = go.Figure()
 
-        # Trace Prévision (Rouge pointillé)
+        # Trace Prévision (Rouge vif pointillé)
         if not df_prev_pure.empty:
             fig1.add_trace(go.Scatter(
                 x=df_prev_pure['Date_Plot'], y=df_prev_pure[col_prev_pure],
@@ -575,13 +543,13 @@ if fichier_ventes is not None:
                 marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
             ))
 
-        # Trace Réalisé (Noir plein par-dessus)
+        # Trace Réalisé (Rouge foncé plein par-dessus)
         if not df_real.empty:
             fig1.add_trace(go.Scatter(
                 x=df_real['Date_Plot'], y=df_real[col_prev_aff],
                 mode='lines+markers', name='Réalisé',
-                line=dict(color='#111827', width=4, shape='spline', smoothing=1.3),
-                marker=dict(size=8, color='#111827', line=dict(color='white', width=1.5))
+                line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3),
+                marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))
             ))
 
         fig1.update_layout(
@@ -604,11 +572,14 @@ if fichier_ventes is not None:
         
         df_top = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
         
+        # Camaïeu de rouges pour le Top 10
+        colors = ['#FECACA', '#FCA5A5', '#F87171', '#EF4444', '#DC2626', '#B91C1C', '#991B1B', '#7F1D1D', '#450A0A', '#E30613']
+        
         fig2 = go.Figure(go.Bar(
             x=df_top[col_prev_aff], y=df_top['article'], orientation='h',
-            marker=dict(color=['#009640' if i % 2 == 0 else '#E30613' for i in range(len(df_top))]),
+            marker=dict(color=colors[:len(df_top)]),
             text=df_top[col_prev_aff].apply(lambda x: f"{x:,.0f}"),
-            textposition='auto', textfont=dict(color='white')
+            textposition='auto', textfont=dict(color='white', weight='bold')
         ))
         fig2.update_layout(
             plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
@@ -625,11 +596,10 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. MENU DE NAVIGATION PERSONNALISÉ (Remplaçant st.tabs)
+    # 6. MENU DE NAVIGATION PERSONNALISÉ
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
-    # Ce radio bouton est invisible, c'est le CSS au-dessus qui le transforme en onglets
     active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
 
     N_MAX_DISPLAY = 5000

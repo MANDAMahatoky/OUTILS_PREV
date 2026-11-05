@@ -131,7 +131,7 @@ st.markdown("""
        NAVIGATION (BOUTONS RADIO STYLISÉS)
        ========================================================= */
     div[role="radiogroup"] {
-        gap: 80px !important; 
+        gap: 40px !important; 
         border-bottom: 2px solid #E5E7EB !important;
         padding-bottom: 0px !important;
         margin-bottom: 30px !important;
@@ -147,7 +147,7 @@ st.markdown("""
         margin: 0 !important;
     }
     div[role="radiogroup"] label div p {
-        font-size: 1.6rem !important; 
+        font-size: 1.4rem !important; 
         font-weight: 800 !important;  
         color: #6B7280 !important;
         transition: color 0.2s ease !important;
@@ -708,156 +708,60 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # GRAPHIQUES
-    col_g1, col_g2 = st.columns([1.5, 1])
+    # GRAPHIQUE PRINCIPAL (Pleine largeur)
+    st.markdown(f"""
+    <div class="white-card">
+        <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
+        <div class="section-subtitle">Comparaison mensuelle pour l'année {annee_cible}</div>
+    """, unsafe_allow_html=True)
     
-    with col_g1:
-        st.markdown(f"""
-        <div class="white-card">
-            <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
-            <div class="section-subtitle">Comparaison mensuelle pour l'année {annee_cible}</div>
-        """, unsafe_allow_html=True)
-        
-        df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
-        
-        if annee_cible == annee_cloture:
-            df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
+    df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
+    
+    if annee_cible == annee_cloture:
+        df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
 
-        df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
-        df_real_cible['Date_Plot'] = pd.to_datetime(df_real_cible['Date_Str'])
-        
-        contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100.0)
-        df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
-        
-        df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
+    df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
+    df_real_cible['Date_Plot'] = pd.to_datetime(df_real_cible['Date_Str'])
+    
+    contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100.0)
+    df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
+    
+    df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-        df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
-        df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
-        df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
-        
-        df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
+    df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+    df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
+    df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
+    
+    df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
 
-        fig1 = go.Figure()
+    fig1 = go.Figure()
 
-        if not df_prev_plot.empty:
-            fig1.add_trace(go.Scatter(
-                x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'],
-                mode='lines+markers', name='Prévision (Pure)',
-                line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3),
-                marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
-            ))
+    if not df_prev_plot.empty:
+        fig1.add_trace(go.Scatter(
+            x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'],
+            mode='lines+markers', name='Prévision (Pure)',
+            line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3),
+            marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
+        ))
 
-        if not df_real_plot.empty:
-            fig1.add_trace(go.Scatter(
-                x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'],
-                mode='lines+markers', name='Réalisé',
-                line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3),
-                marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))
-            ))
+    if not df_real_plot.empty:
+        fig1.add_trace(go.Scatter(
+            x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'],
+            mode='lines+markers', name='Réalisé',
+            line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3),
+            marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))
+        ))
 
-        fig1.update_layout(
-            plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
-            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
-            xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1"),
-            yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False),
-            height=320,
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col_g2:
-        st.markdown("""
-        <div class="white-card">
-            <div class="section-title">Analyse Pareto (ABC)</div>
-            <div class="section-subtitle">Top 15 des articles (A=80%, B=95%, C=reste)</div>
-        """, unsafe_allow_html=True)
-        
-        # PRÉPARATION DES DONNÉES POUR PARETO
-        df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
-        df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
-        
-        if not df_pareto.empty:
-            total_vol = df_pareto[col_prev_aff].sum()
-            df_pareto['Cumul_Pct'] = (df_pareto[col_prev_aff].cumsum() / total_vol) * 100
-            
-            # Attribution ABC
-            df_pareto['Classe'] = np.select(
-                [df_pareto['Cumul_Pct'] <= 80, df_pareto['Cumul_Pct'] <= 95],
-                ['A', 'B'],
-                default='C'
-            )
-            
-            # On prend le Top 15 pour le GRAPHIQUE uniquement
-            df_pareto_graph = df_pareto.head(15).copy()
-            df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
-                lambda x: x if len(str(x)) <= 15 else str(x)[:12] + '...'
-            )
-            
-            # LE GRAPHIQUE (Simple et efficace)
-            fig2 = go.Figure()
-            couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
-
-            for classe in ['A', 'B', 'C']:
-                df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
-                if not df_class.empty:
-                    fig2.add_trace(go.Bar(
-                        x=df_class['Article_Court'], 
-                        y=df_class[col_prev_aff],
-                        name=f'Classe {classe}',
-                        marker_color=couleurs[classe],
-                        text=df_class[col_prev_aff].apply(lambda x: f"{x:,.0f}"),
-                        textposition='outside',
-                        textfont=dict(size=10, color='#111827')
-                    ))
-
-            # Courbe cumulée
-            fig2.add_trace(go.Scatter(
-                x=df_pareto_graph['Article_Court'], 
-                y=df_pareto_graph['Cumul_Pct'],
-                name='% Cumulé',
-                mode='lines+markers',
-                line=dict(color='#111827', width=2, dash='dot'),
-                marker=dict(size=6, color='#111827'),
-                yaxis='y2'
-            ))
-            
-            # Lignes 80% et 95%
-            for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
-                fig2.add_shape(
-                    type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
-                    line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2'
-                )
-
-            fig2.update_layout(
-                plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=10, b=0),
-                yaxis=dict(title=None, showgrid=True, gridcolor='#F3F4F6', showticklabels=False),
-                yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 105], showgrid=False, ticksuffix="%"),
-                xaxis=dict(showticklabels=False, showgrid=False),
-                legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5),
-                height=350,
-                hovermode="x unified"
-            )
-            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
-            
-            # LE TABLEAU DE DETAILS (dans un expander pour ne pas encombrer)
-            with st.expander("📋 Voir le détail (Tous les articles)"):
-                df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
-                df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
-                st.dataframe(
-                    df_table,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                        '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"),
-                        'Classe': st.column_config.TextColumn(width="small")
-                    }
-                )
-        else:
-            st.info("Pas assez de données pour l'analyse.")
-
-        st.markdown('</div>', unsafe_allow_html=True)
+    fig1.update_layout(
+        plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+        xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1"),
+        yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False),
+        height=400,
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("""
     <p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
@@ -868,7 +772,7 @@ if fichier_ventes is not None:
     # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
-    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]
+    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)"]
     active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
 
     N_MAX_DISPLAY = 5000
@@ -1013,3 +917,99 @@ if fichier_ventes is not None:
             if annee_cible > annee_cloture: cols_to_show.insert(-1, "CAGR (%)")
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
             st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400)
+
+    elif active_tab == "Analyse Pareto (ABC)":
+        st.markdown("### Analyse Pareto & Classification ABC")
+        st.markdown("La classification ABC est une méthode de gestion des stocks qui consiste à diviser les articles en trois classes en fonction de leur contribution au volume total :")
+        st.markdown("- **Classe A (0-80%)** : Les articles vitaux (généralement 20% des articles qui font 80% des ventes).\n- **Classe B (80-95%)** : Les articles intermédiaires.\n- **Classe C (95-100%)** : Les articles à faible rotation (la longue traîne).")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # PRÉPARATION DES DONNÉES POUR PARETO
+        df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
+        df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
+        
+        if not df_pareto.empty:
+            total_vol = df_pareto[col_prev_aff].sum()
+            df_pareto['Cumul_Pct'] = (df_pareto[col_prev_aff].cumsum() / total_vol) * 100
+            
+            # Attribution ABC
+            df_pareto['Classe'] = np.select(
+                [df_pareto['Cumul_Pct'] <= 80, df_pareto['Cumul_Pct'] <= 95],
+                ['A', 'B'],
+                default='C'
+            )
+            
+            # On prend le Top 30 pour le graphique en pleine largeur
+            df_pareto_graph = df_pareto.head(30).copy()
+            
+            # Raccourcir les noms d'articles
+            df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
+                lambda x: x if len(str(x)) <= 25 else str(x)[:22] + '...'
+            )
+            
+            fig2 = go.Figure()
+            couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
+
+            # Ajouter les barres par classe
+            for classe in ['A', 'B', 'C']:
+                df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
+                if not df_class.empty:
+                    fig2.add_trace(go.Bar(
+                        x=df_class['Article_Court'], 
+                        y=df_class[col_prev_aff],
+                        name=f'Classe {classe}',
+                        marker_color=couleurs[classe],
+                        text=df_class[col_prev_aff].apply(lambda x: f"{x:,.0f}"),
+                        textposition='outside',
+                        textfont=dict(size=10, color='#111827')
+                    ))
+
+            # Ligne : % Cumulé
+            fig2.add_trace(go.Scatter(
+                x=df_pareto_graph['Article_Court'], 
+                y=df_pareto_graph['Cumul_Pct'],
+                name='% Cumulé',
+                mode='lines+markers',
+                line=dict(color='#111827', width=2, dash='dot'),
+                marker=dict(size=6, color='#111827'),
+                yaxis='y2',
+                hovertemplate="% Cumulé: %{y:.1f}%<extra></extra>"
+            ))
+            
+            # Lignes de seuils (80% et 95%)
+            for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
+                fig2.add_shape(
+                    type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
+                    line=dict(color=color, width=1.5, dash="dash"), xref='x', yref='y2'
+                )
+
+            fig2.update_layout(
+                plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
+                yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
+                yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 105], showgrid=False, ticksuffix="%"),
+                xaxis=dict(showticklabels=True, tickangle=-45, showgrid=False, tickfont=dict(size=11)),
+                legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
+                height=500,
+                bargap=0.2,
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
+            
+            # TABLEAU DE DETAILS (en dessous du graphique)
+            st.markdown("#### Détail par article")
+            df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
+            df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
+            st.dataframe(
+                df_table,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                    '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"),
+                    'Classe': st.column_config.TextColumn(width="small")
+                },
+                height=400
+            )
+        else:
+            st.info("Pas assez de données pour l'analyse.")

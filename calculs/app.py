@@ -914,18 +914,18 @@ if fichier_ventes is not None:
                 default='C'
             )
             
-            # On prend le Top 30 pour le graphique en pleine largeur
-            df_pareto_graph = df_pareto.head(30).copy()
+            # On prend le Top 15 pour le graphique pour qu'il soit lisible
+            df_pareto_graph = df_pareto.head(15).copy()
             
             # Raccourcir les noms d'articles
             df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
-                lambda x: x if len(str(x)) <= 25 else str(x)[:22] + '...'
+                lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...'
             )
             
             fig2 = go.Figure()
             couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
 
-            # Ajouter les barres par classe
+            # Ajouter les barres par classe (on enlève les labels textuels qui surchargeaient le graphique)
             for classe in ['A', 'B', 'C']:
                 df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
                 if not df_class.empty:
@@ -934,25 +934,23 @@ if fichier_ventes is not None:
                         y=df_class[col_prev_aff],
                         name=f'Classe {classe}',
                         marker_color=couleurs[classe],
-                        text=df_class[col_prev_aff].apply(lambda x: f"{x:,.0f}"),
-                        textposition='outside',
-                        textfont=dict(size=10, color='#111827')
+                        textposition='none' # On enlève les chiffres au dessus des barres
                     ))
 
-            # Ligne : % Cumulé
+            # Ligne : % Cumulé (Ligne pleine, sans marqueurs excessifs)
             fig2.add_trace(go.Scatter(
                 x=df_pareto_graph['Article_Court'], 
                 y=df_pareto_graph['Cumul_Pct'],
                 name='% Cumulé',
                 mode='lines+markers',
-                line=dict(color='#111827', width=2, dash='dot'),
-                marker=dict(size=6, color='#111827'),
+                line=dict(color='#111827', width=2),
+                marker=dict(size=5, color='#111827'),
                 yaxis='y2',
                 hovertemplate="% Cumulé: %{y:.1f}%<extra></extra>"
             ))
             
-            # Lignes de seuils (80% et 95%)
-            for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
+            # Lignes de seuils (80% et 95%) discrètes
+            for seuil, color in [(80, '#EF4444'), (95, '#F59E0B')]:
                 fig2.add_shape(
                     type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
                     line=dict(color=color, width=1.5, dash="dash"), xref='x', yref='y2'
@@ -961,11 +959,19 @@ if fichier_ventes is not None:
             fig2.update_layout(
                 plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
                 yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
-                yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 105], showgrid=False, ticksuffix="%"),
+                yaxis2=dict(
+                    title="% Cumulé", 
+                    overlaying='y', 
+                    side='right', 
+                    range=[0, 110], # Forcer le range
+                    tickvals=[0, 20, 40, 60, 80, 100], # Forcer les graduations
+                    showgrid=False, 
+                    ticksuffix="%"
+                ),
                 xaxis=dict(showticklabels=True, tickangle=-45, showgrid=False, tickfont=dict(size=11)),
                 legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
-                height=500,
-                bargap=0.2,
+                height=450,
+                bargap=0.3,
                 hovermode="x unified"
             )
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})

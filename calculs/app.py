@@ -357,6 +357,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     
+    # FALLBACK POUR NOUVEAUX PRODUITS
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
         df_ag_art['key'] = 1
@@ -383,6 +384,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
+    # CORRECTION SPECIFIQUE FOSA : On ne prend que les mois actifs pour le Cumul_Coef
     df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
                      .groupby(['agence', 'article'], observed=True)['mois'].min()
                      .reset_index().rename(columns={'mois': 'Mois_Debut'}))
@@ -634,7 +636,7 @@ if fichier_ventes is not None:
     gap = objectif_final - atterrissage_cible
     
     # =========================================================================
-    # CORRECTION FINALE DU CALCUL DES METRIQUES (WMAPE)
+    # CALCUL DES METRIQUES DE FIABILITE (WMAPE)
     # =========================================================================
     df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
     df_eval_agg = df_eval.groupby(['annee', 'mois'], observed=True)[[col_prev_aff, col_prev_pure]].sum().reset_index()
@@ -649,12 +651,6 @@ if fichier_ventes is not None:
         smape = np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred))) * 100
     else:
         mae, wmape, smape = 0.0, 0.0, 0.0
-
-    vol_total_hl = df_previsions_filtre["Volume_HL"].sum()
-    if vol_total_hl > 0:
-        cagr_applique = (df_previsions_filtre['CAGR (%)'] * df_previsions_filtre["Volume_HL"]).sum() / vol_total_hl
-    else:
-        cagr_applique = 0.0
 
     # KPI LIGNE 1
     k1, k2, k3 = st.columns(3)
@@ -773,27 +769,63 @@ if fichier_ventes is not None:
     with col_g2:
         st.markdown("""
         <div class="white-card">
-            <div class="section-title">Par produit</div>
-            <div class="section-subtitle">Top 10 Articles (Volumes prévus)</div>
+            <div class="section-title">Analyse Pareto (Loi des 80/20)</div>
+            <div class="section-subtitle">Concentration des volumes par article</div>
         """, unsafe_allow_html=True)
         
-        df_top = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=True).tail(10).reset_index()
+        # PRÉPARATION DES DONNÉES POUR PARETO
+        df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
+        df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
         
-        colors = ['#FECACA', '#FCA5A5', '#F87171', '#EF4444', '#DC2626', '#B91C1C', '#991B1B', '#7F1D1D', '#450A0A', '#E30613']
-        
-        fig2 = go.Figure(go.Bar(
-            x=df_top[col_prev_aff], y=df_top['article'], orientation='h',
-            marker=dict(color=colors[:len(df_top)]),
-            text=df_top[col_prev_aff].apply(lambda x: f"{x:,.0f}"),
-            textposition='auto', textfont=dict(color='white', weight='bold')
-        ))
-        fig2.update_layout(
-            plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
-            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-            yaxis=dict(showgrid=False, tickfont=dict(color='#4B5563', size=11)),
-            height=320
-        )
-        st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
+        if not df_pareto.empty:
+            total_vol = df_pareto[col_prev_aff].sum()
+            df_pareto['Cumul_Pct'] = (df_pareto[col_prev_aff].cumsum() / total_vol) * 100
+            
+            # On garde les 30 premiers articles pour la lisibilité, ou tous si moins de 30
+            df_pareto_plot = df_pareto.head(30).copy()
+            
+            fig2 = go.Figure()
+
+            # Barres : Volume par article
+            fig2.add_trace(go.Bar(
+                x=df_pareto_plot['article'], 
+                y=df_pareto_plot[col_prev_aff],
+                name='Volume',
+                marker_color='#E30613',
+                yaxis='y1'
+            ))
+
+            # Ligne : % Cumulé
+            fig2.add_trace(go.Scatter(
+                x=df_pareto_plot['article'], 
+                y=df_pareto_plot['Cumul_Pct'],
+                name='% Cumulé',
+                mode='lines+markers',
+                line=dict(color='#111827', width=3, shape='spline'),
+                marker=dict(size=6, color='#111827'),
+                yaxis='y2'
+            ))
+            
+            # Ligne des 80%
+            fig2.add_shape(
+                type="line", x0=-0.5, x1=len(df_pareto_plot)-0.5, y0=80, y1=80,
+                line=dict(color="#F59E0B", width=2, dash="dash"),
+                xref='x', yref='y2'
+            )
+
+            fig2.update_layout(
+                plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
+                yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
+                yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 105], showgrid=False),
+                xaxis=dict(showticklabels=False, showgrid=False), # On cache les noms sur l'axe X car ils sont trop longs
+                legend=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5),
+                height=320,
+                bargap=0.1
+            )
+            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
+        else:
+            st.info("Pas assez de données pour le Pareto.")
+
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("""

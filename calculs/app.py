@@ -240,14 +240,20 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     # UTILISATION DE LA FONCTION ROBUSTE POUR LES RÉGIONS
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     
+    # EXTRACTION AUTOMATIQUE DE LA MARQUE (1er mot de l'article)
+    df_enrichi["marque"] = df_enrichi["article"].apply(lambda x: str(x).split()[0] if pd.notna(x) and len(str(x).split()) > 0 else "Inconnu")
+    
+    # NETTOYAGE DE L'OCCASION
+    df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
+    
     conditions = [df_enrichi["article"].str.contains(x, case=False, na=False) for x in ["booster|alcoomix", "caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", "beaufort|fresh|thb|gold|queen|skol|castel|libertalia", "cristal|cristalline|eau vive|eau", "xxl|fosa", "judor|jus", "vin", "negoce"]]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
     
-    for col in ['region', 'segment', 'positionnement', 'occasion']:
+    for col in ['region', 'segment', 'positionnement', 'occasion', 'marque']:
         if col in df_enrichi.columns: df_enrichi[col] = df_enrichi[col].astype('category')
 
-    return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
+    return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
 # LOGIQUE DE CALCUL (AVEC CORRECTIONS CAGR)
@@ -409,9 +415,9 @@ if fichier_ventes is not None:
         st.markdown('<div class="section-title">Affinez votre perspective</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Modifiez les filtres pour explorer les projections.</div>', unsafe_allow_html=True)
         
+        # Ligne 1 des filtres
         f1, f2, f3, f4 = st.columns(4)
         with f1:
-            # SUPPRESSION DE "AUTRE" DE LA LISTE DES RÉGIONS
             regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
             sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
             df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
@@ -420,14 +426,15 @@ if fichier_ventes is not None:
             sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
             df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
         with f3:
-            positionnements_dispo = sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)])
-            sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
-            df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
+            marques_dispo = sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"])
+            sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes")
+            df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
         with f4:
             articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
             sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
             df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
 
+        # Ligne 2 des filtres
         f5, f6, f7, f8 = st.columns(4)
         with f5:
             agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
@@ -436,8 +443,19 @@ if fichier_ventes is not None:
             contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
             sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
         with f7:
-            annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026)
+            positionnements_dispo = sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)])
+            sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
+            df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
         with f8:
+            occasions_dispo = sorted([str(o) for o in df_temp["occasion"].unique() if pd.notna(o) and str(o) != "Non renseigné"])
+            sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes")
+            df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
+
+        # Ligne 3 des filtres
+        f9, f10, f11, f12 = st.columns(4)
+        with f9:
+            annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026)
+        with f10:
             unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
@@ -462,6 +480,8 @@ if fichier_ventes is not None:
     if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
     if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
     if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
+    if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
+    if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
     # CALCULS
     table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(

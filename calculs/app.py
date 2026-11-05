@@ -68,18 +68,19 @@ st.markdown("""
     }
     .stSelectbox label, .stNumberInput label, .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* --- AMÉLIORATION DES ONGLETS (CE QUE VOUS AVEZ ENTOURÉ) --- */
+    /* --- AMÉLIORATION DES ONGLETS (SANS EMOJIS + POLICE PLUS GRANDE) --- */
     .stTabs [data-baseweb="tab-list"] {
         gap: 32px;
         background-color: transparent;
         border-bottom: 1px solid #E5E7EB;
         padding-bottom: 0px;
-        margin-bottom: 24px; /* Espace entre les onglets et le titre */
+        margin-bottom: 24px;
     }
     .stTabs [data-baseweb="tab"] {
         color: #6B7280; 
+        font-size: 1.1rem; /* Taille de police augmentée */
         font-weight: 600; 
-        padding: 10px 0px; 
+        padding: 12px 0px; 
         background-color: transparent !important; 
         border: none;
         border-bottom: 2px solid transparent;
@@ -91,7 +92,7 @@ st.markdown("""
     }
     .stTabs [aria-selected="true"] {
         color: #E30613 !important; 
-        border-bottom: 2px solid #E30613 !important; 
+        border-bottom: 3px solid #E30613 !important; 
         background-color: transparent !important; 
         box-shadow: none !important;
         font-weight: 700;
@@ -581,11 +582,11 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. ONGLETS DÉTAILLÉS
+    # 6. ONGLETS DÉTAILLÉS (SANS EMOJIS)
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📁 Données Brutes", "⚙️ Périmètre", "📊 Réalisé Cumulé", "📈 Indices & SARR", "🔮 Prévisions Détaillées"
+        "Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"
     ])
 
     N_MAX_DISPLAY = 5000
@@ -631,7 +632,6 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), use_container_width=True, hide_index=True)
 
     with tab5:
-        # --- AMÉLIORATION DU TITRE (CE QUE VOUS AVEZ ENTOURÉ) ---
         st.markdown(f"""
         <div style="margin-bottom: 24px;">
             <h2 style="font-size: 1.5rem; color: #111827; font-weight: 800; margin: 0; letter-spacing: -0.02em;">Résultat Final</h2>
@@ -648,15 +648,14 @@ if fichier_ventes is not None:
             
             csv = pivot_mensuel.to_csv().encode('utf-8')
             st.download_button(
-                label="📥 Exporter en CSV",
+                label="Exporter en CSV",
                 data=csv,
                 file_name=f"previsions_star_{annee_cible}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
 
-        # Barre de recherche
-        search_query = st.text_input("🔍 Rechercher un article ou une agence", "", placeholder="Tapez un nom pour filtrer...")
+        search_query = st.text_input("Rechercher un article ou une agence", "", placeholder="Tapez un nom pour filtrer...")
 
         pivot_mensuel_reset = pivot_mensuel.reset_index()
         pivot_mensuel_reset.columns = [

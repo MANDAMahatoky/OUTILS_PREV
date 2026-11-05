@@ -546,8 +546,12 @@ with st.sidebar:
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027)
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
-        # NOUVEAU CHAMP OBJECTIF
-        objectif_annuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=0.0)
+        st.markdown("##### 🎯 Définition de l'Objectif")
+        taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)")
+        
+        use_objectif_manuel = st.checkbox("Forcer un objectif manuel")
+        if use_objectif_manuel:
+            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=100000.0)
         
         methode_croissance = st.selectbox(
             "Méthode de croissance", 
@@ -612,12 +616,27 @@ if fichier_ventes is not None:
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
-    # CALCUL DU GAP
-    gap = objectif_annuel - atterrissage_cible
+    # CALCUL DE L'OBJECTIF RAISONNÉ
+    df_n1 = df_perimetre[df_perimetre['annee'] == (annee_cible - 1)].copy()
+    if not df_n1.empty:
+        contenance_safe_n1 = df_n1['contenance_cl'].replace(0, 100).fillna(100.0)
+        hist_n1_val = (df_n1['hl'] * (10000.0 / contenance_safe_n1)).sum() if unite_affichage == "Cols" else df_n1['hl'].sum()
+    else:
+        hist_n1_val = 0.0
+        
+    if hist_n1_val > 0:
+        objectif_calcule = hist_n1_val * (1 + taux_ambition / 100.0)
+    else:
+        # Fallback si pas d'historique N-1 : on prend l'atterrissage + ambition
+        objectif_calcule = atterrissage_cible * (1 + taux_ambition / 100.0)
+
+    objectif_final = objectif_manuel if use_objectif_manuel else objectif_calcule
     
-    # CALCUL DES METRIQUES DE FIABILITE (MAE, MAPE, SMAPE)
+    # CALCUL DU GAP
+    gap = objectif_final - atterrissage_cible
+    
+    # CALCUL DES METRIQUES DE FIABILITE
     df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
-    # On évite les divisions par zéro
     df_eval = df_eval[(df_eval[col_prev_aff] > 0) & (df_eval[col_prev_pure] > 0)]
     
     if not df_eval.empty:
@@ -636,9 +655,7 @@ if fichier_ventes is not None:
     else:
         cagr_applique = 0.0
 
-    # =========================================================================
-    # AFFICHAGE DES NOUVEAUX KPI (LIGNE 1 : ATTERRISSAGE, OBJECTIF, GAP)
-    # =========================================================================
+    # KPI LIGNE 1 (ATTERRISSAGE, OBJECTIF, GAP)
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -649,11 +666,12 @@ if fichier_ventes is not None:
         </div>""", unsafe_allow_html=True)
     
     with k2:
+        source_obj = "Manuel" if use_objectif_manuel else f"N-1 {taux_ambition:+.1f}%"
         st.markdown(f"""
         <div class="white-card">
-            <div class="kpi-label">Objectif Annuel</div>
-            <div class="kpi-value kpi-value-dark">{objectif_annuel:,.0f}</div>
-            <div class="kpi-footer">{unite_affichage} (Cible fixée)</div>
+            <div class="kpi-label">Objectif Annuel ({source_obj})</div>
+            <div class="kpi-value kpi-value-dark">{objectif_final:,.0f}</div>
+            <div class="kpi-footer">{unite_affichage} (Cible)</div>
         </div>""", unsafe_allow_html=True)
     
     with k3:
@@ -666,9 +684,7 @@ if fichier_ventes is not None:
             <div class="kpi-footer">{gap_label} en {unite_affichage}</div>
         </div>""", unsafe_allow_html=True)
 
-    # =========================================================================
-    # AFFICHAGE DES METRIQUES DE FIABILITE (LIGNE 2 : MAE, MAPE, SMAPE)
-    # =========================================================================
+    # KPI LIGNE 2 (METRIQUES DE FIABILITE)
     st.markdown("<br>", unsafe_allow_html=True)
     m1, m2, m3 = st.columns(3)
     with m1:
@@ -683,14 +699,14 @@ if fichier_ventes is not None:
         <div class="white-card" style="border-top: 4px solid #4B5563;">
             <div class="kpi-label">MAPE (Erreur % Moyenne)</div>
             <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mape:,.2f}%</div>
-            <div class="kpi-footer">Précision du modèle (plus bas = mieux)</div>
+            <div class="kpi-footer">Précision du modèle</div>
         </div>""", unsafe_allow_html=True)
     with m3:
         st.markdown(f"""
         <div class="white-card" style="border-top: 4px solid #4B5563;">
             <div class="kpi-label">SMAPE (Erreur % Symétrique)</div>
             <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div>
-            <div class="kpi-footer">Idéal pour les faibles volumes</div>
+            <div class="kpi-footer">Précision (faibles volumes)</div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -705,10 +721,8 @@ if fichier_ventes is not None:
             <div class="section-subtitle">Comparaison mensuelle pour l'année {annee_cible}</div>
         """, unsafe_allow_html=True)
         
-        # 1. PRÉPARATION DU RÉALISÉ POUR L'ANNÉE CIBLE
         df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
         
-        # On coupe la ligne réalisée au mois de cutoff pour éviter la chute à zéro
         if annee_cible == annee_cloture:
             df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
 
@@ -720,7 +734,6 @@ if fichier_ventes is not None:
         
         df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-        # 2. PRÉPARATION DE LA PRÉVISION POUR L'ANNÉE CIBLE
         df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
         df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
         df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
@@ -788,7 +801,7 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # ... ONGLETS ...
+    # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées"]

@@ -199,10 +199,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "contenance_cl"]]
 
 # ==============================================================================
-# CALCULS (ÉTAPES 3 À 5) - LOGIQUE 100% EXCEL (Cumul_Coef = 9.0)
+# CALCULS (ÉTAPES 3 À 5) - LOGIQUE 100% EXCEL (Vrai Cumul_Coef)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v46"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v47"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -215,7 +215,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # Indice de Saisonnalité
+    # Indice de Saisonnalité (Calculé UNIQUEMENT sur les années complètes de la période IS)
     df_hist_is = df_realise[(df_realise["annee"] >= annee_min_is) & (df_realise["annee"] <= annee_max_is)].copy()
     if df_hist_is.empty: return None, None, None, None, df_realise
 
@@ -243,7 +243,9 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
 
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     
-    df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl'].sum().reset_index().rename(columns={'hl': 'YTD_HL'})
+    # On s'assure que le YTD ne contient pas de valeurs négatives (retours)
+    df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
+    df_ytd = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'])['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'})
     
     # LOGIQUE HYBRIDE DEMANDEE
     df_ventes_positives = df_realise[df_realise['hl'] > 0]
@@ -262,8 +264,10 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # FORCER LE CUMUL_COEF A 9.0 COMME DANS VOTRE EXCEL
-    df_base['Cumul_Coef'] = mois_cutoff
+    # VRAI CALCUL DU CUMUL_COEF (Somme des indices jusqu'au cutoff)
+    df_cumul_coef = table_indices[table_indices['mois'] <= mois_cutoff].groupby(['agence', 'article'])['Indice'].sum().reset_index().rename(columns={'Indice': 'Cumul_Coef'})
+    df_base = pd.merge(df_base, df_cumul_coef, on=['agence', 'article'], how='left')
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
 
     # Run-Rate
     df_base['Projection_CurrentYear'] = df_base['YTD_HL'] / (df_base['Cumul_Coef'] / 12.0)
@@ -296,6 +300,7 @@ def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is
     df_cross['Prevision_HL'] = np.maximum(0.0, (df_cross['Projection_CurrentYear'] * df_cross['multiplicateur_cagr']) * (df_cross['Indice'] / 12.0))
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
+    df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000 / df_cross['contenance_cl'].replace(0, 100))
 
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")

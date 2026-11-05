@@ -486,7 +486,7 @@ if fichier_ventes is not None:
     atterrissage_cible = df_cible[col_prev_aff].sum()
 
     # =========================================================================
-    # SOLUTION 3 : CAGR PONDÉRÉ POUR LA KPI (Évite que les petits articles biaisent la moyenne)
+    # SOLUTION 3 : CAGR PONDÉRÉ POUR LA KPI
     # =========================================================================
     vol_total = df_previsions_filtre[col_prev_aff].sum()
     if vol_total > 0:
@@ -506,9 +506,9 @@ if fichier_ventes is not None:
     with k2:
         st.markdown(f"""
         <div class="white-card">
-            <div class="kpi-label">CAGR Pondéré Appliqué</div>
+            <div class="kpi-label">CAGR Pondéré</div>
             <div class="kpi-value kpi-value-green">{cagr_applique:,.2f}%</div>
-            <div class="kpi-footer">Croissance moyenne pondérée par les volumes</div>
+            <div class="kpi-footer">Moyenne pondérée par les volumes</div>
         </div>""", unsafe_allow_html=True)
     with k3:
         ytd_val = 0
@@ -537,7 +537,7 @@ if fichier_ventes is not None:
             <div class="section-subtitle">La ligne pleine montre le réalisé, la ligne pointillée montre la prévision pure</div>
         """, unsafe_allow_html=True)
         
-        # On filtre pour n'afficher QUE l'année cible
+        # ICI : On filtre pour n'afficher QUE l'année cible
         df_graph = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
         
         df_graph['Date_Str'] = df_graph['annee'].astype(str) + '-' + df_graph['mois'].astype(str).str.zfill(2) + '-01'

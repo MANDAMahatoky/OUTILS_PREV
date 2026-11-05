@@ -33,23 +33,35 @@ st.markdown("""
     [data-testid="stSidebar"] .stNumberInput label, 
     [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 700 !important; }
 
-    /* Header Rouge (Brand STAR Premium) */
+    /* Header Rouge (Brand STAR Premium - Réduit et Centré) */
     .hero-header {
         background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%);
         color: white;
-        padding: 40px;
+        padding: 25px 20px; /* Réduction de la hauteur */
         border-radius: 0 0 20px 20px;
         margin-top: -60px;
         margin-bottom: 30px;
         position: relative;
         overflow: hidden;
         box-shadow: 0 10px 20px -5px rgba(227, 6, 19, 0.4);
+        text-align: center; /* CENTRAGE DU CONTENU */
     }
-    .hero-header h1 { color: white !important; font-size: 2.8rem; font-weight: 900; margin-bottom: 10px; letter-spacing: -0.02em; }
-    .hero-header p { color: #FECACA; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; }
+    .hero-header h1 { 
+        color: white !important; 
+        font-size: 2.2rem; /* Taille réduite */
+        font-weight: 900; 
+        margin-bottom: 8px; 
+        letter-spacing: -0.02em; 
+    }
+    .hero-header p { 
+        color: #FECACA; 
+        font-size: 1rem; /* Taille réduite */
+        margin-bottom: 15px; 
+        font-weight: 500; 
+    }
     .badge-demo {
-        background-color: white; color: #E30613; padding: 6px 14px;
-        border-radius: 20px; font-size: 0.8rem; font-weight: 800;
+        background-color: white; color: #E30613; padding: 4px 12px;
+        border-radius: 20px; font-size: 0.75rem; font-weight: 800;
         display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     
@@ -507,12 +519,12 @@ with st.sidebar:
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
 
-# 2. HEADER ROUGE (Reste dans la zone principale)
+# 2. HEADER ROUGE (Réduit et Centré)
 st.markdown("""
 <div class="hero-header">
-    <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700;">Perspectives • S&OP</p>
+    <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p style="color: #FECACA;">Moteur de prévision complet - Explorez les tendances à venir et comparez différents scénarios.</p>
+    <p>Moteur de prévision complet - Explorez les tendances à venir et comparez différents scénarios.</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)

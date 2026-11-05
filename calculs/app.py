@@ -316,7 +316,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (AVEC CORRECTION NOUVEAU PRODUIT)
+# LOGIQUE DE CALCUL (AVEC METHODES DE CROISSANCE)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -343,7 +343,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v54"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v56"):
     articles_avec_vente = df_perimetre.groupby('article', observed=True)['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -355,11 +355,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     
-    # =========================================================================
-    # CORRECTION POUR LES NOUVEAUX PRODUITS (FALLBACK)
-    # Si le tableau d'indices est vide (car moins de 12 mois d'historique),
-    # on crée un indice neutre de 1.0 pour tous les mois.
-    # =========================================================================
+    # FALLBACK POUR NOUVEAUX PRODUITS
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
         df_ag_art['key'] = 1
@@ -441,6 +437,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
     
+    # Plafonnement de sécurité
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
@@ -546,7 +543,7 @@ with st.sidebar:
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
 
         st.markdown("#### 2. Paramètres de la cible")
-        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026)
+        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027)
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
         methode_croissance = st.selectbox(

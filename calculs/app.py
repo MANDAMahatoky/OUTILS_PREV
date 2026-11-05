@@ -202,7 +202,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
 # CALCULS (ÉTAPES 3 À 5)
 # ==============================================================================
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v39"):
+def calculer_etape_5(df_perimetre: pd.DataFrame, annee_min_is: int, annee_max_is: int, annee_min_cagr: int, annee_max_cagr: int, annee_cloture: int, mois_cutoff: int, annee_cible: int, _cache_bust="v40"):
     
     articles_avec_vente = df_perimetre.groupby('article')['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
@@ -381,12 +381,13 @@ if fichier_ventes is not None:
         with col2:
             mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}")
             
-        # Placement côte à côte pour Année Cible et Mois Cible
+        # Placement côte à côte pour Année Cible
         col3, col4 = st.columns(2)
         with col3:
             annee_cible = st.number_input("Année Cible", min_value=annee_cloture, max_value=2035, value=annee_cloture)
-        with col4:
-            mois_cible_label = st.selectbox("Mois Cible", options=["Tous"] + MOIS_NOMS, index=0)
+            
+        # FILTRE MULTI-SELECT POUR LES MOIS
+        mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
 
         st.markdown("##### ⚙️ Affichage")
         unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1)
@@ -412,12 +413,14 @@ if fichier_ventes is not None:
 
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 
-    # --- APPLICATION DU FILTRE MOIS CIBLE ---
-    if mois_cible_label == "Tous":
+    # --- APPLICATION DU FILTRE MULTI-MOIS ---
+    if not mois_cibles_selection:
         df_previsions_filtre = df_previsions
+        label_mois_str = "Tous les mois"
     else:
-        mois_cible_num = MOIS_NOMS.index(mois_cible_label) + 1
-        df_previsions_filtre = df_previsions[df_previsions['mois'] == mois_cible_num].copy()
+        mois_cibles_nums = [MOIS_NOMS.index(m) + 1 for m in mois_cibles_selection]
+        df_previsions_filtre = df_previsions[df_previsions['mois'].isin(mois_cibles_nums)].copy()
+        label_mois_str = ", ".join(mois_cibles_selection)
 
     df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
     atterrissage_cible = df_cible[col_prev_aff].sum()
@@ -425,7 +428,7 @@ if fichier_ventes is not None:
     # Affichage des KPIs
     if annee_cible == annee_cloture:
         st.markdown(f"""<div class="kpi-card" style="width: 100%; border-left: 6px solid #009640;">
-            <div class="kpi-header"><span>Atterrissage {annee_cible} ({mois_cible_label}) - Réalisé + Prévisions</span> <span class="kpi-icon">🎯</span></div>
+            <div class="kpi-header"><span>Atterrissage {annee_cible} ({label_mois_str}) - Réalisé + Prévisions</span> <span class="kpi-icon">🎯</span></div>
             <div class="kpi-value">{atterrissage_cible:,.0f}</div>
             <div class="kpi-footer">{unite_affichage} (Projection finale)</div>
         </div>""", unsafe_allow_html=True)
@@ -433,7 +436,7 @@ if fichier_ventes is not None:
         cagr_applique = df_previsions_filtre['CAGR (%)'].mean() if not df_previsions_filtre.empty else 0.0
         kpi1, kpi2 = st.columns(2)
         with kpi1:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible} ({mois_cible_label})</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>Atterrissage {annee_cible} ({label_mois_str})</span> <span class="kpi-icon">🎯</span></div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div></div>""", unsafe_allow_html=True)
         with kpi2:
             st.markdown(f"""<div class="kpi-card"><div class="kpi-header"><span>CAGR Appliqué</span> <span class="kpi-icon">📈</span></div><div class="kpi-value">{cagr_applique:,.2f}%</div><div class="kpi-footer">Croissance annuelle moyenne</div></div>""", unsafe_allow_html=True)
 
@@ -476,7 +479,7 @@ if fichier_ventes is not None:
             st.dataframe(df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff"]].sort_values(["agence", "article", "annee", "mois"]), width="stretch", hide_index=True)
 
     with tab5:
-        st.markdown(f"### Étape 5 : Dynamique ({mois_cible_label})")
+        st.markdown(f"### Étape 5 : Dynamique ({label_mois_str})")
         
         mode_affichage = st.radio("Choisir le mode d'affichage :", ["📊 Tableau", "📈 Graphiques Data Analyst"], horizontal=True)
 
@@ -551,7 +554,7 @@ if fichier_ventes is not None:
                 ))
 
             fig1.update_layout(
-                title=dict(text=f"Évolution Globale ({mois_cible_label} - Cible: {annee_cible})", font=dict(size=18, color="#111827")),
+                title=dict(text=f"Évolution Globale ({label_mois_str} - Cible: {annee_cible})", font=dict(size=18, color="#111827")),
                 xaxis_title="Date",
                 yaxis_title=f"Volume ({unite_affichage})",
                 hovermode="x unified",
@@ -609,7 +612,7 @@ if fichier_ventes is not None:
                 )])
                 
                 fig3.update_layout(
-                    title=dict(text=f"Top 10 Articles ({mois_cible_label})", font=dict(size=16, color="#111827")),
+                    title=dict(text=f"Top 10 Articles ({label_mois_str})", font=dict(size=16, color="#111827")),
                     xaxis_title=f"Volume ({unite_affichage})",
                     plot_bgcolor='white',
                     paper_bgcolor='white',

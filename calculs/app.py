@@ -410,8 +410,12 @@ with st.expander("📁 Importer vos fichiers (Données Brutes)", expanded=False)
 if fichier_ventes is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
-    # 3. BARRE DE FILTRES ENTIÈRE DANS UN EXPANDER
-    with st.expander("🎯 Affinez votre perspective (Filtres)", expanded=False):
+    # 3. BARRE DE FILTRES VISIBLE (Carte blanche)
+    with st.container():
+        st.markdown('<div class="white-card" style="padding: 20px 24px;">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Affinez votre perspective</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">Modifiez les filtres pour explorer les projections.</div>', unsafe_allow_html=True)
+        
         # Ligne 1 des filtres
         f1, f2, f3, f4 = st.columns(4)
         with f1:
@@ -466,6 +470,8 @@ if fichier_ventes is not None:
                 mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}")
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # APPLICATION DES FILTRES
     df_perimetre = df_enrichi.copy()
@@ -689,25 +695,18 @@ if fichier_ventes is not None:
             elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
             pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
             
-            # --- AJOUT DU NETTOYAGE POUR LE CSV ---
+            # Nettoyage pour le CSV
             pivot_mensuel_export = pivot_mensuel.copy()
-            
-            # Nettoyage des noms de colonnes
             pivot_mensuel_export.columns = [
                 unicodedata.normalize('NFKD', str(c)).encode('ascii', 'ignore').decode('utf-8')
                 for c in pivot_mensuel_export.columns
             ]
-            
-            # Nettoyage du contenu (Agence, Article)
             for col in pivot_mensuel_export.columns:
                 if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
                     pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(
                         lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else ""
                     )
-
-            # Export avec séparateur point-virgule (standard Excel FR) et encodage UTF-8 avec BOM
             csv = pivot_mensuel_export.to_csv(sep=';').encode('utf-8-sig')
-            # -------------------------------------
 
             st.download_button(
                 label="Exporter en CSV",

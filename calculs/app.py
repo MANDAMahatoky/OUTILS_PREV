@@ -646,13 +646,12 @@ if fichier_ventes is not None:
         y_pred = df_eval_agg[col_prev_pure].values
 
         mae = np.mean(np.abs(y_true - y_pred))
-        # WMAPE (Weighted MAPE) - standard de l'industrie
         wmape = (np.sum(np.abs(y_true - y_pred)) / np.sum(y_true)) * 100
         smape = np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred))) * 100
     else:
         mae, wmape, smape = 0.0, 0.0, 0.0
 
-    # KPI LIGNE 1
+    # KPI LIGNE 1 (Uniquement les objectifs sur la page principale)
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -679,31 +678,6 @@ if fichier_ventes is not None:
             <div class="kpi-label">GAP (Objectif - Atterrissage)</div>
             <div class="kpi-value {gap_color}">{gap:+,.0f}</div>
             <div class="kpi-footer">{gap_label} en {unite_affichage}</div>
-        </div>""", unsafe_allow_html=True)
-
-    # KPI LIGNE 2
-    st.markdown("<br>", unsafe_allow_html=True)
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown(f"""
-        <div class="white-card" style="border-top: 4px solid #4B5563;">
-            <div class="kpi-label">MAE (Erreur Absolue Moyenne)</div>
-            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mae:,.0f}</div>
-            <div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div>
-        </div>""", unsafe_allow_html=True)
-    with m2:
-        st.markdown(f"""
-        <div class="white-card" style="border-top: 4px solid #4B5563;">
-            <div class="kpi-label">WMAPE (Erreur % Pondérée)</div>
-            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{wmape:,.2f}%</div>
-            <div class="kpi-footer">Précision sur le volume total</div>
-        </div>""", unsafe_allow_html=True)
-    with m3:
-        st.markdown(f"""
-        <div class="white-card" style="border-top: 4px solid #4B5563;">
-            <div class="kpi-label">SMAPE (Erreur % Symétrique)</div>
-            <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div>
-            <div class="kpi-footer">Précision (faibles volumes)</div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -772,7 +746,7 @@ if fichier_ventes is not None:
     # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
-    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)"]
+    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions"]
     active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
 
     N_MAX_DISPLAY = 5000
@@ -1013,3 +987,63 @@ if fichier_ventes is not None:
             )
         else:
             st.info("Pas assez de données pour l'analyse.")
+
+    elif active_tab == "Fiabilité Prévisions":
+        st.markdown("### Qualité et Fiabilité du Modèle")
+        st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # KPI LIGNE 2 (Metriques d'erreur)
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.markdown(f"""
+            <div class="white-card" style="border-top: 4px solid #4B5563;">
+                <div class="kpi-label">MAE (Erreur Absolue Moyenne)</div>
+                <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mae:,.0f}</div>
+                <div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div>
+            </div>""", unsafe_allow_html=True)
+        with m2:
+            st.markdown(f"""
+            <div class="white-card" style="border-top: 4px solid #4B5563;">
+                <div class="kpi-label">WMAPE (Erreur % Pondérée)</div>
+                <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{wmape:,.2f}%</div>
+                <div class="kpi-footer">Précision sur le volume total (Standard industrie)</div>
+            </div>""", unsafe_allow_html=True)
+        with m3:
+            st.markdown(f"""
+            <div class="white-card" style="border-top: 4px solid #4B5563;">
+                <div class="kpi-label">SMAPE (Erreur % Symétrique)</div>
+                <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div>
+                <div class="kpi-footer">Précision sur les articles à faibles volumes</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        st.markdown("#### Détail mensuel : Prévision vs Réalisé")
+        st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu.")
+        
+        if not df_eval_agg.empty:
+            df_error_monthly = df_eval_agg.copy()
+            df_error_monthly['Ecart'] = df_error_monthly[col_prev_aff] - df_error_monthly[col_prev_pure]
+            df_error_monthly['Erreur_Absolue'] = df_error_monthly['Ecart'].abs()
+            df_error_monthly['Erreur_Pct (%)'] = np.where(df_error_monthly[col_prev_aff] > 0, (df_error_monthly['Erreur_Absolue'] / df_error_monthly[col_prev_aff]) * 100, 0)
+            
+            # Formatage
+            df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
+            df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
+            df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
+
+            st.dataframe(
+                df_error_monthly,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                    f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                    'Écart': st.column_config.NumberColumn(format="localized"),
+                    'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")
+                }
+            )
+        else:
+            st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")

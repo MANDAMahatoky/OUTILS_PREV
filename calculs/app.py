@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (Structure Capture + Branding STAR)
+# CONFIGURATION ET DESIGN (Header Blanc + Brand STAR)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="collapsed")
 
@@ -23,29 +23,30 @@ st.markdown("""
     .stApp { background-color: #F4F6F8 !important; }
     [data-testid="stSidebar"] { display: none; } /* Masqué pour correspondre à la structure */
     
-    /* Header Sombre (Brand STAR) */
+    /* Header Blanc (Brand STAR) */
     .hero-header {
-        background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
-        color: white;
-        padding: 40px;
+        background-color: #FFFFFF;
+        color: #111827;
+        padding: 30px 40px;
         border-radius: 0 0 20px 20px;
         margin-top: -60px;
         margin-bottom: 30px;
         position: relative;
         overflow: hidden;
         border-bottom: 4px solid #E30613; /* Touche STAR */
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
-    .hero-header h1 { color: white !important; font-size: 2.8rem; font-weight: 900; margin-bottom: 10px; letter-spacing: -0.02em; }
-    .hero-header p { color: #9CA3AF; font-size: 1.1rem; margin-bottom: 20px; }
+    .hero-header h1 { color: #E30613 !important; font-size: 2.8rem; font-weight: 900; margin-bottom: 10px; letter-spacing: -0.02em; }
+    .hero-header p { color: #6B7280; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; }
     .badge-demo {
-        background-color: rgba(227, 6, 19, 0.15);
-        color: #FF8A8A;
+        background-color: #FEF2F2;
+        color: #E30613;
         padding: 6px 14px;
         border-radius: 20px;
         font-size: 0.8rem;
         font-weight: 700;
         display: inline-block;
-        border: 1px solid rgba(227, 6, 19, 0.3);
+        border: 1px solid #FECACA;
     }
     
     /* Cartes Blanches (KPIs, Filtres, Graphiques) */
@@ -344,14 +345,13 @@ def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# INTERFACE UTILISATEUR (Structure Capture d'écran)
+# INTERFACE UTILISATEUR
 # ==============================================================================
 
-# 1. HEADER SOMBRE
+# 1. HEADER BLANC (Brand STAR)
 st.markdown("""
 <div class="hero-header">
-    <div style="position: absolute; right: -50px; top: -50px; width: 300px; height: 300px; border: 1px solid rgba(255,255,255,0.05); border-radius: 50%; pointer-events: none;"></div>
-    <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: #9CA3AF; font-weight: 700;">Perspectives • S&OP</p>
+    <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: #6B7280; font-weight: 700;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
     <p>Moteur de prévision complet - Explorez les tendances à venir et comparez différents scénarios.</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
@@ -367,7 +367,7 @@ with st.expander("📁 Importer vos fichiers (Données Brutes)", expanded=False)
 if fichier_ventes is not None:
     df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
-    # 3. BARRE DE FILTRES (Remplace la Sidebar)
+    # 3. BARRE DE FILTRES HORIZONTALE
     with st.container():
         st.markdown('<div class="white-card" style="padding: 20px 24px;">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Affinez votre perspective</div>', unsafe_allow_html=True)
@@ -405,7 +405,7 @@ if fichier_ventes is not None:
         with f8:
             unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
         
-        # Paramètres avancés (IS, CAGR, Cutoff) dans un expander
+        # Paramètres avancés
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
             p1, p2, p3, p4, p5 = st.columns(5)
             with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024)
@@ -452,7 +452,7 @@ if fichier_ventes is not None:
     atterrissage_cible = df_cible[col_prev_aff].sum()
     cagr_applique = df_previsions_filtre['CAGR (%)'].mean() if not df_previsions_filtre.empty else 0.0
 
-    # 4. CARTES KPI (3 colonnes)
+    # 4. CARTES KPI
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -469,9 +469,13 @@ if fichier_ventes is not None:
             <div class="kpi-footer">Croissance annuelle moyenne</div>
         </div>""", unsafe_allow_html=True)
     with k3:
-        ytd_total = df_realise[df_realise['annee'] == annee_cloture]['hl'].sum() if df_realise is not None else 0
-        ytd_cols = ytd_total * (10000 / 100) # Approximation pour affichage
-        ytd_val = df_realise[df_realise['annee'] == annee_cloture].apply(lambda r: r['hl'] * (10000 / r['contenance_cl']), axis=1).sum() if unite_affichage == "Cols" else ytd_total
+        ytd_val = 0
+        if df_realise is not None and not df_realise.empty:
+            ytd_df = df_realise[df_realise['annee'] == annee_cloture]
+            if unite_affichage == "Cols":
+                ytd_val = ytd_df.apply(lambda r: r['hl'] * (10000 / r['contenance_cl']) if r['contenance_cl'] > 0 else r['hl'], axis=1).sum()
+            else:
+                ytd_val = ytd_df['hl'].sum()
         st.markdown(f"""
         <div class="white-card">
             <div class="kpi-label">Volume Réalisé (YTD)</div>
@@ -481,7 +485,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 5. GRAPHIQUES (Ligne + Barres)
+    # 5. GRAPHIQUES (Courbes lisses)
     col_g1, col_g2 = st.columns([2, 1])
     
     with col_g1:
@@ -496,35 +500,41 @@ if fichier_ventes is not None:
         df_graph['Date_Plot'] = pd.to_datetime(df_graph['Date_Str'])
         df_grouped = df_graph.groupby(['Date_Plot', 'Statut'], observed=True)[col_prev_aff].sum().reset_index()
         
-        df_real = df_grouped[df_grouped['Statut'] == 'Réalisé']
-        df_prev = df_grouped[df_grouped['Statut'] == 'Prévision']
+        df_real = df_grouped[df_grouped['Statut'] == 'Réalisé'].sort_values('Date_Plot')
+        df_prev = df_grouped[df_grouped['Statut'] == 'Prévision'].sort_values('Date_Plot')
+
+        # Continuité visuelle : on ajoute le dernier point réalisé au début de la prévision
+        if not df_real.empty and not df_prev.empty:
+            df_prev = pd.concat([
+                df_real.tail(1).assign(Statut='Prévision'),
+                df_prev
+            ], ignore_index=True)
 
         fig1 = go.Figure()
+
         if not df_real.empty:
             fig1.add_trace(go.Scatter(
-                x=df_real['Date_Plot'], y=df_real[col_prev_aff], mode='lines+markers', name='Réalisé',
-                line=dict(color='#111827', width=3), marker=dict(size=6)
+                x=df_real['Date_Plot'], y=df_real[col_prev_aff],
+                mode='lines+markers', name='Réalisé',
+                line=dict(color='#111827', width=3, shape='spline', smoothing=1.3),
+                marker=dict(size=7, color='#111827', line=dict(color='white', width=1.5))
             ))
+
         if not df_prev.empty:
             fig1.add_trace(go.Scatter(
-                x=df_prev['Date_Plot'], y=df_prev[col_prev_aff], mode='lines+markers', name='Prévision',
-                line=dict(color='#E30613', width=3, dash='dot'), marker=dict(size=6)
+                x=df_prev['Date_Plot'], y=df_prev[col_prev_aff],
+                mode='lines+markers', name='Prévision',
+                line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3),
+                marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
             ))
-            # Connecter la fin du réalisé au début de la prévision
-            if not df_real.empty:
-                last_real = df_real.iloc[-1]
-                first_prev = df_prev.iloc[0]
-                fig1.add_trace(go.Scatter(
-                    x=[last_real['Date_Plot'], first_prev['Date_Plot']], y=[last_real[col_prev_aff], first_prev[col_prev_aff]],
-                    mode='lines', showlegend=False, line=dict(color='#E30613', width=3, dash='dot')
-                ))
 
         fig1.update_layout(
             plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
             legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
             xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y"),
             yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False),
-            height=320
+            height=320,
+            hovermode="x unified"
         )
         st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
         st.markdown('</div>', unsafe_allow_html=True)
@@ -540,7 +550,7 @@ if fichier_ventes is not None:
         
         fig2 = go.Figure(go.Bar(
             x=df_top[col_prev_aff], y=df_top['article'], orientation='h',
-            marker=dict(color=['#009640' if i % 2 == 0 else '#E30613' for i in range(len(df_top))]), # Alternance Vert/Rouge STAR
+            marker=dict(color=['#009640' if i % 2 == 0 else '#E30613' for i in range(len(df_top))]),
             text=df_top[col_prev_aff].apply(lambda x: f"{x:,.0f}"),
             textposition='auto', textfont=dict(color='white')
         ))
@@ -559,7 +569,7 @@ if fichier_ventes is not None:
     </p>
     """, unsafe_allow_html=True)
 
-    # 6. ONGLETS DÉTAILLÉS (Vos tableaux de données)
+    # 6. ONGLETS DÉTAILLÉS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs([

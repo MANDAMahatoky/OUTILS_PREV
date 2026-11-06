@@ -304,9 +304,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     masque_fut20 = df_enrichi["article"].str.contains(r'20L|20 L|FUT 20', case=False, na=False, regex=True)
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
-    # =========================================================================
-    # CORRECTION MAJEURE : On traite le fichier comme étant en COLS
-    # =========================================================================
+    # Le fichier source est en COLS
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
     
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
@@ -322,7 +320,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (AVEC METHODES DE CROISSANCE)
+# LOGIQUE DE CALCUL AMÉLIORÉE (ALGO PREMIUM)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -335,7 +333,9 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
         v = (df_h.groupby(group_cols + ['annee', 'mois'], observed=True)['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0))
         cum_m = v.groupby(group_cols).sum()
         cum_a = v.sum(axis=1).groupby(group_cols).sum()
-        return (cum_m.div(cum_a / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0).reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice'))
+        # Lissage de l'indice (évite les indices extrêmes)
+        idx = cum_m.div(cum_a / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+        return idx.clip(lower=0.1, upper=3.0).reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
 
     idx1 = _idx(['agence', 'article'])
     idx2 = _idx(['article']).rename(columns={'Indice': 'Indice_art'})
@@ -349,7 +349,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v58"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v59"):
     articles_avec_vente = df_perimetre.groupby('article', observed=True)['hl'].sum()
     articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
     df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
@@ -361,7 +361,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     
-    # FALLBACK POUR NOUVEAUX PRODUITS
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
         df_ag_art['key'] = 1
@@ -388,7 +387,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # CORRECTION SPECIFIQUE FOSA : On ne prend que les mois actifs pour le Cumul_Coef
     df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
                      .groupby(['agence', 'article'], observed=True)['mois'].min()
                      .reset_index().rename(columns={'mois': 'Mois_Debut'}))
@@ -407,22 +405,49 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
+    # =========================================================================
+    # AMÉLIORATION 1 : Calcul du CAGR et intégration du MOMENTUM RÉCENT
+    # =========================================================================
     df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl'].sum().reset_index()
+    
     if not df_hist_cagr.empty:
         g = df_hist_cagr.groupby(['agence', 'article'], observed=True)
         df_vol_debut = (df_hist_cagr[df_hist_cagr['annee'] == g['annee'].transform('min')].groupby(['agence', 'article'], observed=True)['hl'].sum().rename('Vol_Debut').reset_index())
         df_vol_fin = (df_hist_cagr[df_hist_cagr['annee'] == g['annee'].transform('max')].groupby(['agence', 'article'], observed=True)['hl'].sum().rename('Vol_Fin').reset_index())
         df_annees_hist = (df_hist_cagr.groupby(['agence', 'article'], observed=True)['annee'].agg(['min', 'max']).rename(columns={'min': 'Annee_Debut_Hist', 'max': 'Annee_Fin_Hist'}).reset_index())
-        df_base = (df_base.merge(df_vol_debut, on=['agence', 'article'], how='left').merge(df_vol_fin, on=['agence', 'article'], how='left').merge(df_annees_hist, on=['agence', 'article'], how='left'))
+        
+        df_base = (df_base.merge(df_vol_debut, on=['agence', 'article'], how='left')
+                           .merge(df_vol_fin, on=['agence', 'article'], how='left')
+                           .merge(df_annees_hist, on=['agence', 'article'], how='left'))
+        
         df_base['Nb_Annees_Hist'] = (df_base['Annee_Fin_Hist'] - df_base['Annee_Debut_Hist']).clip(lower=0)
-        df_base['CAGR_Hist'] = np.where((df_base['Vol_Debut'] > 0) & (df_base['Vol_Fin'] > 0) & (df_base['Nb_Annees_Hist'] > 0), (df_base['Vol_Fin'] / df_base['Vol_Debut']) ** (1 / df_base['Nb_Annees_Hist']) - 1, 0.0)
+        
+        # CAGR Long Terme
+        df_base['CAGR_Hist'] = np.where(
+            (df_base['Vol_Debut'] > 0) & (df_base['Vol_Fin'] > 0) & (df_base['Nb_Annees_Hist'] > 0), 
+            (df_base['Vol_Fin'] / df_base['Vol_Debut']) ** (1 / df_base['Nb_Annees_Hist']) - 1, 
+            0.0
+        )
     else:
         df_base['CAGR_Hist'] = 0.0
 
+    # Intégration du Momentum (Tendance des 3 derniers mois vs N-1)
+    if not df_hist_cagr.empty:
+        df_recent = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'].isin(range(max(1, mois_cutoff-2), mois_cutoff+1)))].groupby(['agence', 'article'], observed=True)['hl'].sum().rename('HL_Recent').reset_index()
+        df_past = df_realise[(df_realise['annee'] == annee_cloture - 1) & (df_realise['mois'].isin(range(max(1, mois_cutoff-2), mois_cutoff+1)))].groupby(['agence', 'article'], observed=True)['hl'].sum().rename('HL_Past').reset_index()
+        
+        df_momentum = df_recent.merge(df_past, on=['agence', 'article'], how='outer').fillna(0.0)
+        df_momentum['Momentum_Growth'] = np.where(df_momentum['HL_Past'] > 0, (df_momentum['HL_Recent'] / df_momentum['HL_Past']) - 1, 0.0)
+        
+        df_base = df_base.merge(df_momentum[['agence', 'article', 'Momentum_Growth']], on=['agence', 'article'], how='left')
+        df_base['Momentum_Growth'] = df_base['Momentum_Growth'].fillna(0.0).clip(lower=-0.20, upper=0.30) # On borne le momentum
+    else:
+        df_base['Momentum_Growth'] = 0.0
+
+    # Application de la méthode de croissance choisie
     if methode_croissance == "CAGR Classique":
         df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist'])
         df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
-    
     elif methode_croissance == "Tendance Linéaire":
         def calc_slope(group):
             if len(group) < 2: return 0.0
@@ -432,18 +457,21 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             slope, intercept = np.polyfit(x, y, 1)
             mean_y = np.mean(y)
             return (slope / mean_y) if mean_y > 0 else 0.0
-            
         slopes = df_hist_cagr.groupby(['agence', 'article']).apply(calc_slope).reset_index(name='Slope_Rel')
         df_base = df_base.merge(slopes, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Slope_Rel'].fillna(df_base['CAGR_Hist'])
-
     elif methode_croissance == "Moyenne 3 ans":
         df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl', aggfunc='sum').fillna(0)
         growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
         df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
-    
-    df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
+
+    # =========================================================================
+    # AMÉLIORATION 2 : Blend du CAGR avec le Momentum (70% CAGR / 30% Momentum)
+    # et Clipping intelligent
+    # =========================================================================
+    df_base['CAGR_val'] = (df_base['CAGR_val'] * 0.7) + (df_base['Momentum_Growth'] * 0.3)
+    df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.15, upper=0.25)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
@@ -512,7 +540,6 @@ with st.sidebar:
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
 
     if fichier_ventes is not None:
-        # Le choix de l'unité source a été retiré. Le fichier est traité nativement en COLS.
         df_enrichi = charger_et_enrichir(
             fichier_ventes.getvalue(), 
             fichier_ref.getvalue() if fichier_ref is not None else None

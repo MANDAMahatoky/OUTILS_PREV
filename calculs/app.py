@@ -512,7 +512,7 @@ with st.sidebar:
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
 
     if fichier_ventes is not None:
-        # Le choix de l'unité source a été retiré. Le fichier est traité nativement en HL.
+        # Traitement natif en HL, aucun bouton de choix
         df_enrichi = charger_et_enrichir(
             fichier_ventes.getvalue(), 
             fichier_ref.getvalue() if fichier_ref is not None else None

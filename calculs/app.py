@@ -320,7 +320,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (VERSION VALIDÉE - TREND LINÉAIRE)
+# LOGIQUE DE CALCUL (AVEC FILTRE D'ACTIVITÉ AGENCE/ARTICLE)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -347,11 +347,22 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v58"):
-    articles_avec_vente = df_perimetre.groupby('article', observed=True)['hl'].sum()
-    articles_avec_vente = articles_avec_vente[articles_avec_vente > 0].index
-    df_perimetre_filtre = df_perimetre[df_perimetre['article'].isin(articles_avec_vente)].copy()
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v59"):
+    
+    # =========================================================================
+    # CORRECTION MAJEURE : FILTRE DE DISTRIBUTION (ANTI-PREVISIONS FANTÔMES)
+    # On ne garde que les couples Agence/Article qui ont eu des ventes 
+    # durant l'année de clôture ou l'année précédente.
+    # =========================================================================
+    annees_recentes = [annee_cloture, annee_cloture - 1]
+    df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
+    couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
+    
+    # On filtre le périmètre global pour ne garder que les combinaisons actives
+    df_perimetre_filtre = pd.merge(df_perimetre, couples_actifs, on=['agence', 'article'], how='inner')
+    
     if df_perimetre_filtre.empty: return None, None, None, None, df_perimetre
+    # =========================================================================
 
     df_limite = df_perimetre_filtre[(df_perimetre_filtre["annee"] < annee_cloture) | ((df_perimetre_filtre["annee"] == annee_cloture) & (df_perimetre_filtre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
@@ -472,7 +483,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel"]
-    df_realise_out = df_realise[df_realise['article'].isin(articles_avec_vente)].copy()
+    df_realise_out = df_realise[df_realise['article'].isin(df_perimetre_filtre['article'].unique())].copy()
 
     return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise_out
 
@@ -557,7 +568,6 @@ with st.sidebar:
         if use_objectif_manuel:
             objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=5390516.0, key="param_objectif_manuel")
         
-        # L'index 1 correspond à "Tendance Linéaire" par défaut
         methode_croissance = st.selectbox(
             "Méthode de croissance", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],

@@ -305,9 +305,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     # =========================================================================
-    # LE FICHIER SOURCE EST TOUJOURS EN HECTOLITRES (HL)
+    # CORRECTION MAJEURE : On traite le fichier comme étant en COLS
     # =========================================================================
-    df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
+    df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
     
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
@@ -512,7 +512,7 @@ with st.sidebar:
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
 
     if fichier_ventes is not None:
-        # Traitement natif en HL, aucun bouton de choix
+        # Le choix de l'unité source a été retiré. Le fichier est traité nativement en COLS.
         df_enrichi = charger_et_enrichir(
             fichier_ventes.getvalue(), 
             fichier_ref.getvalue() if fichier_ref is not None else None

@@ -987,21 +987,21 @@ if fichier_ventes is not None:
             )
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             
-            # TABLEAU DE DETAILS
-            st.markdown("#### Détail par article")
-            df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
-            df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
-            st.dataframe(
-                df_table,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                    '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"),
-                    'Classe': st.column_config.TextColumn(width="small")
-                },
-                height=400
-            )
+            # TABLEAU DE DETAILS (dans un expander)
+            with st.expander("📋 Voir le détail par article", expanded=True):
+                df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
+                df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
+                st.dataframe(
+                    df_table,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                        '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"),
+                        'Classe': st.column_config.TextColumn(width="small")
+                    },
+                    height=400
+                )
         else:
             st.info("Pas assez de données pour l'analyse.")
 
@@ -1037,30 +1037,31 @@ if fichier_ventes is not None:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        st.markdown("#### Détail mensuel : Prévision vs Réalisé")
-        st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu.")
-        
-        if not df_eval_agg.empty:
-            df_error_monthly = df_eval_agg.copy()
-            df_error_monthly['Ecart'] = df_error_monthly[col_prev_aff] - df_error_monthly[col_prev_pure]
-            df_error_monthly['Erreur_Absolue'] = df_error_monthly['Ecart'].abs()
-            df_error_monthly['Erreur_Pct (%)'] = np.where(df_error_monthly[col_prev_aff] > 0, (df_error_monthly['Erreur_Absolue'] / df_error_monthly[col_prev_aff]) * 100, 0)
+        # TABLEAU DE DETAILS (dans un expander)
+        with st.expander("📊 Afficher le détail mensuel (Prévision vs Réalisé)", expanded=True):
+            st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu.")
             
-            # Formatage
-            df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
-            df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
-            df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
+            if not df_eval_agg.empty:
+                df_error_monthly = df_eval_agg.copy()
+                df_error_monthly['Ecart'] = df_error_monthly[col_prev_aff] - df_error_monthly[col_prev_pure]
+                df_error_monthly['Erreur_Absolue'] = df_error_monthly['Ecart'].abs()
+                df_error_monthly['Erreur_Pct (%)'] = np.where(df_error_monthly[col_prev_aff] > 0, (df_error_monthly['Erreur_Absolue'] / df_error_monthly[col_prev_aff]) * 100, 0)
+                
+                # Formatage
+                df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
+                df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
+                df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
 
-            st.dataframe(
-                df_error_monthly,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                    f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                    'Écart': st.column_config.NumberColumn(format="localized"),
-                    'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")
-                }
-            )
-        else:
-            st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")
+                st.dataframe(
+                    df_error_monthly,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                        f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                        'Écart': st.column_config.NumberColumn(format="localized"),
+                        'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")
+                    }
+                )
+            else:
+                st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")

@@ -304,7 +304,12 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     masque_fut20 = df_enrichi["article"].str.contains(r'20L|20 L|FUT 20', case=False, na=False, regex=True)
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
-    df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
+    # =========================================================================
+    # CORRECTION MAJEURE ICI : Le fichier source est DÉJÀ en Hectolitres (HL)
+    # On n'applique donc PAS de multiplication par la contenance.
+    # =========================================================================
+    df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
+    
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
     

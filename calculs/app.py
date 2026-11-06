@@ -253,7 +253,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 @st.cache_data(show_spinner="Chargement et enrichissement des données...")
-def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, is_hl: bool = True) -> pd.DataFrame:
+def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, is_cols: bool = True) -> pd.DataFrame:
     if ref_bytes is not None:
         df_ref = pd.read_excel(io.BytesIO(ref_bytes), sheet_name="Ref actif")
         df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (Cl)": "contenance_cl"}, errors="ignore")
@@ -305,14 +305,15 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, is_hl: bool = Tru
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     # =========================================================================
-    # GESTION DYNAMIQUE DE L'UNITÉ DE LA SOURCE (HL ou COLS)
+    # CONVERSION DYNAMIQUE : Si c'est en Cols, on convertit en HL.
+    # Si c'est déjà en HL, on ne touche à rien.
     # =========================================================================
-    if is_hl:
-        # Le fichier source est DÉJÀ en Hectolitres
-        df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
-    else:
+    if is_cols:
         # Le fichier source est en Cols (bouteilles), on convertit en HL
         df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
+    else:
+        # Le fichier source est DÉJÀ en Hectolitres
+        df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
     
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
@@ -512,24 +513,24 @@ with st.sidebar:
     
     st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
     
-    with st.expander("📁 Importer vos fichiers", expanded=False):
+    with st.expander("📁 Importer vos fichiers", expanded=True):
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"])
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
 
     if fichier_ventes is not None:
-        # NOUVEAU : Choix de l'unité du fichier source
-        is_hl_source = st.radio(
-            "Unité du fichier source (DATA_BRUT)", 
-            options=[True, False], 
-            format_func=lambda x: "Hectolitres (HL)" if x else "Cols (Bouteilles)",
+        st.info("💡 Indiquez l'unité de votre fichier pour que les conversions soient justes.")
+        is_cols_source = st.radio(
+            "Unité du fichier source", 
+            options=[True, False],
+            format_func=lambda x: "Cols (Bouteilles)" if x else "Hectolitres (HL)",
             index=0, 
-            help="Choisissez 'Hectolitres' si votre fichier contient déjà les volumes convertis en HL. Choisissez 'Cols' s'il contient le nombre de bouteilles/canettes."
+            help="Choisissez 'Cols' si le fichier contient le nombre de bouteilles. Choisissez 'HL' s'il contient déjà des Hectolitres."
         )
 
         df_enrichi = charger_et_enrichir(
             fichier_ventes.getvalue(), 
             fichier_ref.getvalue() if fichier_ref is not None else None,
-            is_hl=is_hl_source
+            is_cols=is_cols_source
         )
 
         st.markdown("#### 1. Périmètre")

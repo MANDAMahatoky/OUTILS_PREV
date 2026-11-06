@@ -320,7 +320,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (VERSION VALIDÉE - APPROCHE EXCEL)
+# LOGIQUE DE CALCUL (VERSION VALIDÉE - TREND LINÉAIRE)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -359,7 +359,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     
-    # FALLBACK POUR NOUVEAUX PRODUITS
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
         df_ag_art['key'] = 1
@@ -386,7 +385,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
-    # CORRECTION SPECIFIQUE FOSA : On ne prend que les mois actifs pour le Cumul_Coef
     df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
                      .groupby(['agence', 'article'], observed=True)['mois'].min()
                      .reset_index().rename(columns={'mois': 'Mois_Debut'}))
@@ -557,11 +555,13 @@ with st.sidebar:
         
         use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
         if use_objectif_manuel:
-            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=100000.0, key="param_objectif_manuel")
+            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=5390516.0, key="param_objectif_manuel")
         
+        # L'index 1 correspond à "Tendance Linéaire" par défaut
         methode_croissance = st.selectbox(
             "Méthode de croissance", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
+            index=1,
             help="Le CAGR Classique est sensible aux ruptures. Utilisez la Tendance Linéaire ou la Moyenne 3 ans pour lisser les chocs.",
             key="param_methode"
         )
@@ -764,7 +764,6 @@ if fichier_ventes is not None:
 
     N_MAX_DISPLAY = 5000
 
-    # CONTENEUR ST.EMPTY POUR EVITER L'ERREUR REACT (removeChild)
     tab_placeholder = st.empty()
     
     with tab_placeholder.container():

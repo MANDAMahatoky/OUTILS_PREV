@@ -575,6 +575,10 @@ with st.sidebar:
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
 
+        st.markdown("---")
+        st.markdown("#### 🛠️ Options d'affichage")
+        show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, help="Cochez cette case pour faire apparaître l'onglet des données brutes dans la navigation.")
+
 st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
@@ -746,7 +750,11 @@ if fichier_ventes is not None:
     # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
-    tab_names = ["Données Brutes", "Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions"]
+    # Construction dynamique des onglets en fonction du bouton
+    tab_names = ["Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions"]
+    if show_raw_data:
+        tab_names.insert(0, "Données Brutes")
+
     active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
 
     N_MAX_DISPLAY = 5000

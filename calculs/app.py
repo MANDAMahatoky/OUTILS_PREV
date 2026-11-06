@@ -506,8 +506,8 @@ with st.sidebar:
     st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
     
     with st.expander("📁 Importer vos fichiers", expanded=True):
-        fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"])
-        fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
+        fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
+        fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"], key="uploader_ref")
 
     if fichier_ventes is not None:
         df_enrichi = charger_et_enrichir(
@@ -517,72 +517,73 @@ with st.sidebar:
 
         st.markdown("#### 1. Périmètre")
         regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
-        sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes")
+        sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes", key="filter_region")
         df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
 
         segments_dispo = sorted([str(s) for s in df_temp["segment"].unique() if pd.notna(s)])
-        sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous")
+        sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous", key="filter_segment")
         df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
 
         marques_dispo = sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"])
-        sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes")
+        sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes", key="filter_marque")
         df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
 
         articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
-        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous")
+        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous", key="filter_article")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
 
         agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
-        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes")
+        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes", key="filter_agence")
         df_temp = df_temp[df_temp["agence"].isin(sel_agences)] if sel_agences else df_temp
 
         contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
-        sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes")
+        sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes", key="filter_contenance")
         df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
 
         positionnements_dispo = sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)])
-        sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous")
+        sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous", key="filter_positionnement")
         df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
 
         occasions_dispo = sorted([str(o) for o in df_temp["occasion"].unique() if pd.notna(o) and str(o) != "Non renseigné"])
-        sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes")
+        sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes", key="filter_occasion")
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
 
         st.markdown("#### 2. Paramètres de la cible")
-        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027)
-        unite_affichage = st.radio("Unité de calcul", options=["HL", "Cols"], index=1, horizontal=True)
+        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
+        unite_affichage = st.radio("Unité de calcul", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")
-        taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)")
+        taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)", key="param_taux")
         
-        use_objectif_manuel = st.checkbox("Forcer un objectif manuel")
+        use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
         if use_objectif_manuel:
-            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=100000.0)
+            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=100000.0, key="param_objectif_manuel")
         
         methode_croissance = st.selectbox(
             "Méthode de croissance", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
-            help="Le CAGR Classique est sensible aux ruptures. Utilisez la Tendance Linéaire ou la Moyenne 3 ans pour lisser les chocs."
+            help="Le CAGR Classique est sensible aux ruptures. Utilisez la Tendance Linéaire ou la Moyenne 3 ans pour lisser les chocs.",
+            key="param_methode"
         )
         
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
             p1, p2 = st.columns(2)
-            with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024)
-            with p2: annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2025, annee_min_is))
+            with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024, key="param_min_is")
+            with p2: annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2025, annee_min_is), key="param_max_is")
             
             p3, p4 = st.columns(2)
-            with p3: annee_min_cagr = st.number_input("Année Min CAGR", min_value=2010, max_value=2030, value=2017)
-            with p4: annee_max_cagr = st.number_input("Année Max CAGR", min_value=annee_min_cagr, max_value=2030, value=2025)
+            with p3: annee_min_cagr = st.number_input("Année Min CAGR", min_value=2010, max_value=2030, value=2017, key="param_min_cagr")
+            with p4: annee_max_cagr = st.number_input("Année Max CAGR", min_value=annee_min_cagr, max_value=2030, value=2025, key="param_max_cagr")
             
             p5, p6 = st.columns(2)
-            with p5: annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026)
-            with p6: mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}")
+            with p5: annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026, key="param_annee_cloture")
+            with p6: mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}", key="param_mois_cutoff")
             
-            mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[])
+            mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[], key="param_mois_cible")
 
         st.markdown("---")
         st.markdown("#### 🛠️ Options d'affichage")
-        show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, help="Cochez cette case pour faire apparaître l'onglet des données brutes dans la navigation.")
+        show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, help="Cochez cette case pour faire apparaître l'onglet des données brutes dans la navigation.", key="param_show_raw")
 
 st.markdown("""
 <div class="hero-header">
@@ -759,321 +760,326 @@ if fichier_ventes is not None:
     if show_raw_data:
         tab_names.insert(0, "Données Brutes")
 
-    active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed")
+    active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
 
     N_MAX_DISPLAY = 5000
 
-    if active_tab == "Données Brutes":
-        st.markdown("### Étape 1 : Données Brutes Enrichies")
-        with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
-            if len(df_enrichi) > N_MAX_DISPLAY:
-                st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
-                st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
-
-    elif active_tab == "Périmètre":
-        st.markdown("### Étape 2 : Périmètre Filtré")
-        with st.expander("📊 Afficher le tableau du périmètre", expanded=True):
-            if len(df_perimetre) > N_MAX_DISPLAY:
-                st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
-                st.dataframe(df_perimetre.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
-
-    elif active_tab == "Réalisé Cumulé":
-        st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
-        with st.expander("📊 Afficher le tableau du réalisé", expanded=True):
-            if df_realise is not None and not df_realise.empty:
-                df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
-                st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-            else:
-                st.info("Aucune donnée réalisée pour le moment.")
-
-    elif active_tab == "Indices & SARR":
-        st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
-        c_idx, c_sarr = st.columns(2)
-        with c_idx:
-            st.markdown("**Indices de Saisonnalité**")
-            with st.expander("📊 Afficher les indices", expanded=True):
-                if not table_indices.empty:
-                    pivot_indices = _pivot_indices_cached(table_indices)
-                    st.dataframe(pivot_indices, use_container_width=True)
+    # CONTENEUR ST.EMPTY POUR EVITER L'ERREUR REACT (removeChild)
+    tab_placeholder = st.empty()
+    
+    with tab_placeholder.container():
+        if active_tab == "Données Brutes":
+            st.markdown("### Étape 1 : Données Brutes Enrichies")
+            with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
+                if len(df_enrichi) > N_MAX_DISPLAY:
+                    st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
+                    st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
                 else:
-                    st.info("Pas d'historique complet.")
-        with c_sarr:
-            st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
-            with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
-                df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
-                df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
-                df_sarr_calc["SARR_M1"] = df_sarr_calc.groupby(['agence', 'article'])["SARR_Aff"].shift(1)
-                df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1"]) / df_sarr_calc["SARR_M1"] * 100).replace([np.inf, -np.inf], np.nan)
-                df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
-                
-                st.dataframe(
-                    df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff", "SARR_M1", "Momentum_M (%)"]]
-                    .rename(columns={"SARR_Aff": "SARR M", "SARR_M1": "SARR M-1", "Momentum_M (%)": "Momentum M (%)"})
-                    .sort_values(["agence", "article", "annee", "mois"]),
-                    use_container_width=True, 
-                    hide_index=True,
-                    column_config={
-                        "SARR M": st.column_config.NumberColumn(format="%.0f"),
-                        "SARR M-1": st.column_config.NumberColumn(format="%.0f"),
-                        "Momentum M (%)": st.column_config.NumberColumn(format="%.2f %%"),
-                    }
-                )
+                    st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
-    elif active_tab == "Prévisions Détaillées":
-        st.markdown("### Résultat Final")
-        st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        elif active_tab == "Périmètre":
+            st.markdown("### Étape 2 : Périmètre Filtré")
+            with st.expander("📊 Afficher le tableau du périmètre", expanded=True):
+                if len(df_perimetre) > N_MAX_DISPLAY:
+                    st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
+                    st.dataframe(df_perimetre.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
-        col_search, col_export = st.columns([3, 1])
-        
-        with col_search:
-            search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed")
-            
-        with col_export:
-            pivot_mensuel = _pivot_mensuel_cached(df_previsions_filtre, col_prev_aff).copy()
-            if len(mois_cibles_selection) > 1: pivot_mensuel['Total Période'] = pivot_mensuel.sum(axis=1)
-            elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
-            pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
-            
-            pivot_mensuel_export = pivot_mensuel.copy()
-            pivot_mensuel_export.columns = [
-                unicodedata.normalize('NFKD', str(c)).encode('ascii', 'ignore').decode('utf-8')
-                for c in pivot_mensuel_export.columns
-            ]
-            for col in pivot_mensuel_export.columns:
-                if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
-                    pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(
-                        lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else ""
+        elif active_tab == "Réalisé Cumulé":
+            st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
+            with st.expander("📊 Afficher le tableau du réalisé", expanded=True):
+                if df_realise is not None and not df_realise.empty:
+                    df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
+                    st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+                else:
+                    st.info("Aucune donnée réalisée pour le moment.")
+
+        elif active_tab == "Indices & SARR":
+            st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
+            c_idx, c_sarr = st.columns(2)
+            with c_idx:
+                st.markdown("**Indices de Saisonnalité**")
+                with st.expander("📊 Afficher les indices", expanded=True):
+                    if not table_indices.empty:
+                        pivot_indices = _pivot_indices_cached(table_indices)
+                        st.dataframe(pivot_indices, use_container_width=True)
+                    else:
+                        st.info("Pas d'historique complet.")
+            with c_sarr:
+                st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
+                with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
+                    df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
+                    df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
+                    df_sarr_calc["SARR_M1"] = df_sarr_calc.groupby(['agence', 'article'])["SARR_Aff"].shift(1)
+                    df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1"]) / df_sarr_calc["SARR_M1"] * 100).replace([np.inf, -np.inf], np.nan)
+                    df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
+                    
+                    st.dataframe(
+                        df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff", "SARR_M1", "Momentum_M (%)"]]
+                        .rename(columns={"SARR_Aff": "SARR M", "SARR_M1": "SARR M-1", "Momentum_M (%)": "Momentum M (%)"})
+                        .sort_values(["agence", "article", "annee", "mois"]),
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "SARR M": st.column_config.NumberColumn(format="%.0f"),
+                            "SARR M-1": st.column_config.NumberColumn(format="%.0f"),
+                            "Momentum M (%)": st.column_config.NumberColumn(format="%.2f %%"),
+                        }
                     )
-            csv = pivot_mensuel_export.to_csv(sep=';').encode('utf-8-sig')
 
-            st.download_button(
-                label="Exporter en CSV",
-                data=csv,
-                file_name=f"previsions_star_{annee_cible}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+        elif active_tab == "Prévisions Détaillées":
+            st.markdown("### Résultat Final")
+            st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
-        with st.expander("📊 Afficher le tableau des prévisions détaillées", expanded=True):
-            pivot_mensuel_reset = pivot_mensuel.reset_index()
-            pivot_mensuel_reset.columns = [
-                "Année" if str(c).lower() == "annee" else 
-                "Agence" if str(c).lower() == "agence" else 
-                "Article" if str(c).lower() == "article" else 
-                "Total Période" if "période" in str(c).lower() else
-                "Total Année" if "année" in str(c).lower() else str(c)
-                for c in pivot_mensuel_reset.columns
-            ]
-
-            if search_query:
-                mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
-                pivot_mensuel_display = pivot_mensuel_reset[mask]
-            else:
-                pivot_mensuel_display = pivot_mensuel_reset
-
-            col_config = {
-                "Année": st.column_config.NumberColumn("Année", format="%d"),
-                "Agence": st.column_config.TextColumn("Agence"),
-                "Article": st.column_config.TextColumn("Article"),
-            }
-            for mois in MOIS_NOMS:
-                if mois in pivot_mensuel_display.columns:
-                    col_config[mois] = st.column_config.NumberColumn(mois, format="localized")
+            col_search, col_export = st.columns([3, 1])
             
-            if "Total Période" in pivot_mensuel_display.columns:
-                 col_config["Total Période"] = st.column_config.NumberColumn("Total Période", format="localized")
-            if "Total Année" in pivot_mensuel_display.columns:
-                 col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
-
-            st.dataframe(
-                pivot_mensuel_display,
-                use_container_width=True,
-                hide_index=True,
-                column_config=col_config,
-                height=500
-            )
-
-        with st.expander("🔍 Voir le détail des calculs"):
-            cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_Mensuelle", col_prev_aff]
-            if annee_cible > annee_cloture: cols_to_show.insert(-1, "CAGR (%)")
-            df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
-            st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400)
-
-    elif active_tab == "Analyse Pareto (ABC)":
-        st.markdown("### Analyse Pareto & Classification ABC")
-        st.markdown("La classification ABC est une méthode de gestion des stocks qui consiste à diviser les articles en trois classes en fonction de leur contribution au volume total :")
-        st.markdown("- **Classe A (0-80%)** : Les articles vitaux (généralement 20% des articles qui font 80% des ventes).\n- **Classe B (80-95%)** : Les articles intermédiaires.\n- **Classe C (95-100%)** : Les articles à faible rotation (la longue traîne).")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # PRÉPARATION DES DONNÉES POUR PARETO
-        df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
-        df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
-        
-        if not df_pareto.empty:
-            total_vol = df_pareto[col_prev_aff].sum()
-            df_pareto['Cumul_Pct'] = (df_pareto[col_prev_aff].cumsum() / total_vol) * 100
-            
-            # Attribution ABC
-            df_pareto['Classe'] = np.select(
-                [df_pareto['Cumul_Pct'] <= 80, df_pareto['Cumul_Pct'] <= 95],
-                ['A', 'B'],
-                default='C'
-            )
-            
-            # On prend le Top 15 pour le graphique pour qu'il soit lisible
-            df_pareto_graph = df_pareto.head(15).copy()
-            
-            # CORRECTION ICI : On crée une colonne d'index numérique (0, 1, 2...)
-            # pour forcer Plotly à garder l'ordre décroissant sans bug
-            df_pareto_graph['Index'] = range(len(df_pareto_graph))
-            df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
-                lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...'
-            )
-            
-            fig2 = go.Figure()
-            couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
-
-            # Ajouter les barres par classe avec l'INDEX
-            for classe in ['A', 'B', 'C']:
-                df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
-                if not df_class.empty:
-                    fig2.add_trace(go.Bar(
-                        x=df_class['Index'], # Utilisation de l'index
-                        y=df_class[col_prev_aff],
-                        name=f'Classe {classe}',
-                        marker_color=couleurs[classe],
-                        customdata=df_class['article'], # Nom complet au survol
-                        hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"
-                    ))
-
-            # Ligne : % Cumulé avec l'INDEX
-            fig2.add_trace(go.Scatter(
-                x=df_pareto_graph['Index'], 
-                y=df_pareto_graph['Cumul_Pct'],
-                name='% Cumulé',
-                mode='lines+markers',
-                line=dict(color='#111827', width=2),
-                marker=dict(size=6, color='#111827'),
-                yaxis='y2',
-                customdata=df_pareto_graph['article'],
-                hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"
-            ))
-            
-            # Lignes de seuils
-            for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
-                fig2.add_shape(
-                    type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
-                    line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2'
-                )
-
-            fig2.update_layout(
-                plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), # Marge en bas pour l'axe X
-                yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
-                yaxis2=dict(
-                    title="% Cumulé", 
-                    overlaying='y', 
-                    side='right', 
-                    range=[0, 110],
-                    tickvals=[0, 20, 40, 60, 80, 100],
-                    showgrid=False, 
-                    ticksuffix="%"
-                ),
-                xaxis=dict(
-                    tickmode='array',
-                    tickvals=df_pareto_graph['Index'], # On place les ticks sur l'index
-                    ticktext=df_pareto_graph['Article_Court'], # On affiche le nom
-                    tickangle=-45, 
-                    showgrid=False, 
-                    tickfont=dict(size=10)
-                ),
-                legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5),
-                height=450,
-                bargap=0.3,
-                hovermode="x unified"
-            )
-            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
-            
-            # TABLEAU DE DETAILS (dans un expander)
-            with st.expander("📋 Voir le détail par article", expanded=True):
-                df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
-                df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
-                st.dataframe(
-                    df_table,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                        '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"),
-                        'Classe': st.column_config.TextColumn(width="small")
-                    },
-                    height=400
-                )
-        else:
-            st.info("Pas assez de données pour l'analyse.")
-
-    elif active_tab == "Fiabilité Prévisions":
-        st.markdown("### Qualité et Fiabilité du Modèle")
-        st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # KPI LIGNE 2 (Metriques d'erreur)
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.markdown(f"""
-            <div class="white-card" style="border-top: 4px solid #4B5563;">
-                <div class="kpi-label">MAE (Erreur Absolue Moyenne)</div>
-                <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mae:,.0f}</div>
-                <div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div>
-            </div>""", unsafe_allow_html=True)
-        with m2:
-            st.markdown(f"""
-            <div class="white-card" style="border-top: 4px solid #4B5563;">
-                <div class="kpi-label">WMAPE (Erreur % Pondérée)</div>
-                <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{wmape:,.2f}%</div>
-                <div class="kpi-footer">Précision sur le volume total (Standard industrie)</div>
-            </div>""", unsafe_allow_html=True)
-        with m3:
-            st.markdown(f"""
-            <div class="white-card" style="border-top: 4px solid #4B5563;">
-                <div class="kpi-label">SMAPE (Erreur % Symétrique)</div>
-                <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div>
-                <div class="kpi-footer">Précision sur les articles à faibles volumes</div>
-            </div>""", unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # TABLEAU DE DETAILS (dans un expander)
-        with st.expander("📊 Afficher le détail mensuel (Prévision vs Réalisé)", expanded=True):
-            st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu.")
-            
-            if not df_eval_agg.empty:
-                df_error_monthly = df_eval_agg.copy()
-                df_error_monthly['Ecart'] = df_error_monthly[col_prev_aff] - df_error_monthly[col_prev_pure]
-                df_error_monthly['Erreur_Absolue'] = df_error_monthly['Ecart'].abs()
-                df_error_monthly['Erreur_Pct (%)'] = np.where(df_error_monthly[col_prev_aff] > 0, (df_error_monthly['Erreur_Absolue'] / df_error_monthly[col_prev_aff]) * 100, 0)
+            with col_search:
+                search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
                 
-                # Formatage
-                df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
-                df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
-                df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
+            with col_export:
+                pivot_mensuel = _pivot_mensuel_cached(df_previsions_filtre, col_prev_aff).copy()
+                if len(mois_cibles_selection) > 1: pivot_mensuel['Total Période'] = pivot_mensuel.sum(axis=1)
+                elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
+                pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
+                
+                pivot_mensuel_export = pivot_mensuel.copy()
+                pivot_mensuel_export.columns = [
+                    unicodedata.normalize('NFKD', str(c)).encode('ascii', 'ignore').decode('utf-8')
+                    for c in pivot_mensuel_export.columns
+                ]
+                for col in pivot_mensuel_export.columns:
+                    if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
+                        pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(
+                            lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else ""
+                        )
+                csv = pivot_mensuel_export.to_csv(sep=';').encode('utf-8-sig')
+
+                st.download_button(
+                    label="Exporter en CSV",
+                    data=csv,
+                    file_name=f"previsions_star_{annee_cible}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="btn_export_csv"
+                )
+
+            with st.expander("📊 Afficher le tableau des prévisions détaillées", expanded=True):
+                pivot_mensuel_reset = pivot_mensuel.reset_index()
+                pivot_mensuel_reset.columns = [
+                    "Année" if str(c).lower() == "annee" else 
+                    "Agence" if str(c).lower() == "agence" else 
+                    "Article" if str(c).lower() == "article" else 
+                    "Total Période" if "période" in str(c).lower() else
+                    "Total Année" if "année" in str(c).lower() else str(c)
+                    for c in pivot_mensuel_reset.columns
+                ]
+
+                if search_query:
+                    mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+                    pivot_mensuel_display = pivot_mensuel_reset[mask]
+                else:
+                    pivot_mensuel_display = pivot_mensuel_reset
+
+                col_config = {
+                    "Année": st.column_config.NumberColumn("Année", format="%d"),
+                    "Agence": st.column_config.TextColumn("Agence"),
+                    "Article": st.column_config.TextColumn("Article"),
+                }
+                for mois in MOIS_NOMS:
+                    if mois in pivot_mensuel_display.columns:
+                        col_config[mois] = st.column_config.NumberColumn(mois, format="localized")
+                
+                if "Total Période" in pivot_mensuel_display.columns:
+                     col_config["Total Période"] = st.column_config.NumberColumn("Total Période", format="localized")
+                if "Total Année" in pivot_mensuel_display.columns:
+                     col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
 
                 st.dataframe(
-                    df_error_monthly,
+                    pivot_mensuel_display,
                     use_container_width=True,
                     hide_index=True,
-                    column_config={
-                        f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                        f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                        'Écart': st.column_config.NumberColumn(format="localized"),
-                        'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")
-                    }
+                    column_config=col_config,
+                    height=500
                 )
+
+            with st.expander("🔍 Voir le détail des calculs"):
+                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_Mensuelle", col_prev_aff]
+                if annee_cible > annee_cloture: cols_to_show.insert(-1, "CAGR (%)")
+                df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
+                st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400)
+
+        elif active_tab == "Analyse Pareto (ABC)":
+            st.markdown("### Analyse Pareto & Classification ABC")
+            st.markdown("La classification ABC est une méthode de gestion des stocks qui consiste à diviser les articles en trois classes en fonction de leur contribution au volume total :")
+            st.markdown("- **Classe A (0-80%)** : Les articles vitaux (généralement 20% des articles qui font 80% des ventes).\n- **Classe B (80-95%)** : Les articles intermédiaires.\n- **Classe C (95-100%)** : Les articles à faible rotation (la longue traîne).")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # PRÉPARATION DES DONNÉES POUR PARETO
+            df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
+            df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
+            
+            if not df_pareto.empty:
+                total_vol = df_pareto[col_prev_aff].sum()
+                df_pareto['Cumul_Pct'] = (df_pareto[col_prev_aff].cumsum() / total_vol) * 100
+                
+                # Attribution ABC
+                df_pareto['Classe'] = np.select(
+                    [df_pareto['Cumul_Pct'] <= 80, df_pareto['Cumul_Pct'] <= 95],
+                    ['A', 'B'],
+                    default='C'
+                )
+                
+                # On prend le Top 15 pour le graphique pour qu'il soit lisible
+                df_pareto_graph = df_pareto.head(15).copy()
+                
+                # CORRECTION ICI : On crée une colonne d'index numérique (0, 1, 2...)
+                # pour forcer Plotly à garder l'ordre décroissant sans bug
+                df_pareto_graph['Index'] = range(len(df_pareto_graph))
+                df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
+                    lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...'
+                )
+                
+                fig2 = go.Figure()
+                couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
+
+                # Ajouter les barres par classe avec l'INDEX
+                for classe in ['A', 'B', 'C']:
+                    df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
+                    if not df_class.empty:
+                        fig2.add_trace(go.Bar(
+                            x=df_class['Index'], # Utilisation de l'index
+                            y=df_class[col_prev_aff],
+                            name=f'Classe {classe}',
+                            marker_color=couleurs[classe],
+                            customdata=df_class['article'], # Nom complet au survol
+                            hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"
+                        ))
+
+                # Ligne : % Cumulé avec l'INDEX
+                fig2.add_trace(go.Scatter(
+                    x=df_pareto_graph['Index'], 
+                    y=df_pareto_graph['Cumul_Pct'],
+                    name='% Cumulé',
+                    mode='lines+markers',
+                    line=dict(color='#111827', width=2),
+                    marker=dict(size=6, color='#111827'),
+                    yaxis='y2',
+                    customdata=df_pareto_graph['article'],
+                    hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"
+                ))
+                
+                # Lignes de seuils
+                for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
+                    fig2.add_shape(
+                        type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
+                        line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2'
+                    )
+
+                fig2.update_layout(
+                    plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), # Marge en bas pour l'axe X
+                    yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
+                    yaxis2=dict(
+                        title="% Cumulé", 
+                        overlaying='y', 
+                        side='right', 
+                        range=[0, 110],
+                        tickvals=[0, 20, 40, 60, 80, 100],
+                        showgrid=False, 
+                        ticksuffix="%"
+                    ),
+                    xaxis=dict(
+                        tickmode='array',
+                        tickvals=df_pareto_graph['Index'], # On place les ticks sur l'index
+                        ticktext=df_pareto_graph['Article_Court'], # On affiche le nom
+                        tickangle=-45, 
+                        showgrid=False, 
+                        tickfont=dict(size=10)
+                    ),
+                    legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5),
+                    height=450,
+                    bargap=0.3,
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
+                
+                # TABLEAU DE DETAILS (dans un expander)
+                with st.expander("📋 Voir le détail par article", expanded=True):
+                    df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
+                    df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
+                    st.dataframe(
+                        df_table,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                            '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"),
+                            'Classe': st.column_config.TextColumn(width="small")
+                        },
+                        height=400
+                    )
             else:
-                st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")
+                st.info("Pas assez de données pour l'analyse.")
+
+        elif active_tab == "Fiabilité Prévisions":
+            st.markdown("### Qualité et Fiabilité du Modèle")
+            st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # KPI LIGNE 2 (Metriques d'erreur)
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                st.markdown(f"""
+                <div class="white-card" style="border-top: 4px solid #4B5563;">
+                    <div class="kpi-label">MAE (Erreur Absolue Moyenne)</div>
+                    <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mae:,.0f}</div>
+                    <div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div>
+                </div>""", unsafe_allow_html=True)
+            with m2:
+                st.markdown(f"""
+                <div class="white-card" style="border-top: 4px solid #4B5563;">
+                    <div class="kpi-label">WMAPE (Erreur % Pondérée)</div>
+                    <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{wmape:,.2f}%</div>
+                    <div class="kpi-footer">Précision sur le volume total (Standard industrie)</div>
+                </div>""", unsafe_allow_html=True)
+            with m3:
+                st.markdown(f"""
+                <div class="white-card" style="border-top: 4px solid #4B5563;">
+                    <div class="kpi-label">SMAPE (Erreur % Symétrique)</div>
+                    <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div>
+                    <div class="kpi-footer">Précision sur les articles à faibles volumes</div>
+                </div>""", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # TABLEAU DE DETAILS (dans un expander)
+            with st.expander("📊 Afficher le détail mensuel (Prévision vs Réalisé)", expanded=True):
+                st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu.")
+                
+                if not df_eval_agg.empty:
+                    df_error_monthly = df_eval_agg.copy()
+                    df_error_monthly['Ecart'] = df_error_monthly[col_prev_aff] - df_error_monthly[col_prev_pure]
+                    df_error_monthly['Erreur_Absolue'] = df_error_monthly['Ecart'].abs()
+                    df_error_monthly['Erreur_Pct (%)'] = np.where(df_error_monthly[col_prev_aff] > 0, (df_error_monthly['Erreur_Absolue'] / df_error_monthly[col_prev_aff]) * 100, 0)
+                    
+                    # Formatage
+                    df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
+                    df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
+                    df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
+
+                    st.dataframe(
+                        df_error_monthly,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                            f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
+                            'Écart': st.column_config.NumberColumn(format="localized"),
+                            'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")
+                        }
+                    )
+                else:
+                    st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")

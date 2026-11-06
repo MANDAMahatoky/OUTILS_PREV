@@ -337,13 +337,14 @@ def _calculer_indices_avances(df_realise, annee_min_is, annee_max_is):
         cum_a = v.sum(axis=1).groupby(group_cols).sum()
         # Lissage exponentiel simple : on neutralise les mois aberrants
         idx = cum_m.div(cum_a / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0)
-        return idx.clip(lower=0.2, upper=3.0).reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
+        # On élargit les bornes pour ne pas écraser les pics (ex: fin d'année)
+        return idx.clip(lower=0.05, upper=5.0).reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
 
     idx1 = _idx_smoothed(['agence', 'article'])
     idx2 = _idx_smoothed(['article']).rename(columns={'Indice': 'Indice_art'})
     
     tot = df_h.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
-    glob = (tot / (tot.sum() / 12.0)).clip(lower=0.2, upper=3.0).reset_index()
+    glob = (tot / (tot.sum() / 12.0)).clip(lower=0.05, upper=5.0).reset_index()
     glob.columns = ['mois', 'Indice_glob']
 
     result = (df_h[['agence', 'article', 'mois']].drop_duplicates().merge(idx1, on=['agence', 'article', 'mois'], how='left').merge(idx2, on=['article', 'mois'], how='left').merge(glob, on='mois', how='left'))
@@ -414,14 +415,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.merge(df_n1, on=['agence', 'article'], how='left').fillna({'HL_N1': 0.0})
     df_base['Base_Mensuelle_N1'] = df_base['HL_N1'] / 12.0
     
-    # Calcul de la volatilité du YTD pour ajuster le poids
-    df_volatilite = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl'].std().reset_index()
-    df_volatilite['hl_std'] = df_volatilite['hl'].fillna(0)
-    df_base = df_base.merge(df_volatilite[['agence', 'article', 'hl_std']], on=['agence', 'article'], how='left').fillna({'hl_std': 0.0})
-    
-    # Si la volatilité est faible (ventes stables), on fait plus confiance au YTD. Sinon, on prend le N-1.
-    volatilite_relative = df_base['hl_std'] / df_base['Base_Mensuelle_YTD'].replace(0, 1.0)
-    poids_ytd = np.clip(mois_cutoff / 12.0 + (0.2 * (1 - volatilite_relative)), 0.1, 0.9)
+    # On augmente le poids du YTD (année en cours) pour être plus réactif
+    poids_ytd = min(1.0, mois_cutoff / 12.0)
     
     df_base['Base_Mensuelle'] = np.where(
         (df_base['Base_Mensuelle_YTD'] > 0) & (df_base['Base_Mensuelle_N1'] > 0),
@@ -430,22 +425,12 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     )
     df_base.loc[df_base['Base_Mensuelle_YTD'] == 0, 'Base_Mensuelle'] = df_base['Base_Mensuelle_N1']
     df_base.loc[df_base['Base_Mensuelle_N1'] == 0, 'Base_Mensuelle'] = df_base['Base_Mensuelle_YTD']
-    
-    # =========================================================================
-    # AMÉLIORATION 3 : Détection des "Slow Movers" (ventes intermittentes)
-    # =========================================================================
-    df_nb_mois_actifs = df_realise[(df_realise['annee'] == annee_cloture - 1)].groupby(['agence', 'article'], observed=True)['hl'].apply(lambda x: (x > 0).sum()).reset_index(name='Nb_Mois_Actifs')
-    df_base = df_base.merge(df_nb_mois_actifs, on=['agence', 'article'], how='left').fillna({'Nb_Mois_Actifs': 12})
-    
-    # Pour les articles qui se vendent moins de 3 mois par an, on lisse la base pour éviter les pics absurdes
-    masque_slow = df_base['Nb_Mois_Actifs'] < 3
-    df_base.loc[masque_slow, 'Base_Mensuelle'] = df_base.loc[masque_slow, 'Base_Mensuelle'] * 0.8
 
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
     # =========================================================================
-    # AMÉLIORATION 4 : Calcul du CAGR et intégration du Momentum
+    # AMÉLIORATION 3 : Calcul du CAGR et intégration du Momentum
     # =========================================================================
     df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl'].sum().reset_index()
     
@@ -469,7 +454,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_Hist'] = 0.0
 
-    # Momentum
+    # Momentum (Élan des 3 derniers mois vs N-1)
     if not df_hist_cagr.empty:
         df_recent = df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'].isin(range(max(1, mois_cutoff-2), mois_cutoff+1)))].groupby(['agence', 'article'], observed=True)['hl'].sum().rename('HL_Recent').reset_index()
         df_past = df_realise[(df_realise['annee'] == annee_cloture - 1) & (df_realise['mois'].isin(range(max(1, mois_cutoff-2), mois_cutoff+1)))].groupby(['agence', 'article'], observed=True)['hl'].sum().rename('HL_Past').reset_index()
@@ -503,8 +488,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
 
-    # Blend 70% CAGR / 30% Momentum + Clipping
-    df_base['CAGR_val'] = (df_base['CAGR_val'] * 0.7) + (df_base['Momentum_Growth'] * 0.3)
+    # Blend 50% CAGR / 50% Momentum pour être plus réactif
+    df_base['CAGR_val'] = (df_base['CAGR_val'] * 0.5) + (df_base['Momentum_Growth'] * 0.5)
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.15, upper=0.25)
 
     annees_cibles = list(range(annee_cloture, annee_cible + 1))

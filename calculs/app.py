@@ -253,7 +253,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 @st.cache_data(show_spinner="Chargement et enrichissement des données...")
-def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.DataFrame:
+def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, is_hl: bool = True) -> pd.DataFrame:
     if ref_bytes is not None:
         df_ref = pd.read_excel(io.BytesIO(ref_bytes), sheet_name="Ref actif")
         df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (Cl)": "contenance_cl"}, errors="ignore")
@@ -305,10 +305,14 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes = None) -> pd.Data
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     # =========================================================================
-    # CORRECTION MAJEURE ICI : Le fichier source est DÉJÀ en Hectolitres (HL)
-    # On n'applique donc PAS de multiplication par la contenance.
+    # GESTION DYNAMIQUE DE L'UNITÉ DE LA SOURCE (HL ou COLS)
     # =========================================================================
-    df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
+    if is_hl:
+        # Le fichier source est DÉJÀ en Hectolitres
+        df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
+    else:
+        # Le fichier source est en Cols (bouteilles), on convertit en HL
+        df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
     
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
@@ -513,7 +517,20 @@ with st.sidebar:
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"])
 
     if fichier_ventes is not None:
-        df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
+        # NOUVEAU : Choix de l'unité du fichier source
+        is_hl_source = st.radio(
+            "Unité du fichier source (DATA_BRUT)", 
+            options=[True, False], 
+            format_func=lambda x: "Hectolitres (HL)" if x else "Cols (Bouteilles)",
+            index=0, 
+            help="Choisissez 'Hectolitres' si votre fichier contient déjà les volumes convertis en HL. Choisissez 'Cols' s'il contient le nombre de bouteilles/canettes."
+        )
+
+        df_enrichi = charger_et_enrichir(
+            fichier_ventes.getvalue(), 
+            fichier_ref.getvalue() if fichier_ref is not None else None,
+            is_hl=is_hl_source
+        )
 
         st.markdown("#### 1. Périmètre")
         regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
@@ -550,7 +567,7 @@ with st.sidebar:
 
         st.markdown("#### 2. Paramètres de la cible")
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027)
-        unite_affichage = st.radio("Unité", options=["HL", "Cols"], index=1, horizontal=True)
+        unite_affichage = st.radio("Unité de calcul", options=["HL", "Cols"], index=1, horizontal=True)
         
         st.markdown("##### 🎯 Définition de l'Objectif")
         taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)")

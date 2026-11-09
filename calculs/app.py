@@ -213,6 +213,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
     
+    # FALLBACK : Si aucune donnée sur la période, on prend la dernière année dispo
     if df_h.empty:
         max_annee = df_realise['annee'].max()
         df_h = df_realise[df_realise['annee'] == max_annee].copy()
@@ -245,12 +246,13 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
                       .merge(idx4, on=['segment', 'mois'], how='left')
                       .merge(glob, on='mois', how='left'))
 
+    # Fallback hiérarchique : Agence-Article -> Article -> Marque -> Segment -> Global -> 1.0
     result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_marque']).fillna(result['Indice_seg']).fillna(result['Indice_glob']).fillna(1.0)
     result['mois'] = result['mois'].astype(int)
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, budget_bytes, budget_all_agencies, cache_bust="v95"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v96"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -412,12 +414,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    if methode_base == "Excel Strict (MAX)":
-        df_cross['Base_Utilisee'] = df_cross['Base_EXCEL']
-    else:
-        df_cross['Base_Utilisee'] = (df_cross['Base_EXCEL'] + df_cross['Base_Mensuelle']) / 2
-        
-    prev_2026 = (df_cross['Indice'] * df_cross['Base_Utilisee']) + df_cross['Momentum']
+    # STRICT EXCEL LOGIC
+    prev_2026 = (df_cross['Indice'] * df_cross['Base_EXCEL']) + df_cross['Momentum']
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
     df_cross['Prevision_HL'] = np.where(df_cross['annee'] == annee_cloture, prev_2026, prev_futur)
@@ -568,14 +566,6 @@ with st.sidebar:
             help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise la formule Momentum d'Excel.",
             key="param_methode"
         )
-
-        methode_base = st.radio(
-            "Logique de Base (2026)",
-            options=["Base Lissée (Recommandée)", "Excel Strict (MAX)"],
-            index=0,
-            help="Choisissez entre la formule Excel brute (risque d'explosion) ou une version lissée (plus stable).",
-            key="param_base"
-        )
         
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
             p1, p2 = st.columns(2)
@@ -600,7 +590,7 @@ st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision hybride (Formule Excel pour l'année en cours, CAGR pour le futur).</p>
+    <p>Moteur de prévision hybride (Formule Excel stricte pour l'année en cours, CAGR pour le futur).</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -617,7 +607,7 @@ if fichier_ventes is not None:
     if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
     table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(
-        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies
+        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies
     )
 
     if table_indices is None:

@@ -304,7 +304,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     masque_fut20 = df_enrichi["article"].str.contains(r'20L|20 L|FUT 20', case=False, na=False, regex=True)
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
-    # Le fichier source est DÉJÀ en Hectolitres (HL)
+    # =========================================================================
+    # CONVERSION : Le fichier source est DÉJÀ en Hectolitres (HL)
+    # =========================================================================
     df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
     
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
@@ -320,7 +322,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (VERSION MATCH EXCEL)
+# LOGIQUE DE CALCUL (VERSION VALIDÉE - TREND LINÉAIRE SÉCURISÉ)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -347,13 +349,11 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v70"):
-    # FILTRE DE DISTRIBUTION (ANTI-PREVISIONS FANTÔMES)
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v66"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
     
-    # On filtre le périmètre global pour ne garder que les combinaisons actives
     df_perimetre_filtre = pd.merge(df_perimetre, couples_actifs, on=['agence', 'article'], how='inner')
     
     if df_perimetre_filtre.empty: return None, None, None, None, df_perimetre
@@ -404,12 +404,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     df_base = df_base.drop(columns=['Mois_Debut']).merge(df_cumul, on=['agence', 'article'], how='left')
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
-    
-    # =========================================================================
-    # LOGIQUE EXCEL : Moyenne simple YTD / Nb Mois
-    # =========================================================================
-    df_base['Base_Mensuelle'] = df_base['YTD_HL'] / mois_cutoff
-    
+    df_base['Base_Mensuelle'] = df_base['YTD_HL'] / df_base['Cumul_Coef']
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
@@ -435,19 +430,17 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             try:
                 x = group['annee'].values.astype(float)
                 y = group['hl'].values.astype(float)
-                
                 mask = ~np.isnan(x) & ~np.isnan(y)
                 x = x[mask]
                 y = y[mask]
-                
                 if len(x) >= 2 and np.sum(y) > 0:
                     slope, _ = np.polyfit(x, y, 1)
                     mean_y = np.mean(y)
-                    slope_rel = float(slope / mean_y) if mean_y > 0 else np.nan
+                    slope_rel = float(slope / mean_y) if mean_y > 0 else 0.0
                 else:
-                    slope_rel = np.nan
+                    slope_rel = 0.0
             except Exception:
-                slope_rel = np.nan
+                slope_rel = 0.0
             slopes_data.append({'agence': agence, 'article': article, 'Slope_Rel': slope_rel})
             
         slopes = pd.DataFrame(slopes_data, columns=['agence', 'article', 'Slope_Rel'])
@@ -487,7 +480,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # Application des IS et de la croissance
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr'])
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
@@ -578,8 +570,9 @@ with st.sidebar:
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
 
         st.markdown("#### 2. Paramètres de la cible")
-        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")
+        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
         
+        # CHANGEMENT ICI : "Unité d'affichage"
         unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")
@@ -780,7 +773,7 @@ if fichier_ventes is not None:
 
     st.markdown("""
     <p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
-        Projection basée sur la logique Excel (Moyenne des mois × Indices de Saisonnalité). Les chiffres sont donnés à titre indicatif.
+        Projection basée sur la logique SARR. Les chiffres sont donnés à titre indicatif.
     </p>
     """, unsafe_allow_html=True)
 
@@ -947,9 +940,8 @@ if fichier_ventes is not None:
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Filtrer uniquement sur l'année cible pour le Pareto
-            df_pareto_source = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
-            df_pareto = df_pareto_source.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
+            # PRÉPARATION DES DONNÉES POUR PARETO
+            df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
             df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
             
             if not df_pareto.empty:
@@ -966,6 +958,8 @@ if fichier_ventes is not None:
                 # On prend le Top 15 pour le graphique pour qu'il soit lisible
                 df_pareto_graph = df_pareto.head(15).copy()
                 
+                # CORRECTION ICI : On crée une colonne d'index numérique (0, 1, 2...)
+                # pour forcer Plotly à garder l'ordre décroissant sans bug
                 df_pareto_graph['Index'] = range(len(df_pareto_graph))
                 df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
                     lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...'
@@ -974,18 +968,20 @@ if fichier_ventes is not None:
                 fig2 = go.Figure()
                 couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
 
+                # Ajouter les barres par classe avec l'INDEX
                 for classe in ['A', 'B', 'C']:
                     df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
                     if not df_class.empty:
                         fig2.add_trace(go.Bar(
-                            x=df_class['Index'],
+                            x=df_class['Index'], # Utilisation de l'index
                             y=df_class[col_prev_aff],
                             name=f'Classe {classe}',
                             marker_color=couleurs[classe],
-                            customdata=df_class['article'],
+                            customdata=df_class['article'], # Nom complet au survol
                             hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"
                         ))
 
+                # Ligne : % Cumulé avec l'INDEX
                 fig2.add_trace(go.Scatter(
                     x=df_pareto_graph['Index'], 
                     y=df_pareto_graph['Cumul_Pct'],
@@ -998,6 +994,7 @@ if fichier_ventes is not None:
                     hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"
                 ))
                 
+                # Lignes de seuils
                 for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
                     fig2.add_shape(
                         type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
@@ -1005,7 +1002,7 @@ if fichier_ventes is not None:
                     )
 
                 fig2.update_layout(
-                    plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60),
+                    plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), # Marge en bas pour l'axe X
                     yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
                     yaxis2=dict(
                         title="% Cumulé", 
@@ -1018,8 +1015,8 @@ if fichier_ventes is not None:
                     ),
                     xaxis=dict(
                         tickmode='array',
-                        tickvals=df_pareto_graph['Index'],
-                        ticktext=df_pareto_graph['Article_Court'],
+                        tickvals=df_pareto_graph['Index'], # On place les ticks sur l'index
+                        ticktext=df_pareto_graph['Article_Court'], # On affiche le nom
                         tickangle=-45, 
                         showgrid=False, 
                         tickfont=dict(size=10)
@@ -1031,6 +1028,7 @@ if fichier_ventes is not None:
                 )
                 st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
                 
+                # TABLEAU DE DETAILS (dans un expander)
                 with st.expander("📋 Voir le détail par article", expanded=True):
                     df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
                     df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
@@ -1080,6 +1078,7 @@ if fichier_ventes is not None:
 
             st.markdown("<br>", unsafe_allow_html=True)
 
+            # TABLEAU DE DETAILS (dans un expander)
             with st.expander("📊 Afficher le détail mensuel (Prévision vs Réalisé)", expanded=True):
                 st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu.")
                 

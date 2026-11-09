@@ -10,127 +10,56 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN (Brand Rouge Dominant + Sidebar)
+# CONFIGURATION ET DESIGN
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-    
-    /* Reset et Fond */
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #F4F6F8 !important; }
-    
-    /* Sidebar Design (Premium) */
     [data-testid="stSidebar"] {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #E5E7EB;
-        box-shadow: 2px 0 10px rgba(0,0,0,0.03);
+        background-color: #FFFFFF !important; border-right: 1px solid #E5E7EB; box-shadow: 2px 0 10px rgba(0,0,0,0.03);
     }
     [data-testid="stSidebar"] h2 { color: #E30613 !important; font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; }
-    [data-testid="stSidebar"] .stSelectbox label, 
-    [data-testid="stSidebar"] .stNumberInput label, 
-    [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 700 !important; }
-
-    /* Header Rouge (Brand STAR Premium - Réduit et Centré) */
+    [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stNumberInput label, [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 700 !important; }
     .hero-header {
-        background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%);
-        color: white;
-        padding: 25px 20px;
-        border-radius: 0 0 20px 20px;
-        margin-top: -60px;
-        margin-bottom: 30px;
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 10px 20px -5px rgba(227, 6, 19, 0.4);
-        text-align: center;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
+        background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); color: white; padding: 25px 20px;
+        border-radius: 0 0 20px 20px; margin-top: -60px; margin-bottom: 30px; position: relative;
+        overflow: hidden; box-shadow: 0 10px 20px -5px rgba(227, 6, 19, 0.4); text-align: center;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
     }
-    .hero-header h1 { 
-        color: white !important; 
-        font-size: 2.2rem; 
-        font-weight: 900; 
-        margin-bottom: 8px; 
-        letter-spacing: -0.02em; 
-    }
-    .hero-header p { 
-        color: #FECACA; 
-        font-size: 1rem; 
-        margin-bottom: 15px; 
-        font-weight: 500; 
-    }
-    .badge-demo {
-        background-color: white; color: #E30613; padding: 4px 12px;
-        border-radius: 20px; font-size: 0.75rem; font-weight: 800;
-        display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    
-    /* Cartes Blanches avec accent rouge */
-    .white-card {
-        background: white; border-radius: 12px; padding: 24px;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
-        border-top: 4px solid #E30613; 
-        margin-bottom: 20px; height: 100%;
-    }
-    
-    /* KPI Cards */
+    .hero-header h1 { color: white !important; font-size: 2.2rem; font-weight: 900; margin-bottom: 8px; letter-spacing: -0.02em; }
+    .hero-header p { color: #FECACA; font-size: 1rem; margin-bottom: 15px; font-weight: 500; }
+    .badge-demo { background-color: white; color: #E30613; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .white-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border-top: 4px solid #E30613; margin-bottom: 20px; height: 100%; }
     .kpi-label { color: #6B7280; font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
     .kpi-value { color: #E30613; font-size: 2.6rem; font-weight: 900; line-height: 1.1; }
     .kpi-value-dark { color: #111827; }
     .kpi-value-green { color: #009640; }
     .kpi-value-red { color: #E30613; }
     .kpi-footer { color: #9CA3AF; font-size: 0.85rem; margin-top: 8px; font-weight: 500; }
-
-    /* Titres de sections */
     .section-title { color: #111827; font-size: 1.2rem; font-weight: 800; margin-bottom: 5px; }
     .section-subtitle { color: #6B7280; font-size: 0.85rem; margin-bottom: 20px; font-weight: 500; }
-
-    /* Inputs Streamlit */
-    div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] {
-        background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important;
-    }
-    
-    /* Design Tableaux */
-    div[data-testid="stExpander"] {
-        background-color: white !important; border-radius: 12px !important; border: 1px solid #E5E7EB !important;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02) !important; margin-bottom: 20px !important;
-    }
-    div[data-testid="stExpander"] > details > summary {
-        background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 700 !important;
-        color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important;
-    }
-    div[data-testid="stExpander"] > details[open] > summary {
-        border-bottom: 1px solid #E5E7EB !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important;
-    }
-    div[data-testid="stDataFrame"] {
-        border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important;
-    }
-    
-    /* Navigation */
-    div[role="radiogroup"] {
-        gap: 40px !important; border-bottom: 2px solid #E5E7EB !important; padding-bottom: 0px !important;
-        margin-bottom: 30px !important; display: flex !important; flex-wrap: wrap !important;
-    }
-    div[role="radiogroup"] label {
-        background: transparent !important; border: none !important; border-bottom: 4px solid transparent !important;
-        border-radius: 0 !important; padding: 10px 0px !important; margin: 0 !important;
-    }
+    div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] { background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important; }
+    div[data-testid="stExpander"] { background-color: white !important; border-radius: 12px !important; border: 1px solid #E5E7EB !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02) !important; margin-bottom: 20px !important; }
+    div[data-testid="stExpander"] > details > summary { background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 700 !important; color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important; }
+    div[data-testid="stExpander"] > details[open] > summary { border-bottom: 1px solid #E5E7EB !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+    div[data-testid="stDataFrame"] { border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important; }
+    div[role="radiogroup"] { gap: 40px !important; border-bottom: 2px solid #E5E7EB !important; padding-bottom: 0px !important; margin-bottom: 30px !important; display: flex !important; flex-wrap: wrap !important; }
+    div[role="radiogroup"] label { background: transparent !important; border: none !important; border-bottom: 4px solid transparent !important; border-radius: 0 !important; padding: 10px 0px !important; margin: 0 !important; }
     div[role="radiogroup"] label div p { font-size: 1.4rem !important; font-weight: 800 !important; color: #6B7280 !important; transition: color 0.2s ease !important; }
     div[role="radiogroup"] label:hover div p { color: #111827 !important; }
     div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 900 !important; }
     div[role="radiogroup"] label:has(input:checked) { border-bottom: 4px solid #E30613 !important; }
     div[role="radiogroup"] label > div:first-child { display: none !important; }
-    
     .block-container { padding-top: 2rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES (Régions et Marques)
+# FONCTIONS UTILITAIRES
 # ==============================================================================
 def get_region(agence):
     if pd.isna(agence): return "Autre"
@@ -149,9 +78,6 @@ def extraire_marque(article):
     if "eau vive" in a_low: return "Eau Vive"
     return a.split()[0]
 
-# ==============================================================================
-# RÉFÉRENTIEL ET MAPPING
-# ==============================================================================
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
     {"Article": "Caprice Ananas 100 cl VER", "Contenance (Cl)": 100, "Positionnement": "Milieu"}, {"Article": "Caprice Ananas 150 cl PET", "Contenance (Cl)": 150, "Positionnement": "Milieu"},
@@ -278,7 +204,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (HYBRIDE : MOMENTUM POUR ANNÉE EN COURS, CAGR POUR FUTUR)
+# LOGIQUE DE CALCUL (HYBRIDE STABILISÉE)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -305,7 +231,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v71"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v72"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -325,45 +251,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         table_indices = pd.merge(df_ag_art, df_mois, on='key').drop('key', axis=1)
         table_indices['Indice'] = 1.0
 
-    # 1. CALCUL DU MOMENTUM (Pour l'année en cours - Logique Excel)
-    df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index()
-    min_annee = df_realise_agg['annee'].min()
-    dates = pd.date_range(start=f'{min_annee}-01-01', end=f'{annee_cloture}-{mois_cutoff:02d}-01', freq='MS')
-    df_dates = pd.DataFrame({'Date': dates})
-    df_dates['annee'] = df_dates['Date'].dt.year
-    df_dates['mois'] = df_dates['Date'].dt.month
+    df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
+    df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
+    df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
 
-    ag_art = df_realise_agg[['agence', 'article']].drop_duplicates()
-    df_skeleton = pd.merge(ag_art, df_dates, how='cross')
-
-    df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left')
-    df_sarr_cont['hl'] = df_sarr_cont['hl'].fillna(0.0)
-    df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0)
-    df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice'].replace(0, 1.0)
-
-    df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
-    g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
-
-    df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1)
-    df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
-    df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
-
-    df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1)
-    df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL'].fillna(0.0)
-    
-    mask_ma3 = df_sarr_cont['SARR_MA3'].notna()
-    df_sarr_cont.loc[mask_ma3, 'Base_EXCEL'] = np.maximum(df_sarr_cont.loc[mask_ma3, 'SARR_HL'], df_sarr_cont.loc[mask_ma3, 'SARR_MA3'])
-
-    df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'] - df_sarr_cont['SARR_M1']
-    df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'] - df_sarr_cont['SARR_M2']
-    df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'] - df_sarr_cont['SARR_M3']
-
-    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1).fillna(0.0)
-
-    df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']]
-
-    # 2. CALCUL DU CAGR (Pour les années futures - Logique Python)
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
@@ -452,9 +343,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             df_base['CAGR_val'] = df_base['CAGR_Hist']
     
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
-    df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left').fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
 
-    # 3. PROJECTION (APPLICATION CONDITIONNELLE)
+    # 3. PROJECTION (APPLICATION CONDITIONNELLE STABILISÉE)
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     n_base = len(df_base)
@@ -469,19 +359,19 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross = df_cross.merge(df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
 
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
-    
-    # Formule 1 : Momentum (Année en cours)
-    prev_momentum = (df_cross['Indice'] * df_cross['Base_EXCEL']) + df_cross['Momentum']
-    
-    # Formule 2 : CAGR (Années futures)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
-    prev_cagr = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
+    
+    # Pour 2026 : Run-rate (Base_Mensuelle) * Saisonnalité (c'est le momentum de l'année en cours)
+    prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
+    
+    # Pour 2027+ : Run-rate * Saisonnalité * CAGR
+    prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
-    # Choix de la formule selon l'année
+    # Application de la bonne formule selon l'année
     df_cross['Prevision_HL'] = np.where(
         df_cross['annee'] == annee_cloture, 
-        prev_momentum, 
-        prev_cagr
+        prev_2026, 
+        prev_futur
     )
     
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
@@ -498,10 +388,14 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
+    # Injection d'une colonne "Base" et "Momentum" factices pour l'affichage Excel
+    df_cross['Base_EXCEL'] = df_cross['Base_Mensuelle']
+    df_cross['Momentum'] = 0.0 # On le met à 0 car il est intégré dans le run-rate pour éviter l'explosion
+
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel"]
     df_realise_out = df_realise[df_realise['article'].isin(df_perimetre_filtre['article'].unique())].copy()
 
-    return table_indices, df_sarr_cont, None, df_cross[cols_finales].copy(), df_realise_out
+    return table_indices, df_sarr, None, df_cross[cols_finales].copy(), df_realise_out
 
 @st.cache_data(show_spinner=False)
 def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
@@ -517,10 +411,8 @@ with st.sidebar:
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
     LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
     
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), use_container_width=True)
-    else:
-        st.warning("⚠️ Logo non trouvé")
+    if LOGO_PATH.exists(): st.image(str(LOGO_PATH), use_container_width=True)
+    else: st.warning("⚠️ Logo non trouvé")
     
     st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
     
@@ -529,10 +421,7 @@ with st.sidebar:
         fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"], key="uploader_ref")
 
     if fichier_ventes is not None:
-        df_enrichi = charger_et_enrichir(
-            fichier_ventes.getvalue(), 
-            fichier_ref.getvalue() if fichier_ref is not None else None
-        )
+        df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
         st.markdown("#### 1. Périmètre")
         regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
@@ -583,7 +472,7 @@ with st.sidebar:
             "Méthode de croissance (pour années futures)", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
             index=1,
-            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Momentum.",
+            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Run-Rate.",
             key="param_methode"
         )
         
@@ -610,7 +499,7 @@ st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision hybride (Momentum en cours, CAGR futur) - Explorez les tendances à venir.</p>
+    <p>Moteur de prévision hybride (Run-Rate en cours, CAGR futur) - Explorez les tendances à venir.</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -675,14 +564,13 @@ if fichier_ventes is not None:
     if not df_eval_agg.empty and df_eval_agg[col_prev_aff].sum() > 0:
         y_true = df_eval_agg[col_prev_aff].values
         y_pred = df_eval_agg[col_prev_pure].values
-
         mae = np.mean(np.abs(y_true - y_pred))
         wmape = (np.sum(np.abs(y_true - y_pred)) / np.sum(y_true)) * 100
         smape = np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred))) * 100
     else:
         mae, wmape, smape = 0.0, 0.0, 0.0
 
-    # KPI LIGNE 1 (Uniquement les objectifs sur la page principale)
+    # KPI LIGNE 1
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -713,7 +601,7 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # GRAPHIQUE PRINCIPAL (Pleine largeur)
+    # GRAPHIQUE PRINCIPAL
     st.markdown(f"""
     <div class="white-card">
         <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
@@ -721,70 +609,39 @@ if fichier_ventes is not None:
     """, unsafe_allow_html=True)
     
     df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
-    
-    if annee_cible == annee_cloture:
-        df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
+    if annee_cible == annee_cloture: df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
 
     df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
     df_real_cible['Date_Plot'] = pd.to_datetime(df_real_cible['Date_Str'])
-    
     contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100.0)
     df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
-    
     df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
     df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
     df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
     df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
-    
     df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
 
     fig1 = go.Figure()
-
     if not df_prev_plot.empty:
-        fig1.add_trace(go.Scatter(
-            x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'],
-            mode='lines+markers', name='Prévision (Pure)',
-            line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3),
-            marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))
-        ))
-
+        fig1.add_trace(go.Scatter(x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], mode='lines+markers', name='Prévision (Pure)', line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3), marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))))
     if not df_real_plot.empty:
-        fig1.add_trace(go.Scatter(
-            x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'],
-            mode='lines+markers', name='Réalisé',
-            line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3),
-            marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))
-        ))
+        fig1.add_trace(go.Scatter(x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], mode='lines+markers', name='Réalisé', line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3), marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))))
 
-    fig1.update_layout(
-        plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0),
-        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
-        xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1"),
-        yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False),
-        height=400,
-        hovermode="x unified"
-    )
+    fig1.update_layout(plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5), xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1"), yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False), height=400, hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("""
-    <p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
-        Projection basée sur la logique hybride : Momentum (SARR) pour l'année en cours, CAGR pour les années futures.
-    </p>
-    """, unsafe_allow_html=True)
+    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
 
     # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions"]
-    if show_raw_data:
-        tab_names.insert(0, "Données Brutes")
+    if show_raw_data: tab_names.insert(0, "Données Brutes")
 
     active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
-
     N_MAX_DISPLAY = 5000
-
     tab_placeholder = st.empty()
     
     with tab_placeholder.container():
@@ -794,8 +651,7 @@ if fichier_ventes is not None:
                 if len(df_enrichi) > N_MAX_DISPLAY:
                     st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
                     st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-                else:
-                    st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
+                else: st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
         elif active_tab == "Périmètre":
             st.markdown("### Étape 2 : Périmètre Filtré")
@@ -803,8 +659,7 @@ if fichier_ventes is not None:
                 if len(df_perimetre) > N_MAX_DISPLAY:
                     st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
                     st.dataframe(df_perimetre.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-                else:
-                    st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
+                else: st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
 
         elif active_tab == "Réalisé Cumulé":
             st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
@@ -812,8 +667,7 @@ if fichier_ventes is not None:
                 if df_realise is not None and not df_realise.empty:
                     df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
                     st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-                else:
-                    st.info("Aucune donnée réalisée pour le moment.")
+                else: st.info("Aucune donnée réalisée pour le moment.")
 
         elif active_tab == "Indices & SARR":
             st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
@@ -824,8 +678,7 @@ if fichier_ventes is not None:
                     if not table_indices.empty:
                         pivot_indices = _pivot_indices_cached(table_indices)
                         st.dataframe(pivot_indices, use_container_width=True)
-                    else:
-                        st.info("Pas d'historique complet.")
+                    else: st.info("Pas d'historique complet.")
             with c_sarr:
                 st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
                 with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
@@ -839,13 +692,8 @@ if fichier_ventes is not None:
                         df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff", "SARR_M1", "Momentum_M (%)"]]
                         .rename(columns={"SARR_Aff": "SARR M", "SARR_M1": "SARR M-1", "Momentum_M (%)": "Momentum M (%)"})
                         .sort_values(["agence", "article", "annee", "mois"]),
-                        use_container_width=True, 
-                        hide_index=True,
-                        column_config={
-                            "SARR M": st.column_config.NumberColumn(format="%.0f"),
-                            "SARR M-1": st.column_config.NumberColumn(format="%.0f"),
-                            "Momentum M (%)": st.column_config.NumberColumn(format="%.2f %%"),
-                        }
+                        use_container_width=True, hide_index=True,
+                        column_config={"SARR M": st.column_config.NumberColumn(format="%.0f"), "SARR M-1": st.column_config.NumberColumn(format="%.0f"), "Momentum M (%)": st.column_config.NumberColumn(format="%.2f %%")}
                     )
 
         elif active_tab == "Prévisions Détaillées":
@@ -854,20 +702,12 @@ if fichier_ventes is not None:
             st.markdown("<br>", unsafe_allow_html=True)
 
             col_search, col_export = st.columns([3, 1])
-            
             with col_search:
                 search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
                 
             with col_export:
                 df_prev_seg = df_previsions_filtre.merge(df_perimetre[['article', 'segment']].drop_duplicates(), on='article', how='left')
-                
-                pivot_mensuel = df_prev_seg.pivot_table(
-                    index=['article', 'segment'], 
-                    columns='mois', 
-                    values=col_prev_aff, 
-                    aggfunc='sum'
-                ).fillna(0)
-                
+                pivot_mensuel = df_prev_seg.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
                 pivot_mensuel.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_mensuel.columns]
                 pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
                 pivot_mensuel = pivot_mensuel[pivot_mensuel['Total Année'] > 0]
@@ -875,70 +715,36 @@ if fichier_ventes is not None:
                 pivot_mensuel_export = pivot_mensuel.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
                 for col in pivot_mensuel_export.columns:
                     if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
-                        pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(
-                            lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else ""
-                        )
+                        pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else "")
+                
                 csv = pivot_mensuel_export.to_csv(sep=';', index=False).encode('utf-8-sig')
-
-                st.download_button(
-                    label="Exporter en CSV",
-                    data=csv,
-                    file_name=f"previsions_star_{annee_cible}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                    key="btn_export_csv"
-                )
+                st.download_button(label="Exporter en CSV", data=csv, file_name=f"previsions_star_{annee_cible}.csv", mime="text/csv", use_container_width=True, key="btn_export_csv")
 
             with st.expander("📊 Afficher le tableau des prévisions détaillées (Format Excel)", expanded=True):
                 pivot_mensuel_reset = pivot_mensuel.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
-
                 if search_query:
                     mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
                     pivot_mensuel_display = pivot_mensuel_reset[mask]
                 else:
                     pivot_mensuel_display = pivot_mensuel_reset
 
-                col_config = {
-                    "Articles": st.column_config.TextColumn("Articles", width="medium"),
-                    "Segments": st.column_config.TextColumn("Segments", width="small"),
-                }
+                col_config = {"Articles": st.column_config.TextColumn("Articles", width="medium"), "Segments": st.column_config.TextColumn("Segments", width="small")}
                 for mois in MOIS_NOMS:
-                    if mois in pivot_mensuel_display.columns:
-                        col_config[mois] = st.column_config.NumberColumn(mois, format="%.2f")
-                
-                if "Total Année" in pivot_mensuel_display.columns:
-                     col_config["Total Année"] = st.column_config.NumberColumn("Total général", format="%.2f")
+                    if mois in pivot_mensuel_display.columns: col_config[mois] = st.column_config.NumberColumn(mois, format="%.2f")
+                if "Total Année" in pivot_mensuel_display.columns: col_config["Total Année"] = st.column_config.NumberColumn("Total général", format="%.2f")
 
-                st.dataframe(
-                    pivot_mensuel_display,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config=col_config,
-                    height=600
-                )
+                st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
-            with st.expander("🔍 Voir le détail des calculs (Hybride : Momentum & CAGR)"):
-                st.markdown("**Note :** L'année de clôture utilise la formule `(Indice * Base Excel) + Momentum`. Les années suivantes utilisent `Base Mensuelle * Indice * CAGR`.")
-                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
+            with st.expander("🔍 Voir le détail des calculs (Hybride)"):
+                st.markdown("**Note :** L'année de clôture utilise le Run-Rate actuel (Base Mensuelle). Les années suivantes ajoutent le CAGR.")
+                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
                 df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
-                st.dataframe(
-                    df_detail.head(N_MAX_DISPLAY), 
-                    use_container_width=True, 
-                    hide_index=True, 
-                    height=400,
-                    column_config={
-                        "Base_EXCEL": st.column_config.NumberColumn(format="%.1f"),
-                        "Momentum": st.column_config.NumberColumn(format="%.1f"),
-                        "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"),
-                        "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%"),
-                    }
-                )
+                st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
 
         elif active_tab == "Analyse Pareto (ABC)":
             st.markdown("### Analyse Pareto & Classification ABC")
             st.markdown("La classification ABC est une méthode de gestion des stocks qui consiste à diviser les articles en trois classes en fonction de leur contribution au volume total :")
             st.markdown("- **Classe A (0-80%)** : Les articles vitaux (généralement 20% des articles qui font 80% des ventes).\n- **Classe B (80-95%)** : Les articles intermédiaires.\n- **Classe C (95-100%)** : Les articles à faible rotation (la longue traîne).")
-            
             st.markdown("<br>", unsafe_allow_html=True)
             
             df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
@@ -947,124 +753,45 @@ if fichier_ventes is not None:
             if not df_pareto.empty:
                 total_vol = df_pareto[col_prev_aff].sum()
                 df_pareto['Cumul_Pct'] = (df_pareto[col_prev_aff].cumsum() / total_vol) * 100
-                
-                df_pareto['Classe'] = np.select(
-                    [df_pareto['Cumul_Pct'] <= 80, df_pareto['Cumul_Pct'] <= 95],
-                    ['A', 'B'],
-                    default='C'
-                )
+                df_pareto['Classe'] = np.select([df_pareto['Cumul_Pct'] <= 80, df_pareto['Cumul_Pct'] <= 95], ['A', 'B'], default='C')
                 
                 df_pareto_graph = df_pareto.head(15).copy()
                 df_pareto_graph['Index'] = range(len(df_pareto_graph))
-                df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(
-                    lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...'
-                )
+                df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...')
                 
                 fig2 = go.Figure()
                 couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
-
                 for classe in ['A', 'B', 'C']:
                     df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
                     if not df_class.empty:
-                        fig2.add_trace(go.Bar(
-                            x=df_class['Index'],
-                            y=df_class[col_prev_aff],
-                            name=f'Classe {classe}',
-                            marker_color=couleurs[classe],
-                            customdata=df_class['article'],
-                            hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"
-                        ))
-
-                fig2.add_trace(go.Scatter(
-                    x=df_pareto_graph['Index'], 
-                    y=df_pareto_graph['Cumul_Pct'],
-                    name='% Cumulé',
-                    mode='lines+markers',
-                    line=dict(color='#111827', width=2),
-                    marker=dict(size=6, color='#111827'),
-                    yaxis='y2',
-                    customdata=df_pareto_graph['article'],
-                    hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"
-                ))
+                        fig2.add_trace(go.Bar(x=df_class['Index'], y=df_class[col_prev_aff], name=f'Classe {classe}', marker_color=couleurs[classe], customdata=df_class['article'], hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"))
+                fig2.add_trace(go.Scatter(x=df_pareto_graph['Index'], y=df_pareto_graph['Cumul_Pct'], name='% Cumulé', mode='lines+markers', line=dict(color='#111827', width=2), marker=dict(size=6, color='#111827'), yaxis='y2', customdata=df_pareto_graph['article'], hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"))
                 
                 for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
-                    fig2.add_shape(
-                        type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil,
-                        line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2'
-                    )
+                    fig2.add_shape(type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil, line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2')
 
-                fig2.update_layout(
-                    plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60),
-                    yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'),
-                    yaxis2=dict(
-                        title="% Cumulé", 
-                        overlaying='y', 
-                        side='right', 
-                        range=[0, 110],
-                        tickvals=[0, 20, 40, 60, 80, 100],
-                        showgrid=False, 
-                        ticksuffix="%"
-                    ),
-                    xaxis=dict(
-                        tickmode='array',
-                        tickvals=df_pareto_graph['Index'],
-                        ticktext=df_pareto_graph['Article_Court'],
-                        tickangle=-45, 
-                        showgrid=False, 
-                        tickfont=dict(size=10)
-                    ),
-                    legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5),
-                    height=450,
-                    bargap=0.3,
-                    hovermode="x unified"
-                )
+                fig2.update_layout(plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%"), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=10)), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
                 st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
                 
                 with st.expander("📋 Voir le détail par article", expanded=True):
                     df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
                     df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
-                    st.dataframe(
-                        df_table,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                            '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"),
-                            'Classe': st.column_config.TextColumn(width="small")
-                        },
-                        height=400
-                    )
+                    st.dataframe(df_table, use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe': st.column_config.TextColumn(width="small")}, height=400)
             else:
                 st.info("Pas assez de données pour l'analyse.")
 
         elif active_tab == "Fiabilité Prévisions":
             st.markdown("### Qualité et Fiabilité du Modèle")
             st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
-            
             st.markdown("<br>", unsafe_allow_html=True)
 
             m1, m2, m3 = st.columns(3)
             with m1:
-                st.markdown(f"""
-                <div class="white-card" style="border-top: 4px solid #4B5563;">
-                    <div class="kpi-label">MAE (Erreur Absolue Moyenne)</div>
-                    <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mae:,.0f}</div>
-                    <div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{mae:,.0f}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
             with m2:
-                st.markdown(f"""
-                <div class="white-card" style="border-top: 4px solid #4B5563;">
-                    <div class="kpi-label">WMAPE (Erreur % Pondérée)</div>
-                    <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{wmape:,.2f}%</div>
-                    <div class="kpi-footer">Précision sur le volume total (Standard industrie)</div>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{wmape:,.2f}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
             with m3:
-                st.markdown(f"""
-                <div class="white-card" style="border-top: 4px solid #4B5563;">
-                    <div class="kpi-label">SMAPE (Erreur % Symétrique)</div>
-                    <div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div>
-                    <div class="kpi-footer">Précision sur les articles à faibles volumes</div>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 2rem;">{smape:,.2f}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1076,21 +803,9 @@ if fichier_ventes is not None:
                     df_error_monthly['Ecart'] = df_error_monthly[col_prev_aff] - df_error_monthly[col_prev_pure]
                     df_error_monthly['Erreur_Absolue'] = df_error_monthly['Ecart'].abs()
                     df_error_monthly['Erreur_Pct (%)'] = np.where(df_error_monthly[col_prev_aff] > 0, (df_error_monthly['Erreur_Absolue'] / df_error_monthly[col_prev_aff]) * 100, 0)
-                    
                     df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
                     df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
                     df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
-
-                    st.dataframe(
-                        df_error_monthly,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                            f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"),
-                            'Écart': st.column_config.NumberColumn(format="localized"),
-                            'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")
-                        }
-                    )
+                    st.dataframe(df_error_monthly, use_container_width=True, hide_index=True, column_config={f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"), f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"), 'Écart': st.column_config.NumberColumn(format="localized"), 'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")})
                 else:
                     st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")

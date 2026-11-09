@@ -347,7 +347,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v63"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v64"):
     # FILTRE DE DISTRIBUTION (ANTI-PREVISIONS FANTÔMES)
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
@@ -446,16 +446,22 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 slope_rel = 0.0
             slopes_data.append({'agence': agence, 'article': article, 'Slope_Rel': slope_rel})
             
-        slopes = pd.DataFrame(slopes_data)
-        df_base = df_base.merge(slopes, on=['agence', 'article'], how='left')
-        df_base['CAGR_val'] = df_base['Slope_Rel'].fillna(df_base['CAGR_Hist'])
+        slopes = pd.DataFrame(slopes_data, columns=['agence', 'article', 'Slope_Rel'])
+        if not slopes.empty:
+            df_base = df_base.merge(slopes, on=['agence', 'article'], how='left')
+            df_base['CAGR_val'] = df_base['Slope_Rel'].fillna(df_base['CAGR_Hist'])
+        else:
+            df_base['CAGR_val'] = df_base['CAGR_Hist']
 
     elif methode_croissance == "Moyenne 3 ans":
         try:
             df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl', aggfunc='sum').fillna(0)
             growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
-            df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
-            df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
+            if not growth_rates.empty:
+                df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
+                df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
+            else:
+                df_base['CAGR_val'] = df_base['CAGR_Hist']
         except Exception:
             df_base['CAGR_val'] = df_base['CAGR_Hist']
     

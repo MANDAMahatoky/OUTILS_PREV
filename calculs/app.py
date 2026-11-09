@@ -305,7 +305,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     # =========================================================================
-    # CONVERSION : Le fichier source est en COLS
+    # CONVERSION : Le fichier source est en COLS (ou valeurs brutes)
     # =========================================================================
     df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
     
@@ -555,7 +555,9 @@ with st.sidebar:
 
         st.markdown("#### 2. Paramètres de la cible")
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
-        unite_affichage = st.radio("Unité de calcul", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
+        
+        # CHANGEMENT ICI : "Unité d'affichage" au lieu de "Unité de calcul"
+        unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")
         taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)", key="param_taux")

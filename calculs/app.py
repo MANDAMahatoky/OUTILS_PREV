@@ -304,10 +304,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     masque_fut20 = df_enrichi["article"].str.contains(r'20L|20 L|FUT 20', case=False, na=False, regex=True)
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
-    # =========================================================================
-    # CORRECTION CRUCIALE : Le fichier source est DÉJÀ en Hectolitres (HL)
-    # =========================================================================
-    df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
+    # Le fichier source est en COLS
+    df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
     
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
@@ -322,7 +320,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (VERSION VALIDÉE - TREND LINÉAIRE)
+# LOGIQUE DE CALCUL (VERSION VALIDÉE - TREND LINÉAIRE SÉCURISÉ)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -349,7 +347,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v61"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v62"):
     # FILTRE DE DISTRIBUTION (ANTI-PREVISIONS FANTÔMES)
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
@@ -427,16 +425,25 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
     
     elif methode_croissance == "Tendance Linéaire":
+        # FIX: Sécurisation de la fonction de calcul de pente pour éviter l'erreur TypeError
         def calc_slope(group):
             if len(group) < 2: return 0.0
-            x = group['annee'].values
-            y = group['hl'].values
-            if np.sum(y) == 0: return 0.0
-            slope, intercept = np.polyfit(x, y, 1)
-            mean_y = np.mean(y)
-            return (slope / mean_y) if mean_y > 0 else 0.0
+            try:
+                x = group['annee'].values.astype(float)
+                y = group['hl'].values.astype(float)
+                # Nettoyage des NaN éventuels
+                mask = ~np.isnan(x) & ~np.isnan(y)
+                x = x[mask]
+                y = y[mask]
+                if len(x) < 2 or np.sum(y) == 0: return 0.0
+                slope, _ = np.polyfit(x, y, 1)
+                mean_y = np.mean(y)
+                return float(slope / mean_y) if mean_y > 0 else 0.0
+            except Exception:
+                return 0.0
             
-        slopes = df_hist_cagr.groupby(['agence', 'article']).apply(calc_slope).reset_index(name='Slope_Rel')
+        df_hist_cagr_clean = df_hist_cagr[['agence', 'article', 'annee', 'hl']].copy()
+        slopes = df_hist_cagr_clean.groupby(['agence', 'article'], observed=True).apply(calc_slope).reset_index(name='Slope_Rel')
         df_base = df_base.merge(slopes, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Slope_Rel'].fillna(df_base['CAGR_Hist'])
 
@@ -556,7 +563,7 @@ with st.sidebar:
         st.markdown("#### 2. Paramètres de la cible")
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
         
-        # CHANGEMENT ICI : "Unité d'affichage" au lieu de "Unité de calcul"
+        # Unité d'affichage
         unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")

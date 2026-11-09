@@ -213,7 +213,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
     
-    # FALLBACK : Si aucune donnée sur la période, on prend la dernière année dispo
     if df_h.empty:
         max_annee = df_realise['annee'].max()
         df_h = df_realise[df_realise['annee'] == max_annee].copy()
@@ -246,13 +245,12 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
                       .merge(idx4, on=['segment', 'mois'], how='left')
                       .merge(glob, on='mois', how='left'))
 
-    # Fallback hiérarchique : Agence-Article -> Article -> Marque -> Segment -> Global -> 1.0
     result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_marque']).fillna(result['Indice_seg']).fillna(result['Indice_glob']).fillna(1.0)
     result['mois'] = result['mois'].astype(int)
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, cache_bust="v94"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, budget_bytes, budget_all_agencies, cache_bust="v95"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -425,6 +423,47 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Prevision_HL'] = np.where(df_cross['annee'] == annee_cloture, prev_2026, prev_futur)
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
+    # =========================================================================
+    # INTEGRATION DU BUDGET QUERY (FILTRE STRICT 33 CAN + ECRASEMENT)
+    # =========================================================================
+    if budget_bytes is not None:
+        try:
+            df_budget = pd.read_excel(io.BytesIO(budget_bytes))
+            df_budget.columns = [str(c).strip().lower() for c in df_budget.columns]
+            
+            if 'mois' in df_budget.columns and 'articles' in df_budget.columns and 'attribut' in df_budget.columns and 'valeur' in df_budget.columns:
+                df_budget = df_budget.rename(columns={'articles': 'article', 'attribut': 'agence'})
+                
+                # FILTRE STRICT : On ne garde QUE les articles contenant "33 CAN"
+                df_budget = df_budget[df_budget['article'].astype(str).str.contains('33 CAN', case=False, na=False)].copy()
+                
+                if not df_budget.empty:
+                    # Nettoyage strict pour la fusion
+                    df_budget['article'] = df_budget['article'].astype(str).str.strip()
+                    df_budget['agence'] = df_budget['agence'].astype(str).str.strip()
+                    df_cross['article'] = df_cross['article'].astype(str).str.strip()
+                    df_cross['agence'] = df_cross['agence'].astype(str).str.strip()
+                    
+                    df_budget['mois'] = pd.to_numeric(df_budget['mois'], errors='coerce')
+                    df_budget['valeur'] = pd.to_numeric(df_budget['valeur'], errors='coerce').fillna(0.0)
+                    
+                    df_budget = df_budget[['article', 'agence', 'mois', 'valeur']].dropna(subset=['mois'])
+                    
+                    # Gestion de l'option "Appliquer à toutes les agences"
+                    if budget_all_agencies:
+                        df_budget_agg = df_budget.groupby(['article', 'mois'])['valeur'].sum().reset_index()
+                        df_cross = df_cross.merge(df_budget_agg, on=['article', 'mois'], how='left', suffixes=('', '_budget'))
+                    else:
+                        df_cross = df_cross.merge(df_budget, on=['article', 'agence', 'mois'], how='left', suffixes=('', '_budget'))
+                    
+                    masque_budget = (df_cross['valeur'].notna()) & (~df_cross['is_realise'])
+                    if masque_budget.any():
+                        df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur']
+                
+        except Exception as e:
+            st.warning(f"⚠️ Erreur de lecture du Budget Query : {e}")
+
+    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
     
@@ -467,6 +506,12 @@ with st.sidebar:
     with st.expander("📁 Importer vos fichiers", expanded=True):
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
         fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref", help="Si fourni, l'application ne calculera que sur les articles de ce fichier.")
+        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (uniquement pour les 33 CAN).")
+        
+        if fichier_budget is not None:
+            budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du 33 CAN s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
+        else:
+            budget_all_agencies = True
 
     if fichier_ventes is not None:
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
@@ -572,7 +617,7 @@ if fichier_ventes is not None:
     if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
     table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(
-        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base
+        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies
     )
 
     if table_indices is None:

@@ -347,7 +347,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v62"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v63"):
     # FILTRE DE DISTRIBUTION (ANTI-PREVISIONS FANTÔMES)
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
@@ -425,33 +425,39 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
     
     elif methode_croissance == "Tendance Linéaire":
-        # FIX: Sécurisation de la fonction de calcul de pente pour éviter l'erreur TypeError
-        def calc_slope(group):
-            if len(group) < 2: return 0.0
+        # CORRECTION ICI : Boucle robuste au lieu de groupby().apply()
+        slopes_data = []
+        for (agence, article), group in df_hist_cagr.groupby(['agence', 'article'], observed=True):
             try:
                 x = group['annee'].values.astype(float)
                 y = group['hl'].values.astype(float)
-                # Nettoyage des NaN éventuels
+                
                 mask = ~np.isnan(x) & ~np.isnan(y)
                 x = x[mask]
                 y = y[mask]
-                if len(x) < 2 or np.sum(y) == 0: return 0.0
-                slope, _ = np.polyfit(x, y, 1)
-                mean_y = np.mean(y)
-                return float(slope / mean_y) if mean_y > 0 else 0.0
+                
+                if len(x) >= 2 and np.sum(y) > 0:
+                    slope, _ = np.polyfit(x, y, 1)
+                    mean_y = np.mean(y)
+                    slope_rel = float(slope / mean_y) if mean_y > 0 else 0.0
+                else:
+                    slope_rel = 0.0
             except Exception:
-                return 0.0
+                slope_rel = 0.0
+            slopes_data.append({'agence': agence, 'article': article, 'Slope_Rel': slope_rel})
             
-        df_hist_cagr_clean = df_hist_cagr[['agence', 'article', 'annee', 'hl']].copy()
-        slopes = df_hist_cagr_clean.groupby(['agence', 'article'], observed=True).apply(calc_slope).reset_index(name='Slope_Rel')
+        slopes = pd.DataFrame(slopes_data)
         df_base = df_base.merge(slopes, on=['agence', 'article'], how='left')
         df_base['CAGR_val'] = df_base['Slope_Rel'].fillna(df_base['CAGR_Hist'])
 
     elif methode_croissance == "Moyenne 3 ans":
-        df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl', aggfunc='sum').fillna(0)
-        growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
-        df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
-        df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
+        try:
+            df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl', aggfunc='sum').fillna(0)
+            growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
+            df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
+            df_base['CAGR_val'] = df_base['Avg_Growth'].fillna(df_base['CAGR_Hist'])
+        except Exception:
+            df_base['CAGR_val'] = df_base['CAGR_Hist']
     
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
 
@@ -563,7 +569,7 @@ with st.sidebar:
         st.markdown("#### 2. Paramètres de la cible")
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
         
-        # Unité d'affichage
+        # CHANGEMENT ICI : "Unité d'affichage"
         unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")

@@ -250,7 +250,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, budget_bytes, cache_bust="v91"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, budget_bytes, cache_bust="v92"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -433,8 +433,13 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             
             if 'mois' in df_budget.columns and 'articles' in df_budget.columns and 'attribut' in df_budget.columns and 'valeur' in df_budget.columns:
                 df_budget = df_budget.rename(columns={'articles': 'article', 'attribut': 'agence'})
+                
+                # Nettoyage strict pour la fusion
                 df_budget['article'] = df_budget['article'].astype(str).str.strip()
                 df_budget['agence'] = df_budget['agence'].astype(str).str.strip()
+                df_cross['article'] = df_cross['article'].astype(str).str.strip()
+                df_cross['agence'] = df_cross['agence'].astype(str).str.strip()
+                
                 df_budget['mois'] = pd.to_numeric(df_budget['mois'], errors='coerce')
                 df_budget['valeur'] = pd.to_numeric(df_budget['valeur'], errors='coerce').fillna(0.0)
                 
@@ -442,7 +447,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 
                 df_cross = df_cross.merge(df_budget, on=['article', 'agence', 'mois'], how='left', suffixes=('', '_budget'))
                 
-                # On écrase la prévision si une valeur budget existe et qu'on est sur un mois futur
+                # Si une valeur manuelle existe, on l'utilise
                 masque_budget = (df_cross['valeur'].notna()) & (~df_cross['is_realise'])
                 if masque_budget.any():
                     df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur']

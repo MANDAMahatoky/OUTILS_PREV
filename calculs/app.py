@@ -322,7 +322,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (VERSION VALIDÉE - TREND LINÉAIRE SÉCURISÉ)
+# LOGIQUE DE CALCUL (VERSION CORRIGÉE - ALIGNÉE SUR EXCEL)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -335,7 +335,14 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
         v = (df_h.groupby(group_cols + ['annee', 'mois'], observed=True)['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0))
         cum_m = v.groupby(group_cols).sum()
         cum_a = v.sum(axis=1).groupby(group_cols).sum()
-        return (cum_m.div(cum_a / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0).reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice'))
+        
+        # CORRECTION 1 : REPRODUCTION DU SIERREUR(..., 0)
+        # Si la division est impossible (0/0), on renvoie 0.0 au lieu de 1.0
+        moy_mensuelle = cum_a / 12.0
+        indices = cum_m.div(moy_mensuelle, axis=0)
+        indices = indices.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        
+        return indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
 
     idx1 = _idx(['agence', 'article'])
     idx2 = _idx(['article']).rename(columns={'Indice': 'Indice_art'})
@@ -344,12 +351,13 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     glob.columns = ['mois', 'Indice_glob']
 
     result = (df_h[['agence', 'article', 'mois']].drop_duplicates().merge(idx1, on=['agence', 'article', 'mois'], how='left').merge(idx2, on=['article', 'mois'], how='left').merge(glob, on='mois', how='left'))
+    # Le fillna(1.0) final ici reste en filet de sécurité si vraiment l'indice global est introuvable
     result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_glob']).fillna(1.0)
     result['mois'] = result['mois'].astype(int)
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v66"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v67"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -488,6 +496,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000.0 / contenance_safe)
     df_cross['Prevision_Cols'] = df_cross['Prevision_HL'] * (10000.0 / contenance_safe)
     
+    # CORRECTION 2 : Éviter l'affichage des "-0,00" dans les tableaux
+    df_cross['Volume_HL'] = np.where(df_cross['Volume_HL'].abs() < 0.05, 0.0, df_cross['Volume_HL'])
+    df_cross['Volume_Cols'] = np.where(df_cross['Volume_Cols'].abs() < 0.05, 0.0, df_cross['Volume_Cols'])
+    
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
 
@@ -572,7 +584,6 @@ with st.sidebar:
         st.markdown("#### 2. Paramètres de la cible")
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
         
-        # CHANGEMENT ICI : "Unité d'affichage"
         unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")

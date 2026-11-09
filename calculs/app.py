@@ -204,7 +204,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (STABILISÉE)
+# LOGIQUE DE CALCUL (EXCEL POUR 2026, CAGR POUR 2027+)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -231,7 +231,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v75"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v76"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -243,7 +243,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # 1. Calcul des indices (saisonnalité)
+    # 1. Calcul des indices
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
@@ -252,7 +252,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         table_indices = pd.merge(df_ag_art, df_mois, on='key').drop('key', axis=1)
         table_indices['Indice'] = 1.0
 
-    # 2. Préparation du calendrier continu pour le SARR et le Momentum (pour analyse)
+    # 2. Préparation du calendrier continu et calcul de la Base & Momentum (Logique Excel)
     df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index()
     min_annee = df_realise_agg['annee'].min()
     dates = pd.date_range(start=f'{min_annee}-01-01', end=f'{annee_cloture}-{mois_cutoff:02d}-01', freq='MS')
@@ -264,33 +264,33 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_skeleton = pd.merge(ag_art, df_dates, how='cross')
 
     df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left')
+    df_sarr_cont['hl'] = df_sarr_cont['hl'].fillna(0.0) # Fillna 0 pour éviter les NaN
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0)
-    df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice'].replace(0, 1.0)
+    
+    # Sécurité anti division par zéro
+    df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0).clip(lower=0.1) 
+    df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
     g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
 
-    df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1)
-    df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
-    df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
+    # Shift avec fillna(0) pour imiter Excel
+    df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1).fillna(0.0)
+    df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2).fillna(0.0)
+    df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3).fillna(0.0)
 
     df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1)
-    
-    df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL']
-    mask_ma3 = df_sarr_cont['SARR_MA3'].notna()
-    df_sarr_cont.loc[mask_ma3, 'Base_EXCEL'] = np.maximum(df_sarr_cont.loc[mask_ma3, 'SARR_HL'], df_sarr_cont.loc[mask_ma3, 'SARR_MA3'])
+    df_sarr_cont['Base_EXCEL'] = np.maximum(df_sarr_cont['SARR_HL'], df_sarr_cont['SARR_MA3'])
 
     df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'] - df_sarr_cont['SARR_M1']
     df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'] - df_sarr_cont['SARR_M2']
     df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'] - df_sarr_cont['SARR_M3']
-    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1)
+    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1).fillna(0.0)
 
+    # Extraction pour la projection
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
-    df_base_momentum['Base_EXCEL'] = df_base_momentum['Base_EXCEL'].fillna(0.0)
-    df_base_momentum['Momentum'] = df_base_momentum['Momentum'].fillna(0.0)
 
-    # 3. Calcul du Run-Rate (Base_Mensuelle) et du CAGR
+    # 3. Calcul du Run-Rate et du CAGR
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
@@ -381,7 +381,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
     df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left').fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
 
-    # 4. PROJECTION (FORMULE STABLE)
+    # 4. PROJECTION
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     n_base = len(df_base)
@@ -398,9 +398,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # On utilise le Run-Rate (Base_Mensuelle) pour 2026 pour éviter l'explosion du Momentum absolu
-    # La formule avec Momentum est conservée pour l'affichage, mais pas pour le calcul global
-    prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
+    # Formule Excel 2026 (Base * Indice + Momentum)
+    prev_2026 = (df_cross['Indice'] * df_cross['Base_EXCEL']) + df_cross['Momentum']
+    # Formule CAGR 2027+
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
     df_cross['Prevision_HL'] = np.where(
@@ -492,20 +492,20 @@ with st.sidebar:
         st.markdown("#### 2. Paramètres de la cible")
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")
         
-        unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
+        unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=0, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")
         taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)", key="param_taux")
         
         use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
         if use_objectif_manuel:
-            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=5390516.0, key="param_objectif_manuel")
+            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=198153.0, key="param_objectif_manuel")
         
         methode_croissance = st.selectbox(
             "Méthode de croissance (pour années futures)", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
             index=1,
-            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Run-Rate (Momentum).",
+            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise la formule Momentum d'Excel.",
             key="param_methode"
         )
         
@@ -522,7 +522,7 @@ with st.sidebar:
             with p5: annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026, key="param_annee_cloture")
             with p6: mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}", key="param_mois_cutoff")
             
-            mois_cibles_selection = st.multiselect("Mois cible (Filtre)", options=MOIS_NOMS, default=[], key="param_mois_cible")
+            mois_cibles_selection = st.multiselect("Mois cible (Filtre tableau)", options=MOIS_NOMS, default=[], key="param_mois_cible", help="Filtre uniquement le tableau des prévisions, pas le KPI global.")
 
         st.markdown("---")
         st.markdown("#### 🛠️ Options d'affichage")
@@ -532,7 +532,7 @@ st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision hybride (Run-Rate en cours, CAGR futur) - Explorez les tendances à venir.</p>
+    <p>Moteur de prévision hybride (Formule Excel pour l'année en cours, CAGR pour le futur).</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -559,6 +559,11 @@ if fichier_ventes is not None:
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
     col_prev_pure = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
 
+    # CORRECTION : On calcule l'atterrissage sur l'année complète, indépendamment du filtre mensuel
+    df_cible_annuel = df_previsions[df_previsions['annee'] == annee_cible]
+    atterrissage_cible = df_cible_annuel[col_prev_aff].sum()
+
+    # Pour le tableau uniquement, on applique le filtre des mois
     if not mois_cibles_selection:
         df_previsions_filtre = df_previsions
         label_mois_str = "Tous les mois"
@@ -566,9 +571,6 @@ if fichier_ventes is not None:
         mois_cibles_nums = [MOIS_NOMS.index(m) + 1 for m in mois_cibles_selection]
         df_previsions_filtre = df_previsions[df_previsions['mois'].isin(mois_cibles_nums)].copy()
         label_mois_str = ", ".join(mois_cibles_selection)
-
-    df_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
-    atterrissage_cible = df_cible[col_prev_aff].sum()
 
     # CALCUL DE L'OBJECTIF RAISONNÉ
     df_n1 = df_perimetre[df_perimetre['annee'] == (annee_cible - 1)].copy()
@@ -584,8 +586,6 @@ if fichier_ventes is not None:
         objectif_calcule = atterrissage_cible * (1 + taux_ambition / 100.0)
 
     objectif_final = objectif_manuel if use_objectif_manuel else objectif_calcule
-    
-    # CALCUL DU GAP
     gap = objectif_final - atterrissage_cible
     
     # =========================================================================
@@ -610,7 +610,7 @@ if fichier_ventes is not None:
         <div class="white-card">
             <div class="kpi-label">Atterrissage {annee_cible}</div>
             <div class="kpi-value">{atterrissage_cible:,.0f}</div>
-            <div class="kpi-footer">{unite_affichage} (Réalisé + Prévisions)</div>
+            <div class="kpi-footer">{unite_affichage} (Total Annuel Réalisé + Prévisions)</div>
         </div>""", unsafe_allow_html=True)
     
     with k2:
@@ -634,11 +634,11 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # GRAPHIQUE PRINCIPAL
+    # GRAPHIQUE PRINCIPAL (Toujours sur l'année complète pour le contexte)
     st.markdown(f"""
     <div class="white-card">
         <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
-        <div class="section-subtitle">Comparaison mensuelle pour l'année {annee_cible}</div>
+        <div class="section-subtitle">Comparaison mensuelle sur l'année complète</div>
     """, unsafe_allow_html=True)
     
     df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
@@ -650,7 +650,7 @@ if fichier_ventes is not None:
     df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
     df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-    df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+    df_prev_cible = df_cible_annuel.copy() # On utilise l'année complète pour le graphique
     df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
     df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
     df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
@@ -665,7 +665,7 @@ if fichier_ventes is not None:
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
+    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Formule Excel stricte (Base & Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
 
     # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
@@ -769,7 +769,7 @@ if fichier_ventes is not None:
                 st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
             with st.expander("🔍 Voir le détail des calculs (Hybride)"):
-                st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR.")
+                st.markdown("**Note :** L'année de clôture utilise la formule Excel `(Indice * Base) + Momentum`. Les années suivantes utilisent `Base Mensuelle * Indice * CAGR`.")
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
                 df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
                 st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})

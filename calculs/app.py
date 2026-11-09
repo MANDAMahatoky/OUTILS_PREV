@@ -78,6 +78,7 @@ def extraire_marque(article):
     if "eau vive" in a_low: return "Eau Vive"
     return a.split()[0]
 
+# Mise à jour du référentiel par défaut avec votre Classeur2
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
     {"Article": "Caprice Ananas 100 cl VER", "Contenance (Cl)": 100, "Positionnement": "Milieu"}, {"Article": "Caprice Ananas 150 cl PET", "Contenance (Cl)": 150, "Positionnement": "Milieu"},
@@ -178,7 +179,16 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df["annee"] = df["annee"].fillna(2026).astype(int)
     df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
 
-    df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
+    # =========================================================================
+    # MODIFICATION ICI : Jointure stricte (inner) si un référentiel est fourni
+    # =========================================================================
+    if ref_bytes is not None:
+        # On ne garde QUE les articles qui existent dans le Classeur2.xlsx
+        df_enrichi = pd.merge(df_ref, df, on="cle_article", how="inner")
+    else:
+        # Sinon, on garde tout (comportement par défaut)
+        df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
+        
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].fillna(0.0)
@@ -231,7 +241,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v78"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v79"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -266,14 +276,12 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left')
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     
-    # Sécurité anti division par zéro
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0).clip(lower=0.1) 
     df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
     g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
 
-    # Calculs Excel
     df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1)
     df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
     df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
@@ -288,7 +296,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'] - df_sarr_cont['SARR_M3']
     df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1)
 
-    # Extraction pour l'affichage (mais non utilisé pour le calcul final)
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
     df_base_momentum['Base_EXCEL'] = df_base_momentum['Base_EXCEL'].fillna(0.0)
     df_base_momentum['Momentum'] = df_base_momentum['Momentum'].fillna(0.0)
@@ -401,8 +408,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # CORRECTION MAJEURE : On utilise le Run-Rate (Base_Mensuelle) pour 2026 au lieu de la formule Excel brute
-    # C'est ce qui permet de retrouver les 4.4M et d'éviter l'explosion mathématique du Momentum
     prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
@@ -454,7 +459,7 @@ with st.sidebar:
     
     with st.expander("📁 Importer vos fichiers", expanded=True):
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
-        fichier_ref = st.file_uploader("Référentiel (Optionnel)", type=["xlsx"], key="uploader_ref")
+        fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref", help="Si fourni, l'application ne calculera que sur les articles de ce fichier.")
 
     if fichier_ventes is not None:
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
@@ -562,7 +567,7 @@ if fichier_ventes is not None:
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
     col_prev_pure = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
 
-    # CORRECTION MAJEURE : On calcule l'atterrissage sur l'année COMPLÈTE, indépendamment du filtre mensuel
+    # On calcule l'atterrissage sur l'année COMPLÈTE, indépendamment du filtre mensuel
     df_cible_annuel = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible_annuel[col_prev_aff].sum()
 

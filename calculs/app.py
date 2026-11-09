@@ -320,7 +320,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (VERSION VALIDÉE - MATCH EXCEL)
+# LOGIQUE DE CALCUL (VERSION MATCH EXCEL)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -347,7 +347,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v67"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v70"):
     # FILTRE DE DISTRIBUTION (ANTI-PREVISIONS FANTÔMES)
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
@@ -406,8 +406,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
     
     # =========================================================================
-    # MODIFICATION MAJEURE ICI : Calcul de la Base façon EXCEL
-    # (Moyenne simple YTD / nombre de mois au lieu du calcul SARR complexe)
+    # LOGIQUE EXCEL : Moyenne simple YTD / Nb Mois
     # =========================================================================
     df_base['Base_Mensuelle'] = df_base['YTD_HL'] / mois_cutoff
     
@@ -431,7 +430,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut'])
     
     elif methode_croissance == "Tendance Linéaire":
-        # Boucle robuste
         slopes_data = []
         for (agence, article), group in df_hist_cagr.groupby(['agence', 'article'], observed=True):
             try:
@@ -782,7 +780,7 @@ if fichier_ventes is not None:
 
     st.markdown("""
     <p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
-        Projection basée sur la logique SARR. Les chiffres sont donnés à titre indicatif.
+        Projection basée sur la logique Excel (Moyenne des mois × Indices de Saisonnalité). Les chiffres sont donnés à titre indicatif.
     </p>
     """, unsafe_allow_html=True)
 
@@ -949,7 +947,7 @@ if fichier_ventes is not None:
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # CORRECTION : Filtrer uniquement sur l'année cible pour le Pareto
+            # Filtrer uniquement sur l'année cible pour le Pareto
             df_pareto_source = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
             df_pareto = df_pareto_source.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
             df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]

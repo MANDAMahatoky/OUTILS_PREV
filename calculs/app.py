@@ -204,7 +204,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (HYBRIDE STABILISÉE)
+# LOGIQUE DE CALCUL (HYBRIDE : EXCEL POUR 2026, CAGR POUR 2027+)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -231,7 +231,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v72"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v73"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -243,6 +243,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
+    # 1. Calcul des indices (saisonnalité)
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
@@ -251,10 +252,54 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         table_indices = pd.merge(df_ag_art, df_mois, on='key').drop('key', axis=1)
         table_indices['Indice'] = 1.0
 
-    df_sarr = df_realise.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
-    df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
-    df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
+    # 2. Préparation du calendrier continu pour le SARR et le Momentum
+    df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index()
+    min_annee = df_realise_agg['annee'].min()
+    dates = pd.date_range(start=f'{min_annee}-01-01', end=f'{annee_cloture}-{mois_cutoff:02d}-01', freq='MS')
+    df_dates = pd.DataFrame({'Date': dates})
+    df_dates['annee'] = df_dates['Date'].dt.year
+    df_dates['mois'] = df_dates['Date'].dt.month
 
+    ag_art = df_realise_agg[['agence', 'article']].drop_duplicates()
+    df_skeleton = pd.merge(ag_art, df_dates, how='cross')
+
+    # Fusion sans fillna(0) pour garder les NaN (comme les cellules vides Excel)
+    df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left')
+    df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
+    df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0)
+    
+    # Le SARR garde les NaN si pas de vente
+    df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice'].replace(0, 1.0)
+
+    df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
+    g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
+
+    # Les shift gardent les NaN (très important pour ne pas fausser la moyenne)
+    df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1)
+    df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
+    df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
+
+    # La moyenne ignore les NaN, exactement comme la fonction AVERAGE() d'Excel
+    df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1)
+    
+    # Base = MAX(SARR_M, Moyenne 3 mois)
+    df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL']
+    mask_ma3 = df_sarr_cont['SARR_MA3'].notna()
+    df_sarr_cont.loc[mask_ma3, 'Base_EXCEL'] = np.maximum(df_sarr_cont.loc[mask_ma3, 'SARR_HL'], df_sarr_cont.loc[mask_ma3, 'SARR_MA3'])
+
+    # Momentum = Moyenne des écarts
+    df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'] - df_sarr_cont['SARR_M1']
+    df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'] - df_sarr_cont['SARR_M2']
+    df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'] - df_sarr_cont['SARR_M3']
+
+    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1)
+
+    # Extraction de la Base et du Momentum au mois de cutoff
+    df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
+    df_base_momentum['Base_EXCEL'] = df_base_momentum['Base_EXCEL'].fillna(0.0)
+    df_base_momentum['Momentum'] = df_base_momentum['Momentum'].fillna(0.0)
+
+    # 3. Calcul du Run-Rate (Base_Mensuelle) et du CAGR pour les années futures
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
@@ -343,8 +388,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             df_base['CAGR_val'] = df_base['CAGR_Hist']
     
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
+    df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left').fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
 
-    # 3. PROJECTION (APPLICATION CONDITIONNELLE STABILISÉE)
+    # 4. PROJECTION
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     n_base = len(df_base)
@@ -361,13 +407,11 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # Pour 2026 : Run-rate (Base_Mensuelle) * Saisonnalité (c'est le momentum de l'année en cours)
-    prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
-    
-    # Pour 2027+ : Run-rate * Saisonnalité * CAGR
+    # 2026 : Formule Excel
+    prev_2026 = (df_cross['Indice'] * df_cross['Base_EXCEL']) + df_cross['Momentum']
+    # 2027+ : Formule CAGR
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
-    # Application de la bonne formule selon l'année
     df_cross['Prevision_HL'] = np.where(
         df_cross['annee'] == annee_cloture, 
         prev_2026, 
@@ -387,10 +431,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
-
-    # Injection d'une colonne "Base" et "Momentum" factices pour l'affichage Excel
-    df_cross['Base_EXCEL'] = df_cross['Base_Mensuelle']
-    df_cross['Momentum'] = 0.0 # On le met à 0 car il est intégré dans le run-rate pour éviter l'explosion
 
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel"]
     df_realise_out = df_realise[df_realise['article'].isin(df_perimetre_filtre['article'].unique())].copy()
@@ -457,7 +497,7 @@ with st.sidebar:
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
 
         st.markdown("#### 2. Paramètres de la cible")
-        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
+        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")
         
         unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
         
@@ -472,7 +512,7 @@ with st.sidebar:
             "Méthode de croissance (pour années futures)", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
             index=1,
-            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Run-Rate.",
+            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Momentum.",
             key="param_methode"
         )
         
@@ -499,7 +539,7 @@ st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision hybride (Run-Rate en cours, CAGR futur) - Explorez les tendances à venir.</p>
+    <p>Moteur de prévision hybride (Momentum en cours, CAGR futur) - Explorez les tendances à venir.</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -632,7 +672,7 @@ if fichier_ventes is not None:
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
+    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Momentum (SARR) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
 
     # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
@@ -736,10 +776,10 @@ if fichier_ventes is not None:
                 st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
             with st.expander("🔍 Voir le détail des calculs (Hybride)"):
-                st.markdown("**Note :** L'année de clôture utilise le Run-Rate actuel (Base Mensuelle). Les années suivantes ajoutent le CAGR.")
-                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
+                st.markdown("**Note :** L'année de clôture utilise la formule `(Indice * Base Excel) + Momentum`. Les années suivantes utilisent `Base Mensuelle * Indice * CAGR`.")
+                cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
                 df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
-                st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
+                st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
 
         elif active_tab == "Analyse Pareto (ABC)":
             st.markdown("### Analyse Pareto & Classification ABC")

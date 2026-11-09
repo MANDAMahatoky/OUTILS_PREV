@@ -352,7 +352,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions (Logique Excel)...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_cloture, mois_cutoff, annee_cible, cache_bust="v68"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_cloture, mois_cutoff, annee_cible, cache_bust="v70"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -380,50 +380,36 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_cloture, mo
     df_sarr['Indice'] = df_sarr['Indice'].fillna(1.0)
     df_sarr['SARR_HL'] = df_sarr['hl'] / df_sarr['Indice'].replace(0, 1.0)
     
-    # On trie pour préparer le calcul des moyennes mobiles
     df_sarr = df_sarr.sort_values(['agence', 'article', 'annee', 'mois'])
-
-    # 3. LOGIQUE EXCEL : Calcul de la Base et du Momentum
     g = df_sarr.groupby(['agence', 'article'], observed=True)
     
-    # SARR du dernier mois (M)
     df_sarr['SARR_M'] = df_sarr['SARR_HL']
     
-    # SARR M-1, M-2, M-3 (décalages)
-    df_sarr['SARR_M1'] = g['SARR_HL'].shift(1)
-    df_sarr['SARR_M2'] = g['SARR_HL'].shift(2)
-    df_sarr['SARR_M3'] = g['SARR_HL'].shift(3)
+    # CORRECTION MAJEURE : On remplace les NaN par 0 pour imiter Excel
+    df_sarr['SARR_M1'] = g['SARR_HL'].shift(1).fillna(0.0)
+    df_sarr['SARR_M2'] = g['SARR_HL'].shift(2).fillna(0.0)
+    df_sarr['SARR_M3'] = g['SARR_HL'].shift(3).fillna(0.0)
     
-    # Moyenne des 3 derniers mois (M-1, M-2, M-3)
     df_sarr['SARR_MA3'] = df_sarr[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1)
-    
-    # Base = MAX(SARR M, Moyenne 3 mois)
     df_sarr['Base'] = df_sarr[['SARR_M', 'SARR_MA3']].max(axis=1)
     
-    # Calcul des Écarts pour le Momentum
     df_sarr['Ecart_1'] = df_sarr['SARR_M'] - df_sarr['SARR_M1']
     df_sarr['Ecart_2'] = df_sarr['SARR_M1'] - df_sarr['SARR_M2']
     df_sarr['Ecart_3'] = df_sarr['SARR_M2'] - df_sarr['SARR_M3']
     
-    # Momentum = Moyenne des 3 écarts
     df_sarr['Momentum'] = df_sarr[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1)
 
-    # On ne garde que la dernière ligne connue (le mois de cutoff) pour faire les projections futures
     df_base_momentum = df_sarr.groupby(['agence', 'article'], observed=True).tail(1).copy()
-    
-    # On nettoie les NaN (si l'article n'a pas 4 mois d'historique, le momentum est 0)
     df_base_momentum['Momentum'] = df_base_momentum['Momentum'].fillna(0.0)
     df_base_momentum['Base'] = df_base_momentum['Base'].fillna(df_base_momentum['SARR_HL'])
 
-    # On prépare la table de base pour la projection
     df_base = df_base_momentum[['agence', 'article', 'contenance_cl', 'Base', 'Momentum']].copy()
 
-    # Ajout du YTD pour l'affichage
     df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
     df_base = df_base.merge(df_ytd, on=['agence', 'article'], how='left').fillna({'YTD_HL': 0.0})
 
-    # 4. PROJECTION FUTURE (CROSS JOIN)
+    # 3. PROJECTION FUTURE
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     n_base = len(df_base)
@@ -432,35 +418,26 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_cloture, mo
     df_cross['annee'] = idx.get_level_values('annee').to_numpy()
     df_cross['mois'] = idx.get_level_values('mois').to_numpy()
 
-    # Ajout des indices pour les mois futurs
     df_cross = df_cross.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
     
-    # Ajout du réalisé
     df_realise_grouped = (df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'}))
     df_cross = df_cross.merge(df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
 
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     
-    # 5. FORMULE EXCEL : (Indice * Base) + Momentum
+    # FORMULE EXCEL STRICTE
     df_cross['Prevision_HL'] = (df_cross['Indice'] * df_cross['Base']) + df_cross['Momentum']
-    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL']) # On évite les volumes négatifs
+    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
     
-    # Conversion en Cols (Bouteilles/Cannettes)
     contenance_safe = df_cross['contenance_cl'].replace(0, 100).fillna(100.0)
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000.0 / contenance_safe)
     df_cross['Prevision_Cols'] = df_cross['Prevision_HL'] * (10000.0 / contenance_safe)
     
-    # Nettoyage des -0.00
-    df_cross['Volume_HL'] = np.where(df_cross['Volume_HL'].abs() < 0.05, 0.0, df_cross['Volume_HL'])
-    df_cross['Volume_Cols'] = np.where(df_cross['Volume_Cols'].abs() < 0.05, 0.0, df_cross['Volume_Cols'])
-    
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
-    
-    # Pour éviter de casser l'UI existante qui cherche la colonne CAGR
     df_cross['CAGR (%)'] = 0.0
 
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
@@ -474,12 +451,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_cloture, mo
 @st.cache_data(show_spinner=False)
 def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     p = df_idx.pivot_table(index=['agence', 'article'], columns='mois', values='Indice', aggfunc='first').fillna(1.0)
-    p.columns = [MOIS_NOMS[c - 1] for c in p.columns]
-    return p
-
-@st.cache_data(show_spinner=False)
-def _pivot_mensuel_cached(df: pd.DataFrame, col_val: str) -> pd.DataFrame:
-    p = df.pivot_table(index=['annee', 'agence', 'article'], columns='mois', values=col_val, aggfunc='sum').fillna(0)
     p.columns = [MOIS_NOMS[c - 1] for c in p.columns]
     return p
 
@@ -542,16 +513,16 @@ with st.sidebar:
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
 
         st.markdown("#### 2. Paramètres de la cible")
-        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2027, key="param_annee_cible")
+        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")
         
-        unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=1, horizontal=True, key="param_unite")
+        unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=0, horizontal=True, key="param_unite")
         
         st.markdown("##### 🎯 Définition de l'Objectif")
         taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)", key="param_taux")
         
         use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
         if use_objectif_manuel:
-            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=5390516.0, key="param_objectif_manuel")
+            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4434580.0, key="param_objectif_manuel")
         
         with st.expander("⚙️ Paramètres avancés (IS, Cutoff)"):
             p1, p2 = st.columns(2)
@@ -827,25 +798,35 @@ if fichier_ventes is not None:
             col_search, col_export = st.columns([3, 1])
             
             with col_search:
-                search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
+                search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article...", label_visibility="collapsed", key="search_previsions")
                 
             with col_export:
-                pivot_mensuel = _pivot_mensuel_cached(df_previsions_filtre, col_prev_aff).copy()
-                if len(mois_cibles_selection) > 1: pivot_mensuel['Total Période'] = pivot_mensuel.sum(axis=1)
-                elif len(mois_cibles_selection) == 0: pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
-                pivot_mensuel = pivot_mensuel[pivot_mensuel.sum(axis=1) > 0]
+                # Création du tableau croisé dynamique EXACTEMENT comme Excel
+                df_prev_seg = df_previsions_filtre.merge(df_perimetre[['article', 'segment']].drop_duplicates(), on='article', how='left')
                 
-                pivot_mensuel_export = pivot_mensuel.copy()
-                pivot_mensuel_export.columns = [
-                    unicodedata.normalize('NFKD', str(c)).encode('ascii', 'ignore').decode('utf-8')
-                    for c in pivot_mensuel_export.columns
-                ]
+                pivot_mensuel = df_prev_seg.pivot_table(
+                    index=['article', 'segment'], 
+                    columns='mois', 
+                    values=col_prev_aff, 
+                    aggfunc='sum'
+                ).fillna(0)
+                
+                pivot_mensuel.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_mensuel.columns]
+                pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
+                pivot_mensuel = pivot_mensuel[pivot_mensuel['Total Année'] > 0]
+                
+                # Préparation pour l'export CSV
+                pivot_mensuel_export = pivot_mensuel.reset_index()
+                pivot_mensuel_export = pivot_mensuel_export.rename(columns={'article': 'Articles', 'segment': 'Segments'})
+                
+                # Nettoyage accents pour l'export
                 for col in pivot_mensuel_export.columns:
                     if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
                         pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(
                             lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else ""
                         )
-                csv = pivot_mensuel_export.to_csv(sep=';').encode('utf-8-sig')
+                
+                csv = pivot_mensuel_export.to_csv(sep=';', index=False).encode('utf-8-sig')
 
                 st.download_button(
                     label="Exporter en CSV",
@@ -856,16 +837,9 @@ if fichier_ventes is not None:
                     key="btn_export_csv"
                 )
 
-            with st.expander("📊 Afficher le tableau des prévisions détaillées", expanded=True):
+            with st.expander("📊 Afficher le tableau des prévisions détaillées (Format Excel)", expanded=True):
                 pivot_mensuel_reset = pivot_mensuel.reset_index()
-                pivot_mensuel_reset.columns = [
-                    "Année" if str(c).lower() == "annee" else 
-                    "Agence" if str(c).lower() == "agence" else 
-                    "Article" if str(c).lower() == "article" else 
-                    "Total Période" if "période" in str(c).lower() else
-                    "Total Année" if "année" in str(c).lower() else str(c)
-                    for c in pivot_mensuel_reset.columns
-                ]
+                pivot_mensuel_reset = pivot_mensuel_reset.rename(columns={'article': 'Articles', 'segment': 'Segments'})
 
                 if search_query:
                     mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
@@ -874,25 +848,22 @@ if fichier_ventes is not None:
                     pivot_mensuel_display = pivot_mensuel_reset
 
                 col_config = {
-                    "Année": st.column_config.NumberColumn("Année", format="%d"),
-                    "Agence": st.column_config.TextColumn("Agence"),
-                    "Article": st.column_config.TextColumn("Article"),
+                    "Articles": st.column_config.TextColumn("Articles", width="medium"),
+                    "Segments": st.column_config.TextColumn("Segments", width="small"),
                 }
                 for mois in MOIS_NOMS:
                     if mois in pivot_mensuel_display.columns:
-                        col_config[mois] = st.column_config.NumberColumn(mois, format="localized")
+                        col_config[mois] = st.column_config.NumberColumn(mois, format="%.2f")
                 
-                if "Total Période" in pivot_mensuel_display.columns:
-                     col_config["Total Période"] = st.column_config.NumberColumn("Total Période", format="localized")
                 if "Total Année" in pivot_mensuel_display.columns:
-                     col_config["Total Année"] = st.column_config.NumberColumn("Total Année", format="localized")
+                     col_config["Total Année"] = st.column_config.NumberColumn("Total général", format="%.2f")
 
                 st.dataframe(
                     pivot_mensuel_display,
                     use_container_width=True,
                     hide_index=True,
                     column_config=col_config,
-                    height=500
+                    height=600
                 )
 
             with st.expander("🔍 Voir le détail des calculs (Base & Momentum)"):

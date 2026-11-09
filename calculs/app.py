@@ -208,34 +208,49 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (BASE LISSÉE POUR 2026)
+# LOGIQUE DE CALCUL
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
-    if df_h.empty: return pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
-    complet = (df_h.groupby(['agence', 'article', 'annee'], observed=True)['mois'].nunique().reset_index().query('mois == 12')[['agence', 'article', 'annee']])
-    df_h = df_h.merge(complet, on=['agence', 'article', 'annee'], how='inner')
+    
+    if df_h.empty:
+        max_annee = df_realise['annee'].max()
+        df_h = df_realise[df_realise['annee'] == max_annee].copy()
+        
     if df_h.empty: return pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
 
     def _idx(group_cols):
         v = (df_h.groupby(group_cols + ['annee', 'mois'], observed=True)['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0))
         cum_m = v.groupby(group_cols).sum()
         cum_a = v.sum(axis=1).groupby(group_cols).sum()
-        return (cum_m.div(cum_a / 12.0, axis=0).replace([np.inf, -np.inf], np.nan).fillna(1.0).reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice'))
+        moy_mensuelle = cum_a / 12.0
+        
+        indices = cum_m.div(moy_mensuelle, axis=0)
+        indices = indices.replace([np.inf, -np.inf], np.nan)
+        return indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
 
     idx1 = _idx(['agence', 'article'])
     idx2 = _idx(['article']).rename(columns={'Indice': 'Indice_art'})
+    idx3 = _idx(['marque']).rename(columns={'Indice': 'Indice_marque'})
+    idx4 = _idx(['segment']).rename(columns={'Indice': 'Indice_seg'})
     tot = df_h.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
     glob = (tot / (tot.sum() / 12.0)).reset_index()
     glob.columns = ['mois', 'Indice_glob']
 
-    result = (df_h[['agence', 'article', 'mois']].drop_duplicates().merge(idx1, on=['agence', 'article', 'mois'], how='left').merge(idx2, on=['article', 'mois'], how='left').merge(glob, on='mois', how='left'))
-    result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_glob']).fillna(1.0)
+    df_base = df_h[['agence', 'article', 'marque', 'segment', 'mois']].drop_duplicates()
+
+    result = (df_base.merge(idx1, on=['agence', 'article', 'mois'], how='left')
+                      .merge(idx2, on=['article', 'mois'], how='left')
+                      .merge(idx3, on=['marque', 'mois'], how='left')
+                      .merge(idx4, on=['segment', 'mois'], how='left')
+                      .merge(glob, on='mois', how='left'))
+
+    result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_marque']).fillna(result['Indice_seg']).fillna(result['Indice_glob']).fillna(1.0)
     result['mois'] = result['mois'].astype(int)
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v84"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, budget_bytes, cache_bust="v91"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -247,7 +262,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre
 
-    # 1. Calcul des indices
     table_indices = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     if table_indices.empty:
         df_ag_art = df_perimetre_filtre[['agence', 'article']].drop_duplicates()
@@ -256,7 +270,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         table_indices = pd.merge(df_ag_art, df_mois, on='key').drop('key', axis=1)
         table_indices['Indice'] = 1.0
 
-    # 2. Préparation du calendrier continu pour le SARR et le Momentum (Logique Excel)
     df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index()
     min_annee = df_realise_agg['annee'].min()
     dates = pd.date_range(start=f'{min_annee}-01-01', end=f'{annee_cloture}-{mois_cutoff:02d}-01', freq='MS')
@@ -293,7 +306,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
 
-    # 3. Calcul du Run-Rate (Base_Mensuelle) et du CAGR
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
     df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
@@ -384,7 +396,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
     df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left').fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
 
-    # 4. PROJECTION
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     n_base = len(df_base)
@@ -401,19 +412,44 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # 2026 : Base Lissée (Moyenne entre le MAX Excel et le Run-Rate pour éviter la sur-réaction)
-    df_cross['Base_Blended'] = (df_cross['Base_EXCEL'] + df_cross['Base_Mensuelle']) / 2
-    prev_2026 = (df_cross['Indice'] * df_cross['Base_Blended']) + df_cross['Momentum']
-    
-    # 2027+ : Formule CAGR
+    if methode_base == "Excel Strict (MAX)":
+        df_cross['Base_Utilisee'] = df_cross['Base_EXCEL']
+    else:
+        df_cross['Base_Utilisee'] = (df_cross['Base_EXCEL'] + df_cross['Base_Mensuelle']) / 2
+        
+    prev_2026 = (df_cross['Indice'] * df_cross['Base_Utilisee']) + df_cross['Momentum']
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
-    df_cross['Prevision_HL'] = np.where(
-        df_cross['annee'] == annee_cloture, 
-        prev_2026, 
-        prev_futur
-    )
+    df_cross['Prevision_HL'] = np.where(df_cross['annee'] == annee_cloture, prev_2026, prev_futur)
+    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
+    # =========================================================================
+    # INTEGRATION DU BUDGET QUERY (ECRASEMENT MANUEL)
+    # =========================================================================
+    if budget_bytes is not None:
+        try:
+            df_budget = pd.read_excel(io.BytesIO(budget_bytes))
+            df_budget.columns = [str(c).strip().lower() for c in df_budget.columns]
+            
+            if 'mois' in df_budget.columns and 'articles' in df_budget.columns and 'attribut' in df_budget.columns and 'valeur' in df_budget.columns:
+                df_budget = df_budget.rename(columns={'articles': 'article', 'attribut': 'agence'})
+                df_budget['article'] = df_budget['article'].astype(str).str.strip()
+                df_budget['agence'] = df_budget['agence'].astype(str).str.strip()
+                df_budget['mois'] = pd.to_numeric(df_budget['mois'], errors='coerce')
+                df_budget['valeur'] = pd.to_numeric(df_budget['valeur'], errors='coerce').fillna(0.0)
+                
+                df_budget = df_budget[['article', 'agence', 'mois', 'valeur']].dropna(subset=['mois'])
+                
+                df_cross = df_cross.merge(df_budget, on=['article', 'agence', 'mois'], how='left', suffixes=('', '_budget'))
+                
+                # On écrase la prévision si une valeur budget existe et qu'on est sur un mois futur
+                masque_budget = (df_cross['valeur'].notna()) & (~df_cross['is_realise'])
+                if masque_budget.any():
+                    df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur']
+                
+        except Exception as e:
+            st.warning(f"⚠️ Erreur de lecture du Budget Query : {e}")
+
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
@@ -457,6 +493,7 @@ with st.sidebar:
     with st.expander("📁 Importer vos fichiers", expanded=True):
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
         fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref", help="Si fourni, l'application ne calculera que sur les articles de ce fichier.")
+        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (comme le fait Excel).")
 
     if fichier_ventes is not None:
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
@@ -513,6 +550,14 @@ with st.sidebar:
             help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise la formule Momentum d'Excel.",
             key="param_methode"
         )
+
+        methode_base = st.radio(
+            "Logique de Base (2026)",
+            options=["Base Lissée (Recommandée)", "Excel Strict (MAX)"],
+            index=0,
+            help="Choisissez entre la formule Excel brute (risque d'explosion) ou une version lissée (plus stable).",
+            key="param_base"
+        )
         
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
             p1, p2 = st.columns(2)
@@ -554,7 +599,7 @@ if fichier_ventes is not None:
     if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
     table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(
-        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance
+        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, methode_base, fichier_budget.getvalue() if fichier_budget is not None else None
     )
 
     if table_indices is None:
@@ -564,11 +609,9 @@ if fichier_ventes is not None:
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
     col_prev_pure = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
 
-    # On calcule l'atterrissage sur l'année COMPLÈTE
     df_cible_annuel = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible_annuel[col_prev_aff].sum()
 
-    # Pour le tableau uniquement, on applique le filtre des mois (ex: Oct, Nov, Dec)
     if not mois_cibles_selection:
         df_previsions_filtre = df_previsions
         label_mois_str = "Tous les mois"
@@ -577,7 +620,6 @@ if fichier_ventes is not None:
         df_previsions_filtre = df_previsions[df_previsions['mois'].isin(mois_cibles_nums)].copy()
         label_mois_str = ", ".join(mois_cibles_selection)
 
-    # CALCUL DE L'OBJECTIF RAISONNÉ
     df_n1 = df_perimetre[df_perimetre['annee'] == (annee_cible - 1)].copy()
     if not df_n1.empty:
         contenance_safe_n1 = df_n1['contenance_cl'].replace(0, 100).fillna(100.0)
@@ -593,9 +635,6 @@ if fichier_ventes is not None:
     objectif_final = objectif_manuel if use_objectif_manuel else objectif_calcule
     gap = objectif_final - atterrissage_cible
     
-    # =========================================================================
-    # CALCUL DES METRIQUES DE FIABILITE (WMAPE)
-    # =========================================================================
     df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
     df_eval_agg = df_eval.groupby(['annee', 'mois'], observed=True)[[col_prev_aff, col_prev_pure]].sum().reset_index()
 
@@ -608,7 +647,6 @@ if fichier_ventes is not None:
     else:
         mae, wmape, smape = 0.0, 0.0, 0.0
 
-    # KPI LIGNE 1
     k1, k2, k3 = st.columns(3)
     with k1:
         st.markdown(f"""
@@ -639,7 +677,6 @@ if fichier_ventes is not None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # GRAPHIQUE PRINCIPAL
     st.markdown(f"""
     <div class="white-card">
         <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
@@ -655,7 +692,7 @@ if fichier_ventes is not None:
     df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
     df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-    df_prev_cible = df_cible_annuel.copy() # On utilise l'année complète pour le graphique
+    df_prev_cible = df_cible_annuel.copy()
     df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
     df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
     df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
@@ -672,7 +709,6 @@ if fichier_ventes is not None:
 
     st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Formule Excel stricte (Base & Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
 
-    # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
     tab_names = ["Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions"]
@@ -747,8 +783,14 @@ if fichier_ventes is not None:
                 df_prev_seg = df_previsions_filtre.merge(df_perimetre[['article', 'segment']].drop_duplicates(), on='article', how='left')
                 pivot_mensuel = df_prev_seg.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
                 pivot_mensuel.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_mensuel.columns]
-                pivot_mensuel['Total Année'] = pivot_mensuel.sum(axis=1)
-                pivot_mensuel = pivot_mensuel[pivot_mensuel['Total Année'] > 0]
+                
+                if not mois_cibles_selection or len(mois_cibles_selection) == 12:
+                    nom_total = "Total Année"
+                else:
+                    nom_total = "Total Période"
+                    
+                pivot_mensuel[nom_total] = pivot_mensuel.sum(axis=1)
+                pivot_mensuel = pivot_mensuel[pivot_mensuel[nom_total] > 0]
                 
                 pivot_mensuel_export = pivot_mensuel.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
                 for col in pivot_mensuel_export.columns:
@@ -769,7 +811,9 @@ if fichier_ventes is not None:
                 col_config = {"Articles": st.column_config.TextColumn("Articles", width="medium"), "Segments": st.column_config.TextColumn("Segments", width="small")}
                 for mois in MOIS_NOMS:
                     if mois in pivot_mensuel_display.columns: col_config[mois] = st.column_config.NumberColumn(mois, format="%.2f")
-                if "Total Année" in pivot_mensuel_display.columns: col_config["Total Année"] = st.column_config.NumberColumn("Total général", format="%.2f")
+                
+                if nom_total in pivot_mensuel_display.columns:
+                    col_config[nom_total] = st.column_config.NumberColumn(nom_total, format="%.2f")
 
                 st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 

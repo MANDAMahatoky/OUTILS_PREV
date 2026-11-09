@@ -208,7 +208,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (FORMULE EXCEL STRICTE POUR 2026)
+# LOGIQUE DE CALCUL (BASE LISSÉE POUR 2026)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -235,7 +235,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v83"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v84"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -276,18 +276,16 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
     g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
 
-    # Les shifts gardent les NaN
     df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1)
     df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
     df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
 
-    # La moyenne ignore les NaN (comme AVERAGE d'Excel)
     df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1)
     
-    # Base = MAX(SARR_M, Moyenne 3 mois) - max() ignore les NaN
-    df_sarr_cont['Base_EXCEL'] = df_sarr_cont[['SARR_HL', 'SARR_MA3']].max(axis=1).fillna(0.0)
+    df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL'].fillna(0.0)
+    mask_ma3 = df_sarr_cont['SARR_MA3'].notna()
+    df_sarr_cont.loc[mask_ma3, 'Base_EXCEL'] = np.maximum(df_sarr_cont.loc[mask_ma3, 'SARR_HL'].fillna(0.0), df_sarr_cont.loc[mask_ma3, 'SARR_MA3'])
 
-    # Pour le Momentum, on utilise fillna(0) sur les écarts pour imiter Excel
     df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'].fillna(0.0) - df_sarr_cont['SARR_M1'].fillna(0.0)
     df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'].fillna(0.0) - df_sarr_cont['SARR_M2'].fillna(0.0)
     df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'].fillna(0.0) - df_sarr_cont['SARR_M3'].fillna(0.0)
@@ -403,8 +401,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # 2026 : Formule Excel stricte (Base * Indice + Momentum)
-    prev_2026 = (df_cross['Indice'] * df_cross['Base_EXCEL']) + df_cross['Momentum']
+    # 2026 : Base Lissée (Moyenne entre le MAX Excel et le Run-Rate pour éviter la sur-réaction)
+    df_cross['Base_Blended'] = (df_cross['Base_EXCEL'] + df_cross['Base_Mensuelle']) / 2
+    prev_2026 = (df_cross['Indice'] * df_cross['Base_Blended']) + df_cross['Momentum']
+    
     # 2027+ : Formule CAGR
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
@@ -504,7 +504,7 @@ with st.sidebar:
         
         use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
         if use_objectif_manuel:
-            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4434580.0, key="param_objectif_manuel")
+            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4400743.0, key="param_objectif_manuel")
         
         methode_croissance = st.selectbox(
             "Méthode de croissance (pour années futures)", 

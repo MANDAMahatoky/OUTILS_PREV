@@ -78,7 +78,6 @@ def extraire_marque(article):
     if "eau vive" in a_low: return "Eau Vive"
     return a.split()[0]
 
-# Mise à jour du référentiel par défaut avec votre Classeur2
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
     {"Article": "Caprice Ananas 100 cl VER", "Contenance (Cl)": 100, "Positionnement": "Milieu"}, {"Article": "Caprice Ananas 150 cl PET", "Contenance (Cl)": 150, "Positionnement": "Milieu"},
@@ -179,14 +178,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df["annee"] = df["annee"].fillna(2026).astype(int)
     df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
 
-    # =========================================================================
-    # MODIFICATION ICI : Jointure stricte (inner) si un référentiel est fourni
-    # =========================================================================
     if ref_bytes is not None:
-        # On ne garde QUE les articles qui existent dans le Classeur2.xlsx
         df_enrichi = pd.merge(df_ref, df, on="cle_article", how="inner")
     else:
-        # Sinon, on garde tout (comportement par défaut)
         df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer")
         
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
@@ -214,7 +208,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl"]]
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (RUN-RATE POUR 2026, CAGR POUR 2027+)
+# LOGIQUE DE CALCUL (FORMULE EXCEL STRICTE POUR 2026)
 # ==============================================================================
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
@@ -241,7 +235,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v79"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v80"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -262,7 +256,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         table_indices = pd.merge(df_ag_art, df_mois, on='key').drop('key', axis=1)
         table_indices['Indice'] = 1.0
 
-    # 2. Préparation du calendrier continu pour le SARR et le Momentum (Pour affichage détaillé)
+    # 2. Préparation du calendrier continu pour le SARR et le Momentum (Logique Excel)
     df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index()
     min_annee = df_realise_agg['annee'].min()
     dates = pd.date_range(start=f'{min_annee}-01-01', end=f'{annee_cloture}-{mois_cutoff:02d}-01', freq='MS')
@@ -274,23 +268,30 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_skeleton = pd.merge(ag_art, df_dates, how='cross')
 
     df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left')
+    df_sarr_cont['hl'] = df_sarr_cont['hl'].fillna(0.0) # Fillna 0 pour les mois sans vente
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     
+    # Sécurité anti division par zéro (Empêche l'explosion)
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0).clip(lower=0.1) 
     df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
     g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
 
+    # IMPORTANT : Les shifts gardent les NaN (comme les cellules vides Excel), PAS de fillna(0)
     df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1)
     df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
     df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
 
+    # La moyenne ignore les NaN, exactement comme AVERAGE() d'Excel
     df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1)
+    
+    # Base = MAX(SARR_M, Moyenne 3 mois)
     df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL'].fillna(0.0)
     mask_ma3 = df_sarr_cont['SARR_MA3'].notna()
     df_sarr_cont.loc[mask_ma3, 'Base_EXCEL'] = np.maximum(df_sarr_cont.loc[mask_ma3, 'SARR_HL'].fillna(0.0), df_sarr_cont.loc[mask_ma3, 'SARR_MA3'])
 
+    # Momentum
     df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'] - df_sarr_cont['SARR_M1']
     df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'] - df_sarr_cont['SARR_M2']
     df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'] - df_sarr_cont['SARR_M3']
@@ -408,7 +409,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
+    # FORMULE EXCEL STRICTE POUR 2026
+    prev_2026 = (df_cross['Indice'] * df_cross['Base_EXCEL']) + df_cross['Momentum']
+    # FORMULE CAGR POUR 2027+
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
     df_cross['Prevision_HL'] = np.where(
@@ -507,13 +510,13 @@ with st.sidebar:
         
         use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
         if use_objectif_manuel:
-            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4405972.0, key="param_objectif_manuel")
+            objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4434580.0, key="param_objectif_manuel")
         
         methode_croissance = st.selectbox(
             "Méthode de croissance (pour années futures)", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
             index=1,
-            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Run-Rate (Momentum).",
+            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise la formule Momentum d'Excel.",
             key="param_methode"
         )
         
@@ -540,7 +543,7 @@ st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision hybride (Run-Rate pour l'année en cours, CAGR pour le futur).</p>
+    <p>Moteur de prévision hybride (Formule Excel pour l'année en cours, CAGR pour le futur).</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -567,7 +570,7 @@ if fichier_ventes is not None:
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
     col_prev_pure = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
 
-    # On calcule l'atterrissage sur l'année COMPLÈTE, indépendamment du filtre mensuel
+    # On calcule l'atterrissage sur l'année COMPLÈTE
     df_cible_annuel = df_previsions[df_previsions['annee'] == annee_cible]
     atterrissage_cible = df_cible_annuel[col_prev_aff].sum()
 
@@ -673,7 +676,7 @@ if fichier_ventes is not None:
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
+    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Formule Excel stricte (Base & Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
 
     # ONGLETS
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
@@ -777,7 +780,7 @@ if fichier_ventes is not None:
                 st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
             with st.expander("🔍 Voir le détail des calculs (Hybride)"):
-                st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR.")
+                st.markdown("**Note :** L'année de clôture utilise la formule Excel `(Indice * Base) + Momentum`. Les années suivantes utilisent `Base Mensuelle * Indice * CAGR`.")
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
                 df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
                 st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})

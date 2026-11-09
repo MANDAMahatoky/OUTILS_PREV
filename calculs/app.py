@@ -235,7 +235,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v82"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, cache_bust="v83"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -268,38 +268,32 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_skeleton = pd.merge(ag_art, df_dates, how='cross')
 
     df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left')
-    df_sarr_cont['hl'] = df_sarr_cont['hl'].fillna(0.0) # Fillna 0 pour les mois sans vente
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     
-    # Sécurité anti division par zéro (Empêche l'explosion)
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0).clip(lower=0.1) 
     df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
     g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
 
-    # IMPORTANT : Les shifts gardent les NaN (comme les cellules vides Excel), PAS de fillna(0)
+    # Les shifts gardent les NaN
     df_sarr_cont['SARR_M1'] = g['SARR_HL'].shift(1)
     df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
     df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
 
-    # La moyenne ignore les NaN, exactement comme AVERAGE() d'Excel
+    # La moyenne ignore les NaN (comme AVERAGE d'Excel)
     df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1)
     
-    # Base = MAX(SARR_M, Moyenne 3 mois)
-    df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL'].fillna(0.0)
-    mask_ma3 = df_sarr_cont['SARR_MA3'].notna()
-    df_sarr_cont.loc[mask_ma3, 'Base_EXCEL'] = np.maximum(df_sarr_cont.loc[mask_ma3, 'SARR_HL'].fillna(0.0), df_sarr_cont.loc[mask_ma3, 'SARR_MA3'])
+    # Base = MAX(SARR_M, Moyenne 3 mois) - max() ignore les NaN
+    df_sarr_cont['Base_EXCEL'] = df_sarr_cont[['SARR_HL', 'SARR_MA3']].max(axis=1).fillna(0.0)
 
-    # Momentum
-    df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'] - df_sarr_cont['SARR_M1']
-    df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'] - df_sarr_cont['SARR_M2']
-    df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'] - df_sarr_cont['SARR_M3']
-    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1)
+    # Pour le Momentum, on utilise fillna(0) sur les écarts pour imiter Excel
+    df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'].fillna(0.0) - df_sarr_cont['SARR_M1'].fillna(0.0)
+    df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'].fillna(0.0) - df_sarr_cont['SARR_M2'].fillna(0.0)
+    df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'].fillna(0.0) - df_sarr_cont['SARR_M3'].fillna(0.0)
+    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1).fillna(0.0)
 
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
-    df_base_momentum['Base_EXCEL'] = df_base_momentum['Base_EXCEL'].fillna(0.0)
-    df_base_momentum['Momentum'] = df_base_momentum['Momentum'].fillna(0.0)
 
     # 3. Calcul du Run-Rate (Base_Mensuelle) et du CAGR
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])

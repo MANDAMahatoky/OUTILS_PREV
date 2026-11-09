@@ -305,9 +305,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     # =========================================================================
-    # CONVERSION : Le fichier source est en COLS (ou valeurs brutes)
+    # CORRECTION CRUCIALE : Le fichier source est DÉJÀ en Hectolitres (HL)
     # =========================================================================
-    df_enrichi["hl"] = df_enrichi["volume_brut"] * (df_enrichi["contenance_cl"] / 10000.0)
+    df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
     
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)

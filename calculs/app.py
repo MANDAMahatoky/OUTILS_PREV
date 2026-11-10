@@ -137,7 +137,6 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
         numeric_series = pd.to_numeric(series_clean, errors='coerce')
         if numeric_series.notna().all():
             # ✅ CORRECTION : si les valeurs sont déjà des mois 1–12, on les garde tels quels.
-            # Sinon, on suppose qu'il s'agit de dates Excel (numéros de série).
             if numeric_series.between(1, 12).all():
                 return numeric_series.astype(int)
             dates = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
@@ -270,8 +269,8 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v112"):
-    # ✅ CORRECTION : on initialise le statut budget (remonté à l'appelant)
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v113"):
+    # ✅ On initialise le statut budget (remonté à l'appelant)
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -445,7 +444,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
     # =========================================================================
-    # INTEGRATION DU BUDGET QUERY (UNIQUEMENT 33 CAN)
+    # INTEGRATION DU BUDGET QUERY (33 CAN ET CRISTALLINE)
     # =========================================================================
     df_cross['key_article_budget'] = df_cross['article'].apply(clean_text_for_budget_key)
     
@@ -472,13 +471,15 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 if col_art and col_val and col_mois:
                     df_budget = df_budget.dropna(subset=[col_art])
                     
-                    # FILTRE STRICT : 33 CAN UNIQUEMENT
-                    mask_33can = df_budget[col_art].astype(str).str.contains('33', na=False) & df_budget[col_art].astype(str).str.contains('CAN', case=False, na=False)
-                    df_budget = df_budget[mask_33can].copy()
+                    # ✅ CORRECTION : Prise en compte des 33 CAN ET des Cristalline
+                    art_str = df_budget[col_art].astype(str).str.lower()
+                    mask_33can = art_str.str.contains('33', na=False) & art_str.str.contains('can', na=False)
+                    mask_cristalline = art_str.str.contains('cristalline', na=False)
+                    mask_budget_actif = mask_33can | mask_cristalline
                     
-                    if df_budget.empty:
-                        budget_status = "warning"
-                    else:
+                    df_budget = df_budget[mask_budget_actif].copy()
+                    
+                    if not df_budget.empty:
                         df_budget['key_article_budget'] = df_budget[col_art].apply(clean_text_for_budget_key)
                         df_budget['mois'] = pd.to_numeric(df_budget[col_mois], errors='coerce')
                         df_budget['valeur_budget'] = pd.to_numeric(df_budget[col_val], errors='coerce').fillna(0.0)
@@ -490,7 +491,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                             .drop_duplicates(subset=['key_article_budget'])
                         )
                         df_budget = df_budget.merge(df_temp_content, on='key_article_budget', how='left')
-                        df_budget['contenance_cl'] = df_budget['contenance_cl'].fillna(33.0)
+                        df_budget['contenance_cl'] = df_budget['contenance_cl'].fillna(100.0)
+                        
+                        # Conversion Cols -> HL
                         df_budget['valeur_budget'] = df_budget['valeur_budget'] * (df_budget['contenance_cl'] / 10000.0)
                         
                         # ✅ CORRECTION : le budget ne s'applique QU'À l'année cible, sur les mois non réalisés
@@ -536,7 +539,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 else:
                     budget_status = "warning"
         except Exception as e:
-            # ✅ CORRECTION : on ne fait plus st.sidebar.error ici (anti-pattern de cache)
             budget_status = "error"
 
     for c in ['key_article_budget', 'key_agence', 'valeur_budget', 'Forecast_Total_Article_Mois', 'contenance_cl_x', 'contenance_cl_y', 'agence_clean']:
@@ -591,10 +593,10 @@ with st.sidebar:
     with st.expander("📁 Importer vos fichiers", expanded=True):
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
         fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref", help="Si fourni, l'application ne calculera que sur les articles de ce fichier.")
-        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (uniquement pour les 33 CAN).")
+        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (applique aux 33 CAN et aux Cristalline).")
         
         if fichier_budget is not None:
-            budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du 33 CAN s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
+            budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du Budget s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
         else:
             budget_all_agencies = True
 
@@ -683,12 +685,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if fichier_ventes is None:
-    # ✅ CORRECTION UX : accueil pédagogique quand aucun fichier n'est chargé
     st.info(
         "👋 **Bienvenue !** Pour démarrer :\n\n"
         "1. Importez votre fichier de **Ventes** (`DATA_BRUT.xlsx`) dans la barre latérale.\n"
         "2. (Optionnel) Importez un **Référentiel** pour restreindre le périmètre.\n"
-        "3. (Optionnel) Importez un **Budget Query** pour écraser les prévisions sur les 33 CAN.\n"
+        "3. (Optionnel) Importez un **Budget Query** pour écraser les prévisions (s'applique aux 33 CAN et Cristalline).\n"
         "4. Ajustez les filtres et paramètres, puis explorez les onglets."
     )
     st.stop()
@@ -705,14 +706,14 @@ if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_
 
 # ✅ CORRECTION : récupération du budget_status retourné par la fonction
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v112"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v113"
 )
 
 # ✅ CORRECTION : affichage du statut budget dans la sidebar (hors cache)
 if budget_status == "ok":
-    st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
+    st.sidebar.success("✅ Budget Query (33 CAN & Cristalline) appliqué à l'année cible.")
 elif budget_status == "warning":
-    st.sidebar.warning("⚠️ Aucune donnée valide (33 CAN) trouvée dans le fichier Budget.")
+    st.sidebar.warning("⚠️ Aucune donnée valide trouvée dans le fichier Budget.")
 elif budget_status == "error":
     st.sidebar.error("⚠️ Erreur de lecture du Budget Query, ignoré.")
 

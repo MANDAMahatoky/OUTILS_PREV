@@ -643,15 +643,10 @@ with st.sidebar:
         sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes", key="filter_marque")
         df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
 
-        articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
-        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous", key="filter_article")
-        df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
-
         contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
         sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes", key="filter_contenance")
         df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
 
-        # ✅ NOUVEAU FILTRE : Emballage
         emballages_dispo = sorted([str(e) for e in df_temp["emballage"].unique() if pd.notna(e) and str(e) != "AUTRE"])
         sel_emballages = st.multiselect("Emballage", options=emballages_dispo, placeholder="Tous", key="filter_emballage")
         df_temp = df_temp[df_temp["emballage"].isin(sel_emballages)] if sel_emballages else df_temp
@@ -663,6 +658,11 @@ with st.sidebar:
         occasions_dispo = sorted([str(o) for o in df_temp["occasion"].unique() if pd.notna(o) and str(o) != "Non renseigné"])
         sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes", key="filter_occasion")
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
+
+        # ✅ MODIFICATION : Filtre Article déplacé tout en bas
+        articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
+        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous", key="filter_article")
+        df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
 
         st.markdown("#### 2. Paramètres de la cible")
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")

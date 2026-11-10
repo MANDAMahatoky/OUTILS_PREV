@@ -27,7 +27,7 @@ st.markdown("""
     [data-testid="stSidebar"] h2 { color: #E30613 !important; font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; }
     [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stNumberInput label, [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 700 !important; }
     
-    /* HEADER COMPACT (Amélioration Niveau 1) */
+    /* HEADER COMPACT */
     .hero-header {
         background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); color: white; padding: 20px 30px;
         border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 10px -5px rgba(227, 6, 19, 0.3);
@@ -37,7 +37,7 @@ st.markdown("""
     .hero-header p { color: #FECACA; font-size: 0.9rem; margin: 0; margin-top: 4px; font-weight: 500; }
     .badge-demo { background-color: white; color: #E30613; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 800; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     
-    /* CARDS & KPI (Ajustement de la taille) */
+    /* CARDS & KPI */
     .white-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border-top: 4px solid #E30613; margin-bottom: 20px; height: 100%; }
     .kpi-label { color: #6B7280; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
     .kpi-value { color: #E30613; font-size: 2rem; font-weight: 900; line-height: 1.1; }
@@ -87,7 +87,7 @@ def make_bold(df):
         return df.style.set_properties(subset=num_cols, **{'font-weight': 'bold', 'color': '#111827'})
     return df
 
-# Fonctions de formatage conditionnel (Amélioration Niveau 1)
+# Fonctions de formatage conditionnel
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
         val = float(val)
@@ -318,7 +318,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v123"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v124"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -740,7 +740,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v123"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v124"
 )
 
 if budget_status == "ok":
@@ -896,7 +896,8 @@ st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
-tab_names = ["Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions", "Analyse Rupture"]
+# Onglet Périmètre supprimé de la liste
+tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions", "Analyse Rupture"]
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
 active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
@@ -905,23 +906,15 @@ tab_placeholder = st.empty()
 
 with tab_placeholder.container():
     if active_tab == "Données Brutes":
-        st.markdown("### Étape 1 : Données Brutes Enrichies")
+        st.markdown("### Données Brutes Enrichies")
         with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
             if len(df_enrichi) > N_MAX_DISPLAY:
                 st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
                 st.dataframe(make_bold(df_enrichi.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
             else: st.dataframe(make_bold(df_enrichi), use_container_width=True, hide_index=True)
 
-    elif active_tab == "Périmètre":
-        st.markdown("### Étape 2 : Périmètre Filtré")
-        with st.expander("📊 Afficher le tableau du périmètre", expanded=True):
-            if len(df_perimetre) > N_MAX_DISPLAY:
-                st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
-                st.dataframe(make_bold(df_perimetre.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
-            else: st.dataframe(make_bold(df_perimetre), use_container_width=True, hide_index=True)
-
     elif active_tab == "Réalisé Cumulé":
-        st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
+        st.markdown("### Réalisé Cumulé (Jusqu'au Cutoff)")
         with st.expander("📊 Afficher le tableau du réalisé", expanded=True):
             if df_realise is not None and not df_realise.empty:
                 df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
@@ -929,7 +922,7 @@ with tab_placeholder.container():
             else: st.info("Aucune donnée réalisée pour le moment.")
 
     elif active_tab == "Indices & SARR":
-        st.markdown("### Étape 4 : Indices de Saisonnalité & SARR")
+        st.markdown("### Indices de Saisonnalité & SARR")
         c_idx, c_sarr = st.columns(2)
         with c_idx:
             st.markdown("**Indices de Saisonnalité**")
@@ -972,7 +965,7 @@ with tab_placeholder.container():
                 )
 
     elif active_tab == "Prévisions Détaillées":
-        st.markdown("### Résultat Final")
+        st.markdown("### Prévisions Détaillées")
         st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 

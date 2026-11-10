@@ -5,3 +5,4 @@ plotly
 openpyxl
 pillow>=11.0.0
 pyarrow==24.0.0
+scikit-learn

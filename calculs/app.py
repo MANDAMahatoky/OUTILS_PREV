@@ -304,7 +304,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v116"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v117"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -733,7 +733,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v116"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v117"
 )
 
 if budget_status == "ok":
@@ -1103,8 +1103,6 @@ with tab_placeholder.container():
             df_tendance['Moyenne_12M'] = df_tendance['hl'].rolling(window=12, min_periods=1).mean()
             
             # Détection de la rupture : écart significatif entre court terme et long terme
-            # Si la moyenne 3M est inférieure de 20% à la moyenne 12M, c'est une rupture à la baisse.
-            # Si elle est supérieure de 20%, c'est une rupture à la hausse.
             seuil = 0.20
             df_tendance['Ecart_Pct'] = (df_tendance['Moyenne_3M'] - df_tendance['Moyenne_12M']) / df_tendance['Moyenne_12M']
             df_tendance['Rupture'] = df_tendance['Ecart_Pct'].abs() > seuil
@@ -1155,13 +1153,12 @@ with tab_placeholder.container():
             
             # Tableau des articles impactés
             st.markdown("#### Articles impactés par une rupture")
-            st.markdown("Voici les articles qui ont un écart significatif entre leur moyenne récente et leur moyenne historique :")
+            st.markdown("Voici les articles qui ont un écart significatif entre leur moyenne récente et leur moyenne historique, avec des propositions d'initiatives concrètes :")
             
             df_art_rupture = df_realise.groupby(['annee', 'mois', 'article'])['hl'].sum().reset_index()
             df_art_rupture['Date'] = pd.to_datetime(df_art_rupture['annee'].astype(str) + '-' + df_art_rupture['mois'].astype(str) + '-01')
             df_art_rupture = df_art_rupture.sort_values('Date')
             
-            # On ne garde que les articles qui ont au moins 6 mois de données pour faire le calcul
             g_art = df_art_rupture.groupby('article')
             df_last_3m = g_art.tail(3).groupby('article')['hl'].mean().rename('Moyenne_3M_Actuelle')
             df_last_12m = g_art.tail(12).groupby('article')['hl'].mean().rename('Moyenne_12M_Historique')
@@ -1169,17 +1166,33 @@ with tab_placeholder.container():
             df_impact = pd.concat([df_last_3m, df_last_12m], axis=1).dropna()
             df_impact['Ecart (%)'] = ((df_impact['Moyenne_3M_Actuelle'] - df_impact['Moyenne_12M_Historique']) / df_impact['Moyenne_12M_Historique']) * 100
             
-            # On filtre les articles avec un écart de plus de 20% (en valeur absolue)
+            # ✅ Filtre et ajout des propositions d'initiatives
             df_impact = df_impact[df_impact['Ecart (%)'].abs() > 20].sort_values('Ecart (%)')
             
             if not df_impact.empty:
+                # Ajout de la colonne d'initiatives basée sur l'écart
+                conditions = [
+                    df_impact['Ecart (%)'] < -30,
+                    (df_impact['Ecart (%)'] >= -30) & (df_impact['Ecart (%)'] < 0),
+                    (df_impact['Ecart (%)'] > 0) & (df_impact['Ecart (%)'] <= 30),
+                    df_impact['Ecart (%)'] > 30
+                ]
+                choices = [
+                    "🛑 Chute critique : Vérifier rupture de stock ou fin de vie produit. Forcer une prévision basse via le Budget Query.",
+                    "⚠️ Déclin modéré : Surveiller la cannibalisation (nouveau format ?) et ajuster l'année Min CAGR.",
+                    "📈 Croissance forte : Vérifier les promos ou nouveaux référencements. Augmenter la prévision.",
+                    "🚀 Explosion : Risque de rupture de stock. Ajuster la production et forcer une prévision haute via le Budget Query."
+                ]
+                df_impact['Proposition_Initiatives'] = np.select(conditions, choices, default="✅ Stable")
+                
                 st.dataframe(
-                    make_bold(df_impact.reset_index().rename(columns={'article': 'Article'})),
+                    make_bold(df_impact.reset_index().rename(columns={'article': 'Article', 'Proposition_Initiatives': '💡 Proposition d\'Initiative'})),
                     use_container_width=True, hide_index=True,
                     column_config={
                         'Moyenne_3M_Actuelle': st.column_config.NumberColumn("Moyenne 3M Actuelle", format="%.0f"),
                         'Moyenne_12M_Historique': st.column_config.NumberColumn("Moyenne 12M Historique", format="%.0f"),
-                        'Ecart (%)': st.column_config.NumberColumn("Écart (%)", format="%.1f %%")
+                        'Ecart (%)': st.column_config.NumberColumn("Écart (%)", format="%.1f %%"),
+                        '💡 Proposition d\'Initiative': st.column_config.TextColumn(width="large")
                     }
                 )
             else:

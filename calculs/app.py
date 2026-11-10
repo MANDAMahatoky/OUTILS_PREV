@@ -41,7 +41,7 @@ st.markdown("""
     /* CARDS & KPI */
     .white-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border-top: 4px solid #E30613; margin-bottom: 20px; height: 100%; }
     .kpi-label { color: #6B7280; font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .kpi-value { color: #E30613; font-size: 2.6rem; font-weight: 900; line-height: 1.1; } /* Déjà en gras */
+    .kpi-value { color: #E30613; font-size: 2.6rem; font-weight: 900; line-height: 1.1; }
     .kpi-value-dark { color: #111827; }
     .kpi-value-green { color: #009640; }
     .kpi-value-red { color: #E30613; }
@@ -57,15 +57,7 @@ st.markdown("""
     div[data-testid="stExpander"] > details > summary { background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 700 !important; color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important; }
     div[data-testid="stExpander"] > details[open] > summary { border-bottom: 1px solid #E5E7EB !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
     
-    /* ✅ MODIFICATION : FORCER LES CHIFFRES EN GRAS DANS LES TABLEAUX */
-    div[data-testid="stDataFrame"] table td {
-        font-weight: 800 !important; /* Force le gras dans les cellules */
-        color: #111827 !important; /* Couleur un peu plus foncée pour le contraste */
-    }
-    div[data-testid="stDataFrame"] table th {
-        font-weight: 900 !important; /* En-têtes encore plus gras */
-        background-color: #F3F4F6 !important;
-    }
+    /* TABLES */
     div[data-testid="stDataFrame"] { border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important; }
     
     /* NAVIGATION TABS */
@@ -83,6 +75,19 @@ st.markdown("""
 # ==============================================================================
 # FONCTIONS UTILITAIRES
 # ==============================================================================
+def make_bold(df):
+    """Force les colonnes numériques à être en gras pour améliorer la visibilité."""
+    if df is None or df.empty: return df
+    # Convertir les catégories en string pour éviter les erreurs de Styler
+    for col in df.columns:
+        if df[col].dtype.name == 'category':
+            df[col] = df[col].astype(str)
+    # Appliquer le style gras uniquement sur les colonnes de nombres
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    if len(num_cols) > 0:
+        return df.style.set_properties(subset=num_cols, **{'font-weight': 'bold', 'color': '#111827'})
+    return df
+
 def get_region(agence):
     if pd.isna(agence): return "Autre"
     a = str(agence).lower().replace("-", "").replace(" ", "").replace("_", "")
@@ -855,23 +860,23 @@ with tab_placeholder.container():
         with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
             if len(df_enrichi) > N_MAX_DISPLAY:
                 st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
-                st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-            else: st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
+                st.dataframe(make_bold(df_enrichi.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
+            else: st.dataframe(make_bold(df_enrichi), use_container_width=True, hide_index=True)
 
     elif active_tab == "Périmètre":
         st.markdown("### Étape 2 : Périmètre Filtré")
         with st.expander("📊 Afficher le tableau du périmètre", expanded=True):
             if len(df_perimetre) > N_MAX_DISPLAY:
                 st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_perimetre):,}.")
-                st.dataframe(df_perimetre.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
-            else: st.dataframe(df_perimetre, use_container_width=True, hide_index=True)
+                st.dataframe(make_bold(df_perimetre.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
+            else: st.dataframe(make_bold(df_perimetre), use_container_width=True, hide_index=True)
 
     elif active_tab == "Réalisé Cumulé":
         st.markdown("### Étape 3 : Réalisé Cumulé (Jusqu'au Cutoff)")
         with st.expander("📊 Afficher le tableau du réalisé", expanded=True):
             if df_realise is not None and not df_realise.empty:
                 df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
-                st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+                st.dataframe(make_bold(df_real_agg.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
             else: st.info("Aucune donnée réalisée pour le moment.")
 
     elif active_tab == "Indices & SARR":
@@ -882,12 +887,11 @@ with tab_placeholder.container():
             with st.expander("📊 Afficher les indices", expanded=True):
                 if not table_indices.empty:
                     pivot_indices = _pivot_indices_cached(table_indices)
-                    st.dataframe(pivot_indices, use_container_width=True)
+                    st.dataframe(make_bold(pivot_indices), use_container_width=True)
                 else: st.info("Pas d'historique complet.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
-                # Ajout explicite des colonnes Mois M et M-1 et du Momentum Absolu
                 df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
                 
                 df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
@@ -901,14 +905,14 @@ with tab_placeholder.container():
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
                 
                 st.dataframe(
-                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum", "Momentum_M (%)"]]
+                    make_bold(df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum", "Momentum_M (%)"]]
                     .rename(columns={
                         "SARR_Aff": "Volume M", 
                         "SARR_M1_Aff": "Volume M-1", 
                         "Momentum": "Momentum (Vol Absolu)", 
                         "Momentum_M (%)": "Momentum M vs M-1 (%)"
                     })
-                    .sort_values(["agence", "article", "Mois M"]),
+                    .sort_values(["agence", "article", "Mois M"])),
                     use_container_width=True, hide_index=True,
                     column_config={
                         "Volume M": st.column_config.NumberColumn(format="%.0f"), 
@@ -964,13 +968,13 @@ with tab_placeholder.container():
             if nom_total in pivot_mensuel_display.columns:
                 col_config[nom_total] = st.column_config.NumberColumn(nom_total, format="%.2f")
 
-            st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
+            st.dataframe(make_bold(pivot_mensuel_display), use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
         with st.expander("🔍 Voir le détail des calculs (Hybride)"):
             st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR.")
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
-            st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
+            st.dataframe(make_bold(df_detail.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
 
     elif active_tab == "Analyse Pareto (ABC)":
         st.markdown("### Analyse Pareto & Classification ABC")
@@ -1007,7 +1011,7 @@ with tab_placeholder.container():
             with st.expander("📋 Voir le détail par article", expanded=True):
                 df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
                 df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
-                st.dataframe(df_table, use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe': st.column_config.TextColumn(width="small")}, height=400)
+                st.dataframe(make_bold(df_table), use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe': st.column_config.TextColumn(width="small")}, height=400)
         else:
             st.info("Pas assez de données pour l'analyse.")
 
@@ -1037,6 +1041,6 @@ with tab_placeholder.container():
                 df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
                 df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
                 df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
-                st.dataframe(df_error_monthly, use_container_width=True, hide_index=True, column_config={f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"), f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"), 'Écart': st.column_config.NumberColumn(format="localized"), 'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")})
+                st.dataframe(make_bold(df_error_monthly), use_container_width=True, hide_index=True, column_config={f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"), f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"), 'Écart': st.column_config.NumberColumn(format="localized"), 'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")})
             else:
                 st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")

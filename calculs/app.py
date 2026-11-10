@@ -256,7 +256,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v102"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, budget_in_cols=False, cache_bust="v103"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -460,9 +460,15 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     df_budget['valeur_budget'] = pd.to_numeric(df_budget[col_val], errors='coerce').fillna(0.0)
                     df_budget = df_budget.dropna(subset=['mois'])
                     
+                    if budget_in_cols:
+                        # On fusionne avec la contenance pour convertir en HL
+                        df_budget = df_budget.merge(df_perim_unique[['article', 'contenance_cl']], left_on='key_article', right_on='article', how='left')
+                        contenance_safe_budget = df_budget['contenance_cl'].replace(0, 100).fillna(100.0)
+                        df_budget['valeur_budget'] = df_budget['valeur_budget'] * (contenance_safe_budget / 10000.0)
+                    
                     if budget_all_agencies or not col_ag:
                         df_budget_agg = df_budget.groupby(['key_article', 'mois'])['valeur_budget'].sum().reset_index()
-                        df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'mois'], how='left', suffixes=('', '_budget'))
+                        df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'mois'], how='left')
                         
                         df_cross['Forecast_Total_Article_Mois'] = df_cross.groupby(['key_article', 'mois'])['Prevision_HL'].transform('sum')
                         factor = np.where(df_cross['Forecast_Total_Article_Mois'] > 0, 
@@ -477,21 +483,17 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         df_budget['key_agence'] = df_budget['agence_clean'].apply(clean_text_for_key)
                         
                         df_budget_agg = df_budget.groupby(['key_article', 'key_agence', 'mois'])['valeur_budget'].sum().reset_index()
-                        df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'key_agence', 'mois'], how='left', suffixes=('', '_budget'))
+                        df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'key_agence', 'mois'], how='left')
                         
                         masque_budget = (df_cross['valeur_budget'].notna()) & (~df_cross['is_realise'])
                         df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur_budget']
                         
-                    st.sidebar.success(f"✅ Budget Query appliqué sur {masque_budget.sum()} lignes.")
-                else:
-                    st.sidebar.error("⚠️ Colonnes Mois/Article/Valeur introuvables dans le Budget Query.")
-            else:
-                st.sidebar.error("⚠️ L'onglet Budget Query n'a pas été trouvé dans le fichier.")
+                    st.sidebar.success(f"✅ Budget Query appliqué.")
         except Exception as e:
             st.sidebar.error(f"⚠️ Erreur de lecture du Budget Query : {e}")
 
     # Nettoyage des colonnes temporaires
-    for c in ['key_article', 'key_agence', 'valeur_budget', 'Forecast_Total_Article_Mois']:
+    for c in ['key_article', 'key_agence', 'valeur_budget', 'Forecast_Total_Article_Mois', 'article_budget', 'contenance_cl_x', 'contenance_cl_y', 'agence_clean']:
         if c in df_cross.columns:
             df_cross = df_cross.drop(columns=[c])
 
@@ -542,8 +544,10 @@ with st.sidebar:
         
         if fichier_budget is not None:
             budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du 33 CAN s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
+            budget_in_cols = st.checkbox("Le budget est en Cols (convertir en HL)", value=False, help="Si votre fichier budget contient des volumes en bouteilles (Cols), cochez cette case pour les convertir en HL.")
         else:
             budget_all_agencies = True
+            budget_in_cols = False
 
     if fichier_ventes is not None:
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
@@ -641,7 +645,7 @@ if fichier_ventes is not None:
     if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
     table_indices, df_sarr, _, df_previsions, df_realise = calculer_etape_5(
-        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies
+        df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, budget_in_cols
     )
 
     if table_indices is None:

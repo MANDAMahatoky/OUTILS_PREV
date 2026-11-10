@@ -250,7 +250,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v98"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v99"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -412,9 +412,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # 2026 : Run-Rate (Base_Mensuelle) * Saisonnalité (c'est le momentum de l'année en cours)
+    # 2026 : Run-Rate (Base_Mensuelle) * Saisonnalité
     prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
-    
     # 2027+ : Run-Rate * Saisonnalité * CAGR
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
@@ -444,13 +443,15 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     df_budget['mois'] = pd.to_numeric(df_budget['mois'], errors='coerce')
                     df_budget['valeur'] = pd.to_numeric(df_budget['valeur'], errors='coerce').fillna(0.0)
                     
-                    df_budget = df_budget[['article', 'agence', 'mois', 'valeur']].dropna(subset=['mois'])
+                    # Reproduction de SOMME.SI.ENS : On somme les valeurs s'il y a des doublons
+                    df_budget_agg = df_budget.groupby(['article', 'agence', 'mois'])['valeur'].sum().reset_index()
                     
                     if budget_all_agencies:
-                        df_budget_agg = df_budget.groupby(['article', 'mois'])['valeur'].sum().reset_index()
+                        # Si on veut appliquer à toutes les agences, on re-somme par article/mois (sans l'agence)
+                        df_budget_agg = df_budget_agg.groupby(['article', 'mois'])['valeur'].sum().reset_index()
                         df_cross = df_cross.merge(df_budget_agg, on=['article', 'mois'], how='left', suffixes=('', '_budget'))
                     else:
-                        df_cross = df_cross.merge(df_budget, on=['article', 'agence', 'mois'], how='left', suffixes=('', '_budget'))
+                        df_cross = df_cross.merge(df_budget_agg, on=['article', 'agence', 'mois'], how='left', suffixes=('', '_budget'))
                     
                     masque_budget = (df_cross['valeur'].notna()) & (~df_cross['is_realise'])
                     if masque_budget.any():

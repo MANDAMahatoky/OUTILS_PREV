@@ -256,7 +256,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v100"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v102"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -427,6 +427,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     # =========================================================================
     # INTEGRATION DU BUDGET QUERY (CORRIGÉE)
     # =========================================================================
+    df_cross['key_article'] = df_cross['article'].apply(clean_text_for_key)
+    df_cross['key_agence'] = df_cross['agence'].apply(clean_text_for_key)
+
     if budget_bytes is not None:
         try:
             xls = pd.ExcelFile(io.BytesIO(budget_bytes))
@@ -458,16 +461,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     df_budget = df_budget.dropna(subset=['mois'])
                     
                     if budget_all_agencies or not col_ag:
-                        # On sum le budget total par article et par mois
                         df_budget_agg = df_budget.groupby(['key_article', 'mois'])['valeur_budget'].sum().reset_index()
-                        
-                        # On merge le budget total
                         df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'mois'], how='left', suffixes=('', '_budget'))
                         
-                        # On calcule la prévision totale par article et mois
                         df_cross['Forecast_Total_Article_Mois'] = df_cross.groupby(['key_article', 'mois'])['Prevision_HL'].transform('sum')
-                        
-                        # On calcule le facteur d'ajustement pour que la somme des prévisions corresponde au budget (sans écraser par agence)
                         factor = np.where(df_cross['Forecast_Total_Article_Mois'] > 0, 
                                           df_cross['valeur_budget'] / df_cross['Forecast_Total_Article_Mois'], 
                                           0)
@@ -476,7 +473,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'Prevision_HL'] * factor[masque_budget]
                         
                     else:
-                        # On nettoie les agences du budget (ex: "01-Tanjombato" -> "tanjombato")
                         df_budget['agence_clean'] = df_budget[col_ag].astype(str).str.replace(r'^\d+-', '', regex=True)
                         df_budget['key_agence'] = df_budget['agence_clean'].apply(clean_text_for_key)
                         
@@ -486,6 +482,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         masque_budget = (df_cross['valeur_budget'].notna()) & (~df_cross['is_realise'])
                         df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur_budget']
                         
+                    st.sidebar.success(f"✅ Budget Query appliqué sur {masque_budget.sum()} lignes.")
                 else:
                     st.sidebar.error("⚠️ Colonnes Mois/Article/Valeur introuvables dans le Budget Query.")
             else:

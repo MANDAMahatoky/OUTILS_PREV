@@ -659,7 +659,6 @@ with st.sidebar:
         sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes", key="filter_occasion")
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
 
-        # ✅ MODIFICATION : Filtre Article déplacé tout en bas
         articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
         sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous", key="filter_article")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
@@ -890,7 +889,7 @@ st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
-tab_names = ["Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions"]
+tab_names = ["Périmètre", "Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions", "Analyse Rupture"]
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
 active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
@@ -1087,3 +1086,103 @@ with tab_placeholder.container():
                 st.dataframe(make_bold(df_error_monthly), use_container_width=True, hide_index=True, column_config={f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"), f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"), 'Écart': st.column_config.NumberColumn(format="localized"), 'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")})
             else:
                 st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")
+
+    elif active_tab == "Analyse Rupture":
+        st.markdown("### Analyse de Rupture de Tendance (Change Point Detection)")
+        st.markdown("Cette section détecte automatiquement les périodes où la tendance de vente a brusquement changé (chute ou explosion), par rapport à la dynamique historique.")
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # On utilise df_realise pour analyser la tendance historique
+        df_tendance = df_realise.groupby(['annee', 'mois'])['hl'].sum().reset_index()
+        df_tendance['Date'] = pd.to_datetime(df_tendance['annee'].astype(str) + '-' + df_tendance['mois'].astype(str) + '-01')
+        df_tendance = df_tendance.sort_values('Date').reset_index(drop=True)
+        
+        if len(df_tendance) > 3:
+            # Calcul des moyennes mobiles
+            df_tendance['Moyenne_3M'] = df_tendance['hl'].rolling(window=3, min_periods=1).mean()
+            df_tendance['Moyenne_12M'] = df_tendance['hl'].rolling(window=12, min_periods=1).mean()
+            
+            # Détection de la rupture : écart significatif entre court terme et long terme
+            # Si la moyenne 3M est inférieure de 20% à la moyenne 12M, c'est une rupture à la baisse.
+            # Si elle est supérieure de 20%, c'est une rupture à la hausse.
+            seuil = 0.20
+            df_tendance['Ecart_Pct'] = (df_tendance['Moyenne_3M'] - df_tendance['Moyenne_12M']) / df_tendance['Moyenne_12M']
+            df_tendance['Rupture'] = df_tendance['Ecart_Pct'].abs() > seuil
+            
+            fig_rupture = go.Figure()
+            
+            # Ligne des ventes réelles
+            fig_rupture.add_trace(go.Scatter(
+                x=df_tendance['Date'], y=df_tendance['hl'], 
+                mode='lines', name='Ventes Mensuelles',
+                line=dict(color='#9CA3AF', width=1.5)
+            ))
+            
+            # Moyenne mobile 3 mois (courte)
+            fig_rupture.add_trace(go.Scatter(
+                x=df_tendance['Date'], y=df_tendance['Moyenne_3M'], 
+                mode='lines', name='Tendance Court Terme (3M)',
+                line=dict(color='#E30613', width=3)
+            ))
+            
+            # Moyenne mobile 12 mois (longue)
+            fig_rupture.add_trace(go.Scatter(
+                x=df_tendance['Date'], y=df_tendance['Moyenne_12M'], 
+                mode='lines', name='Tendance Long Terme (12M)',
+                line=dict(color='#111827', width=2, dash='dash')
+            ))
+            
+            # Points de rupture
+            df_ruptures = df_tendance[df_tendance['Rupture']]
+            if not df_ruptures.empty:
+                fig_rupture.add_trace(go.Scatter(
+                    x=df_ruptures['Date'], y=df_ruptures['Moyenne_3M'],
+                    mode='markers', name='Rupture Détectée',
+                    marker=dict(color='#F59E0B', size=12, symbol='star', line=dict(color='black', width=1)),
+                    hovertemplate="<b>Rupture détectée</b><br>Écart: %{customdata:.1%}<extra></extra>",
+                    customdata=df_ruptures['Ecart_Pct']
+                ))
+            
+            fig_rupture.update_layout(
+                plot_bgcolor='#FFFFFF', paper_bgcolor='#FFFFFF', 
+                margin=dict(l=10, r=10, t=30, b=10),
+                legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+                xaxis=dict(showgrid=True, gridcolor='#F3F4F6', linecolor='#E5E7EB', tickformat="%b-%y", dtick="M3"),
+                yaxis=dict(showgrid=True, gridcolor='#E5E7EB', zeroline=False),
+                height=450, hovermode="x unified"
+            )
+            st.plotly_chart(fig_rupture, use_container_width=True, config={'displayModeBar': False})
+            
+            # Tableau des articles impactés
+            st.markdown("#### Articles impactés par une rupture")
+            st.markdown("Voici les articles qui ont un écart significatif entre leur moyenne récente et leur moyenne historique :")
+            
+            df_art_rupture = df_realise.groupby(['annee', 'mois', 'article'])['hl'].sum().reset_index()
+            df_art_rupture['Date'] = pd.to_datetime(df_art_rupture['annee'].astype(str) + '-' + df_art_rupture['mois'].astype(str) + '-01')
+            df_art_rupture = df_art_rupture.sort_values('Date')
+            
+            # On ne garde que les articles qui ont au moins 6 mois de données pour faire le calcul
+            g_art = df_art_rupture.groupby('article')
+            df_last_3m = g_art.tail(3).groupby('article')['hl'].mean().rename('Moyenne_3M_Actuelle')
+            df_last_12m = g_art.tail(12).groupby('article')['hl'].mean().rename('Moyenne_12M_Historique')
+            
+            df_impact = pd.concat([df_last_3m, df_last_12m], axis=1).dropna()
+            df_impact['Ecart (%)'] = ((df_impact['Moyenne_3M_Actuelle'] - df_impact['Moyenne_12M_Historique']) / df_impact['Moyenne_12M_Historique']) * 100
+            
+            # On filtre les articles avec un écart de plus de 20% (en valeur absolue)
+            df_impact = df_impact[df_impact['Ecart (%)'].abs() > 20].sort_values('Ecart (%)')
+            
+            if not df_impact.empty:
+                st.dataframe(
+                    make_bold(df_impact.reset_index().rename(columns={'article': 'Article'})),
+                    use_container_width=True, hide_index=True,
+                    column_config={
+                        'Moyenne_3M_Actuelle': st.column_config.NumberColumn("Moyenne 3M Actuelle", format="%.0f"),
+                        'Moyenne_12M_Historique': st.column_config.NumberColumn("Moyenne 12M Historique", format="%.0f"),
+                        'Ecart (%)': st.column_config.NumberColumn("Écart (%)", format="%.1f %%")
+                    }
+                )
+            else:
+                st.info("Aucune rupture majeure détectée sur les articles avec suffisamment d'historique.")
+        else:
+            st.info("Pas assez de données historiques pour réaliser une analyse de rupture.")

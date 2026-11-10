@@ -60,14 +60,69 @@ st.markdown("""
     /* TABLES */
     div[data-testid="stDataFrame"] { border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important; }
     
-    /* NAVIGATION TABS */
-    div[role="radiogroup"] { gap: 40px !important; border-bottom: 2px solid #E5E7EB !important; padding-bottom: 0px !important; margin-bottom: 30px !important; display: flex !important; flex-wrap: wrap !important; }
-    div[role="radiogroup"] label { background: transparent !important; border: none !important; border-bottom: 4px solid transparent !important; border-radius: 0 !important; padding: 10px 0px !important; margin: 0 !important; }
-    div[role="radiogroup"] label div p { font-size: 1.4rem !important; font-weight: 800 !important; color: #6B7280 !important; transition: color 0.2s ease !important; }
-    div[role="radiogroup"] label:hover div p { color: #111827 !important; }
-    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 900 !important; }
-    div[role="radiogroup"] label:has(input:checked) { border-bottom: 4px solid #E30613 !important; }
-    div[role="radiogroup"] label > div:first-child { display: none !important; }
+    /* NAVIGATION TABS - DESIGN PRO */
+    div[role="radiogroup"] { 
+        gap: 28px !important; 
+        border-bottom: 2px solid #E5E7EB !important; 
+        padding-bottom: 0px !important; 
+        margin-bottom: 25px !important; 
+        display: flex !important; 
+        flex-wrap: wrap !important; 
+        align-items: flex-end !important;
+    }
+    
+    div[role="radiogroup"] label { 
+        background: transparent !important; 
+        border: none !important; 
+        border-bottom: 3px solid transparent !important; 
+        border-radius: 0 !important; 
+        padding: 8px 4px 14px 4px !important; 
+        margin: 0 !important; 
+        cursor: pointer !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    /* Taille de police réduite pour un look pro */
+    div[role="radiogroup"] label div p { 
+        font-size: 1.05rem !important; 
+        font-weight: 700 !important; 
+        color: #6B7280 !important; 
+        transition: color 0.2s ease !important; 
+        margin: 0 !important;
+        letter-spacing: 0.01em !important;
+    }
+    
+    /* Effet au survol */
+    div[role="radiogroup"] label:hover div p { 
+        color: #111827 !important; 
+    }
+    
+    /* Onglet actif : texte rouge et soulignement fin */
+    div[role="radiogroup"] label:has(input:checked) { 
+        border-bottom: 3px solid #E30613 !important; 
+    }
+    
+    div[role="radiogroup"] label:has(input:checked) div p { 
+        color: #E30613 !important; 
+        font-weight: 800 !important; 
+    }
+    
+    /* Masque le cercle du bouton radio */
+    div[role="radiogroup"] label > div:first-child { 
+        display: none !important; 
+    }
+    
+    /* Enlève le cadre bleu moche au clic sur un onglet */
+    div[role="radiogroup"] label:focus-within {
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
+    /* Rapproche le titre de section de la barre d'onglets */
+    div[role="radiogroup"] + div {
+        margin-top: -10px !important;
+    }
+    
     .block-container { padding-top: 2rem !important; }
 </style>
 """, unsafe_allow_html=True)

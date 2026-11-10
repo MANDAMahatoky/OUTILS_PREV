@@ -267,7 +267,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v112"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v114"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -690,7 +690,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v112"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v114"
 )
 
 if budget_status == "ok":
@@ -795,7 +795,6 @@ contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100
 df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
 df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-# ✅ RETOUR A LA VERSION QUI AFFICHE LA PREVISION SUR TOUTE L'ANNEE
 df_prev_cible = df_cible_annuel.copy()
 df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
 df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
@@ -860,18 +859,38 @@ with tab_placeholder.container():
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
+                # ✅ CORRECTION : Ajout explicite des colonnes Mois M et M-1 et du Momentum Absolu
                 df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
+                
+                # Conversion en Cols si nécessaire pour l'affichage
                 df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
-                df_sarr_calc["SARR_M1"] = df_sarr_calc.groupby(['agence', 'article'])["SARR_Aff"].shift(1)
-                df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1"]) / df_sarr_calc["SARR_M1"] * 100).replace([np.inf, -np.inf], np.nan)
+                df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
+                
+                # Création des libellés de mois
+                df_sarr_calc["Mois M"] = df_sarr_calc.apply(lambda r: f"{MOIS_NOMS[int(r['mois'])-1]}-{int(r['annee'])}", axis=1)
+                df_sarr_calc["Mois M-1"] = df_sarr_calc.groupby(['agence', 'article'])["Mois M"].shift(1)
+                
+                # Calcul du Momentum en % (M vs M-1)
+                df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]) / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
+                
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
                 
                 st.dataframe(
-                    df_sarr_derniers[["annee", "mois", "agence", "article", "SARR_Aff", "SARR_M1", "Momentum_M (%)"]]
-                    .rename(columns={"SARR_Aff": "SARR M", "SARR_M1": "SARR M-1", "Momentum_M (%)": "Momentum M (%)"})
-                    .sort_values(["agence", "article", "annee", "mois"]),
+                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum", "Momentum_M (%)"]]
+                    .rename(columns={
+                        "SARR_Aff": "Volume M", 
+                        "SARR_M1_Aff": "Volume M-1", 
+                        "Momentum": "Momentum (Vol Absolu)", 
+                        "Momentum_M (%)": "Momentum M vs M-1 (%)"
+                    })
+                    .sort_values(["agence", "article", "Mois M"]),
                     use_container_width=True, hide_index=True,
-                    column_config={"SARR M": st.column_config.NumberColumn(format="%.0f"), "SARR M-1": st.column_config.NumberColumn(format="%.0f"), "Momentum M (%)": st.column_config.NumberColumn(format="%.2f %%")}
+                    column_config={
+                        "Volume M": st.column_config.NumberColumn(format="%.0f"), 
+                        "Volume M-1": st.column_config.NumberColumn(format="%.0f"), 
+                        "Momentum (Vol Absolu)": st.column_config.NumberColumn(format="%.1f"),
+                        "Momentum M vs M-1 (%)": st.column_config.NumberColumn(format="%.2f %%")
+                    }
                 )
 
     elif active_tab == "Prévisions Détaillées":

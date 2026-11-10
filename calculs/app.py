@@ -256,7 +256,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v103"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v104"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -427,7 +427,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     # =========================================================================
     # INTEGRATION DU BUDGET QUERY (CORRIGÉ)
     # =========================================================================
-    # CRÉATION DES CLÉS DE FUSION MANQUANTES (cause principale du bug)
     df_cross['key_article'] = df_cross['article'].apply(clean_text_for_key)
     df_cross['key_agence'] = df_cross['agence'].apply(clean_text_for_key)
 
@@ -436,7 +435,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             xls = pd.ExcelFile(io.BytesIO(budget_bytes))
             df_budget = None
             
-            # 1. Recherche de l'onglet contenant les bonnes colonnes
             for sheet in xls.sheet_names:
                 temp = pd.read_excel(xls, sheet_name=sheet)
                 temp.columns = [str(c).strip().lower() for c in temp.columns]
@@ -445,14 +443,12 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     break
             
             if df_budget is not None:
-                # 2. Identification flexible des colonnes
                 col_art = next((c for c in df_budget.columns if 'article' in c), None)
                 col_val = next((c for c in df_budget.columns if 'valeur' in c), None)
                 col_mois = next((c for c in df_budget.columns if 'mois' in c), None)
                 col_ag = next((c for c in df_budget.columns if 'attribut' in c or 'agence' in c), None)
                 
                 if col_art and col_val and col_mois:
-                    # 3. Nettoyage : suppression des lignes vides et sous-totaux
                     df_budget = df_budget.dropna(subset=[col_art])
                     sous_totaux = ["Total", "BIERES", "2-BG", "3-EAUX", "3-EAUX", "Caprice BBA", "Caprice GRE", "Caprice ORA", "Caprice ANN", "Caprice POM",
                                    "THB", "Fresh", "Queen", "3-Eau vive", "2-Cristal", "WORD COLA", "XXL", "Alcomix", "7-VIN", "Total Gold", "Gold Standard", "Gold Blanche", "Gold 8", "Beaufort", "Divers", "Cristalline", "Eau vive"]
@@ -479,7 +475,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur_budget']
                         st.sidebar.success(f"✅ Budget Query appliqué sur {masque_budget.sum()} lignes.")
                     else:
-                        st.sidebar.warning("⚠️ Budget Query lu, mais aucune correspondance trouvée (vérifiez les noms d'articles/mois).")
+                        st.sidebar.warning("⚠️ Budget Query lu, mais aucune correspondance trouvée.")
                 else:
                     st.sidebar.error("⚠️ Colonnes Mois/Article/Valeur introuvables dans le Budget Query.")
             else:
@@ -488,10 +484,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         except Exception as e:
             st.sidebar.error(f"⚠️ Erreur de lecture du Budget Query : {e}")
 
-    # Nettoyage des colonnes temporaires
     for c in ['key_article', 'key_agence', 'valeur_budget']:
-        if c in df_cross.columns:
-            df_cross = df_cross.drop(columns=[c])
+        if c in df_cross.columns: df_cross = df_cross.drop(columns=[c])
 
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
@@ -649,45 +643,33 @@ if fichier_ventes is not None:
     col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
     col_prev_pure = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
 
-    df_cible_annuel = df_previsions[df_previsions['annee'] == annee_cible]
-    atterrissage_cible = df_cible_annuel[col_prev_aff].sum()
+    # =========================================================================
+    # COURBE VS (En haut de page, comme sur ta capture)
+    # =========================================================================
+    df_chart_global = df_previsions.groupby(['annee', 'mois', 'Date', 'Statut'])[col_prev_aff].sum().reset_index()
+    df_chart_global['Date_dt'] = pd.to_datetime(df_chart_global['Date'], format='%b-%y', errors='coerce')
+    df_chart_global = df_chart_global.sort_values('Date_dt')
 
-    if not mois_cibles_selection:
-        df_previsions_filtre = df_previsions
-        label_mois_str = "Tous les mois"
-    else:
-        mois_cibles_nums = [MOIS_NOMS.index(m) + 1 for m in mois_cibles_selection]
-        df_previsions_filtre = df_previsions[df_previsions['mois'].isin(mois_cibles_nums)].copy()
-        label_mois_str = ", ".join(mois_cibles_selection)
+    fig_global = go.Figure()
+    
+    df_prev = df_chart_global[df_chart_global['Statut'] == 'Prévision']
+    if not df_prev.empty:
+        fig_global.add_trace(go.Scatter(x=df_prev['Date_dt'], y=df_prev[col_prev_aff], 
+                                 mode='lines+markers', name='Prévision (Pure)', line=dict(color='#E30613', width=2, dash='dot')))
+    
+    df_real = df_chart_global[df_chart_global['Statut'] == 'Réalisé']
+    if not df_real.empty:
+        fig_global.add_trace(go.Scatter(x=df_real['Date_dt'], y=df_real[col_prev_aff], 
+                                 mode='lines+markers', name='Réalisé', line=dict(color='#B91C1C', width=3)))
 
-    df_n1 = df_perimetre[df_perimetre['annee'] == (annee_cible - 1)].copy()
-    if not df_n1.empty:
-        contenance_safe_n1 = df_n1['contenance_cl'].replace(0, 100).fillna(100.0)
-        hist_n1_val = (df_n1['hl'] * (10000.0 / contenance_safe_n1)).sum() if unite_affichage == "Cols" else df_n1['hl'].sum()
-    else:
-        hist_n1_val = 0.0
-        
-    if hist_n1_val > 0:
-        objectif_calcule = hist_n1_val * (1 + taux_ambition / 100.0)
-    else:
-        objectif_calcule = 0.0
+    fig_global.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=400, plot_bgcolor='white', paper_bgcolor='white', legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+    st.plotly_chart(fig_global, use_container_width=True)
+    
+    st.markdown("<p style='color:gray; font-size:0.8rem;'>Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>", unsafe_allow_html=True)
 
-    if use_objectif_manuel:
-        objectif_calcule = objectif_manuel
-
-    # ============ KPI CARDS ============
-    kpi1, kpi2, kpi3 = st.columns(3)
-    with kpi1:
-        st.markdown(f'<div class="white-card"><div class="kpi-label">Réalisé N-1 ({annee_cible-1})</div><div class="kpi-value kpi-value-dark">{hist_n1_val:,.0f}</div><div class="kpi-footer">Volume historique {unite_affichage}</div></div>', unsafe_allow_html=True)
-    with kpi2:
-        st.markdown(f'<div class="white-card"><div class="kpi-label">Objectif {annee_cible}</div><div class="kpi-value">{objectif_calcule:,.0f}</div><div class="kpi-footer">Taux d\'ambition : {taux_ambition}%</div></div>', unsafe_allow_html=True)
-    with kpi3:
-        delta = atterrissage_cible - objectif_calcule
-        color_cls = "kpi-value-green" if delta >= 0 else "kpi-value-red"
-        pct = (delta / objectif_calcule * 100) if objectif_calcule > 0 else 0
-        st.markdown(f'<div class="white-card"><div class="kpi-label">Atterrissage Prévu</div><div class="kpi-value {color_cls}">{atterrissage_cible:,.0f}</div><div class="kpi-footer">Écart : {delta:,.0f} ({pct:.1f}%)</div></div>', unsafe_allow_html=True)
-
-    # ============ ONGLETS DE NAVIGATION ============
+    # =========================================================================
+    # NAVIGATION PAR ONGLETS
+    # =========================================================================
     tab_names = ["🌍 Périmètre", "📊 Réalisé Cumulé", "⚙️ Indices & SARR", "📈 Prévisions Détaillées", "🏆 Analyse Pareto (ABC)", "🎯 Fiabilité Prévisions"]
     if show_raw_data: tab_names.append("🗂️ Données Brutes")
     
@@ -695,15 +677,7 @@ if fichier_ventes is not None:
 
     with tabs[0]: # Périmètre
         st.markdown("### Synthèse du Périmètre")
-        c1, c2 = st.columns(2)
-        with c1:
-            df_pie_seg = df_previsions_filtre.groupby('article')[col_prev_aff].sum().reset_index().sort_values(by=col_prev_aff, ascending=False).head(10)
-            fig_seg = px.pie(df_pie_seg, values=col_prev_aff, names='article', title="Top 10 Articles (Prévisions)", hole=0.4)
-            st.plotly_chart(fig_seg, use_container_width=True)
-        with c2:
-            df_pie_ag = df_previsions_filtre.groupby('agence')[col_prev_aff].sum().reset_index().sort_values(by=col_prev_aff, ascending=False)
-            fig_ag = px.pie(df_pie_ag, values=col_prev_aff, names='agence', title="Répartition par Agence", hole=0.4)
-            st.plotly_chart(fig_ag, use_container_width=True)
+        st.info("Sélectionnez vos filtres dans la barre latérale pour affiner cette vue.")
 
     with tabs[1]: # Réalisé Cumulé
         st.markdown("### Évolution du Réalisé (Historique)")
@@ -717,33 +691,50 @@ if fichier_ventes is not None:
         st.dataframe(df_sarr[['agence', 'article', 'annee', 'mois', 'Indice', 'SARR_HL', 'Base_EXCEL', 'Momentum']].head(100).style.format(precision=3), use_container_width=True)
         st.info("Affichage limité aux 100 premières lignes pour des raisons de performance.")
 
-    with tabs[3]: # Prévisions Détaillées (Interface fidèle à la capture)
+    with tabs[3]: # Prévisions Détaillées (L'onglet de ta capture)
         st.markdown("### Résultat Final")
+        
+        # --- KPI CARDS (Remis ici) ---
+        df_cible_annuel = df_previsions[df_previsions['annee'] == annee_cible]
+        atterrissage_cible = df_cible_annuel[col_prev_aff].sum()
+
+        if not mois_cibles_selection:
+            df_previsions_filtre = df_previsions
+            label_mois_str = "Tous les mois"
+        else:
+            mois_cibles_nums = [MOIS_NOMS.index(m) + 1 for m in mois_cibles_selection]
+            df_previsions_filtre = df_previsions[df_previsions['mois'].isin(mois_cibles_nums)].copy()
+            label_mois_str = ", ".join(mois_cibles_selection)
+
+        df_n1 = df_perimetre[df_perimetre['annee'] == (annee_cible - 1)].copy()
+        if not df_n1.empty:
+            contenance_safe_n1 = df_n1['contenance_cl'].replace(0, 100).fillna(100.0)
+            hist_n1_val = (df_n1['hl'] * (10000.0 / contenance_safe_n1)).sum() if unite_affichage == "Cols" else df_n1['hl'].sum()
+        else:
+            hist_n1_val = 0.0
+            
+        if hist_n1_val > 0:
+            objectif_calcule = hist_n1_val * (1 + taux_ambition / 100.0)
+        else:
+            objectif_calcule = 0.0
+
+        if use_objectif_manuel:
+            objectif_calcule = objectif_manuel
+
+        kpi1, kpi2, kpi3 = st.columns(3)
+        with kpi1:
+            st.markdown(f'<div class="white-card"><div class="kpi-label">Réalisé N-1 ({annee_cible-1})</div><div class="kpi-value kpi-value-dark">{hist_n1_val:,.0f}</div><div class="kpi-footer">Volume historique {unite_affichage}</div></div>', unsafe_allow_html=True)
+        with kpi2:
+            st.markdown(f'<div class="white-card"><div class="kpi-label">Objectif {annee_cible}</div><div class="kpi-value">{objectif_calcule:,.0f}</div><div class="kpi-footer">Taux d\'ambition : {taux_ambition}%</div></div>', unsafe_allow_html=True)
+        with kpi3:
+            delta = atterrissage_cible - objectif_calcule
+            color_cls = "kpi-value-green" if delta >= 0 else "kpi-value-red"
+            pct = (delta / objectif_calcule * 100) if objectif_calcule > 0 else 0
+            st.markdown(f'<div class="white-card"><div class="kpi-label">Atterrissage Prévu</div><div class="kpi-value {color_cls}">{atterrissage_cible:,.0f}</div><div class="kpi-footer">Écart : {delta:,.0f} ({pct:.1f}%)</div></div>', unsafe_allow_html=True)
+
         st.markdown(f"Projections mensuelles pour : **{label_mois_str}**")
         
-        # --- GRAPHIQUE ---
-        df_chart = df_previsions_filtre.groupby(['annee', 'mois', 'Date', 'Statut'])[col_prev_aff].sum().reset_index()
-        df_chart['Date_dt'] = pd.to_datetime(df_chart['Date'], format='%b-%y', errors='coerce')
-        df_chart = df_chart.sort_values('Date_dt')
-
-        fig = go.Figure()
-        
-        df_prev = df_chart[df_chart['Statut'] == 'Prévision']
-        if not df_prev.empty:
-            fig.add_trace(go.Scatter(x=df_prev['Date_dt'], y=df_prev[col_prev_aff], 
-                                     mode='lines+markers', name='Prévision (Pure)', line=dict(color='#E30613', width=2, dash='dot')))
-        
-        df_real = df_chart[df_chart['Statut'] == 'Réalisé']
-        if not df_real.empty:
-            fig.add_trace(go.Scatter(x=df_real['Date_dt'], y=df_real[col_prev_aff], 
-                                     mode='lines+markers', name='Réalisé', line=dict(color='#B91C1C', width=3)))
-
-        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=400, plot_bgcolor='white', paper_bgcolor='white', legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.markdown("<p style='color:gray; font-size:0.8rem;'>Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>", unsafe_allow_html=True)
-
-        # --- BARRE DE RECHERCHE + EXPORT ---
+        # --- BARRE DE RECHERCHE ET EXPORT ---
         st.markdown("---")
         col_search, col_export = st.columns([3, 1])
         with col_search:
@@ -794,7 +785,6 @@ if fichier_ventes is not None:
         st.markdown("### Fiabilité des Prévisions (Rétro-test)")
         st.info("Cette section compare le réalisé aux prévisions passées pour évaluer la précision du modèle.")
         
-        # Calcul simple de fiabilité sur les mois réalisés
         df_fiabilite = df_previsions[df_previsions['Statut'] == 'Réalisé'].copy()
         if not df_fiabilite.empty:
             df_fiabilite['Ecart_%'] = np.where(df_fiabilite['hl_reel'] > 0, 

@@ -263,7 +263,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v110"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v111"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -432,7 +432,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
     # =========================================================================
-    # INTEGRATION DU BUDGET QUERY (INCLUT 33 CAN + CRISTALLINES)
+    # INTEGRATION DU BUDGET QUERY (UNIQUEMENT 33 CAN)
     # =========================================================================
     df_cross['key_article_budget'] = df_cross['article'].apply(clean_text_for_budget_key)
     
@@ -457,10 +457,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 if col_art and col_val and col_mois:
                     df_budget = df_budget.dropna(subset=[col_art])
                     
-                    # FILTRE : 33 CAN + CRISTALLINES
+                    # FILTRE STRICT : 33 CAN UNIQUEMENT
                     mask_33can = df_budget[col_art].astype(str).str.contains('33', na=False) & df_budget[col_art].astype(str).str.contains('CAN', case=False, na=False)
-                    mask_cristalline = df_budget[col_art].astype(str).str.contains('Cristalline', case=False, na=False)
-                    df_budget = df_budget[mask_33can | mask_cristalline].copy()
+                    df_budget = df_budget[mask_33can].copy()
                     
                     if not df_budget.empty:
                         df_budget['key_article_budget'] = df_budget[col_art].apply(clean_text_for_budget_key)
@@ -498,7 +497,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                             masque_budget = (df_cross['valeur_budget'].notna()) & (~df_cross['is_realise'])
                             df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur_budget']
                             
-                        st.sidebar.success(f"✅ Budget Query (33 CAN + Cristallines) appliqué.")
+                        st.sidebar.success(f"✅ Budget Query (33 CAN) appliqué.")
         except Exception as e:
             st.sidebar.error(f"⚠️ Erreur de lecture du Budget Query : {e}")
 
@@ -549,10 +548,10 @@ with st.sidebar:
     with st.expander("📁 Importer vos fichiers", expanded=True):
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
         fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref", help="Si fourni, l'application ne calculera que sur les articles de ce fichier.")
-        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (uniquement pour les 33 CAN + Cristallines).")
+        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (uniquement pour les 33 CAN).")
         
         if fichier_budget is not None:
-            budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du budget s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
+            budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du 33 CAN s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
         else:
             budget_all_agencies = True
 

@@ -8,6 +8,7 @@ import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
+from sklearn.ensemble import RandomForestRegressor
 
 # ==============================================================================
 # CONFIGURATION ET DESIGN
@@ -304,7 +305,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v117"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v118"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -450,7 +451,45 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 df_base['CAGR_val'] = df_base['CAGR_Hist']
         except Exception:
             df_base['CAGR_val'] = df_base['CAGR_Hist']
-    
+            
+    # =========================================================================
+    # INTEGRATION DU MACHINE LEARNING (RANDOM FOREST)
+    # =========================================================================
+    elif methode_croissance == "🤖 IA (Machine Learning)":
+        ml_predictions = []
+        # On entraîne un modèle par couple Agence/Article
+        for (agence, article), group in df_realise_agg.groupby(['agence', 'article'], observed=True):
+            # On ne fait du ML que si on a au moins 6 mois de données
+            if len(group) >= 6:
+                try:
+                    # Features : année, mois (on peut ajouter des lags plus tard)
+                    X = group[['annee', 'mois']].values
+                    y = group['hl'].values
+                    
+                    # Modèle Random Forest (robuste pour les séries temporelles simples)
+                    rf = RandomForestRegressor(n_estimators=100, max_depth=5, random_state=42)
+                    rf.fit(X, y)
+                    
+                    # On prédit pour les années cibles
+                    future_preds = []
+                    for a in range(annee_cloture, annee_cible + 1):
+                        for m in range(1, 13):
+                            pred = rf.predict([[a, m]])[0]
+                            future_preds.append({'agence': agence, 'article': article, 'annee': a, 'mois': m, 'CAGR_val': pred}) # On détourne CAGR_val pour stocker la prédiction ML
+                    
+                    ml_predictions.extend(future_preds)
+                except Exception as e:
+                    pass # En cas d'erreur, on laissera le fallback s'appliquer
+                    
+        if ml_predictions:
+            df_ml = pd.DataFrame(ml_predictions)
+            # On merge les prédictions ML. Si le ML a échoué pour un article, on utilise le fallback (CAGR_Hist)
+            df_base = df_base.merge(df_ml, on=['agence', 'article', 'annee', 'mois'], how='left')
+            df_base['CAGR_val'] = df_base['CAGR_val_y'].fillna(df_base['CAGR_Hist'])
+            df_base = df_base.drop(columns=['CAGR_val_x', 'CAGR_val_y'])
+        else:
+            df_base['CAGR_val'] = df_base['CAGR_Hist']
+
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
     df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left').fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
 
@@ -676,10 +715,10 @@ with st.sidebar:
             objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4400743.0, key="param_objectif_manuel")
         
         methode_croissance = st.selectbox(
-            "Méthode de croissance (pour années futures)", 
-            options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
-            index=1,
-            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Run-Rate (Momentum).",
+            "Méthode de prévision", 
+            options=["Tendance Linéaire", "CAGR Classique", "Moyenne 3 ans", "🤖 IA (Machine Learning)"],
+            index=0,
+            help="L'IA utilise un modèle Random Forest pour apprendre de l'historique. Si l'historique est trop court, elle bascule sur une méthode classique.",
             key="param_methode"
         )
         
@@ -706,7 +745,7 @@ st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision hybride (Run-Rate en cours, CAGR futur) - Explorez les tendances à venir.</p>
+    <p>Moteur de prévision hybride (Run-Rate, Heuristique & Machine Learning) - Explorez les tendances à venir.</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -733,7 +772,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v117"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v118"
 )
 
 if budget_status == "ok":
@@ -885,7 +924,7 @@ fig1.update_layout(
 st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
+st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR ou IA pour les années futures.</p>""", unsafe_allow_html=True)
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
@@ -1012,8 +1051,8 @@ with tab_placeholder.container():
 
             st.dataframe(make_bold(pivot_mensuel_display), use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
-        with st.expander("🔍 Voir le détail des calculs (Hybride)"):
-            st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR.")
+        with st.expander("🔍 Voir le détail des calculs (Hybride & IA)"):
+            st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR ou la prédiction IA.")
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
             st.dataframe(make_bold(df_detail.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})

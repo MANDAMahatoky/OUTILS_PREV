@@ -136,7 +136,6 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
     try:
         numeric_series = pd.to_numeric(series_clean, errors='coerce')
         if numeric_series.notna().all():
-            # ✅ CORRECTION : si les valeurs sont déjà des mois 1–12, on les garde tels quels.
             if numeric_series.between(1, 12).all():
                 return numeric_series.astype(int)
             dates = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
@@ -214,7 +213,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0)
     df_enrichi["region"] = df_enrichi["agence"].apply(get_region)
     df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype(str)
-    # ✅ CORRECTION : cohérence avec 'occasion' — éviter les NaN sur 'positionnement'
     df_enrichi["positionnement"] = df_enrichi["positionnement"].fillna("Non renseigné").astype(str)
     
     conditions = [df_enrichi["article"].str.contains(x, case=False, na=False) for x in ["booster|alcoomix", "caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", "beaufort|fresh|thb|gold|queen|skol|castel|libertalia", "cristal|cristalline|eau vive|eau", "xxl|fosa", "judor|jus", "vin", "negoce"]]
@@ -269,8 +267,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v112"):
-    # ✅ On initialise le statut budget (remonté à l'appelant)
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v114"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -373,7 +370,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_Hist'] = 0.0
 
-    # ✅ CORRECTION : clip du CAGR historique pour éviter les valeurs extrêmes en fallback
     df_base['CAGR_Hist'] = df_base['CAGR_Hist'].clip(lower=-0.20, upper=0.30)
 
     if methode_croissance == "CAGR Classique":
@@ -483,7 +479,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         df_budget['valeur_budget'] = pd.to_numeric(df_budget[col_val], errors='coerce').fillna(0.0)
                         df_budget = df_budget.dropna(subset=['mois'])
                         
-                        # ✅ CORRECTION : déduplication par article pour éviter le doublement
                         df_temp_content = (
                             df_cross[['key_article_budget', 'contenance_cl']]
                             .drop_duplicates(subset=['key_article_budget'])
@@ -492,14 +487,12 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         df_budget['contenance_cl'] = df_budget['contenance_cl'].fillna(33.0)
                         df_budget['valeur_budget'] = df_budget['valeur_budget'] * (df_budget['contenance_cl'] / 10000.0)
                         
-                        # ✅ CORRECTION : le budget ne s'applique QU'À l'année cible, sur les mois non réalisés
                         mask_budget_target = (df_cross['annee'] == annee_cible) & (~df_cross['is_realise'])
                         
                         if budget_all_agencies or not col_ag:
                             df_budget_agg = df_budget.groupby(['key_article_budget', 'mois'])['valeur_budget'].sum().reset_index()
                             df_cross = df_cross.merge(df_budget_agg, on=['key_article_budget', 'mois'], how='left', suffixes=('', '_budget'))
                             
-                            # ✅ CORRECTION : dénominateur calculé UNIQUEMENT sur l'année cible
                             df_cross['Forecast_Total_Article_Mois'] = (
                                 df_cross.loc[mask_budget_target]
                                 .groupby(['key_article_budget', 'mois'])['Prevision_HL']
@@ -511,13 +504,11 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                             mask_denom_pos = mask_apply & (df_cross['Forecast_Total_Article_Mois'] > 0)
                             mask_denom_zero = mask_apply & (df_cross['Forecast_Total_Article_Mois'] == 0)
                             
-                            # ✅ CORRECTION : application factorielle propre
                             df_cross.loc[mask_denom_pos, 'Prevision_HL'] = (
                                 df_cross.loc[mask_denom_pos, 'Prevision_HL']
                                 * (df_cross.loc[mask_denom_pos, 'valeur_budget']
                                    / df_cross.loc[mask_denom_pos, 'Forecast_Total_Article_Mois'])
                             )
-                            # ✅ CORRECTION : si la prévision de base est 0, on assigne directement la valeur budget
                             df_cross.loc[mask_denom_zero, 'Prevision_HL'] = df_cross.loc[mask_denom_zero, 'valeur_budget']
                             
                         else:
@@ -535,7 +526,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 else:
                     budget_status = "warning"
         except Exception as e:
-            # ✅ CORRECTION : on ne fait plus st.sidebar.error ici (anti-pattern de cache)
             budget_status = "error"
 
     for c in ['key_article_budget', 'key_agence', 'valeur_budget', 'Forecast_Total_Article_Mois', 'contenance_cl_x', 'contenance_cl_y', 'agence_clean']:
@@ -557,7 +547,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel"]
-    # ✅ CORRECTION : filtrage du réalisé sur agence + article (et non article seul)
     df_realise_out = df_realise.merge(
         df_perimetre_filtre[['agence', 'article']].drop_duplicates(),
         on=['agence', 'article'], how='inner'
@@ -565,7 +554,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     df_sarr_out = df_sarr_cont.merge(df_perim_unique[['agence', 'article', 'contenance_cl']], on=['agence', 'article'], how='left')
 
-    # ✅ CORRECTION : on remonte le budget_status à l'appelant
     return table_indices, df_sarr_out, None, df_cross[cols_finales].copy(), df_realise_out, budget_status
 
 @st.cache_data(show_spinner=False)
@@ -701,12 +689,10 @@ if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agen
 if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
-# ✅ CORRECTION : récupération du budget_status retourné par la fonction
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v112"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v114"
 )
 
-# ✅ CORRECTION : affichage du statut budget dans la sidebar (hors cache)
 if budget_status == "ok":
     st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
 elif budget_status == "warning":
@@ -750,7 +736,6 @@ gap = objectif_final - atterrissage_cible
 df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
 df_eval_agg = df_eval.groupby(['annee', 'mois'], observed=True)[[col_prev_aff, col_prev_pure]].sum().reset_index()
 
-# ✅ CORRECTION : protection SMAPE contre les divisions par zéro
 if not df_eval_agg.empty and df_eval_agg[col_prev_aff].sum() > 0:
     y_true = df_eval_agg[col_prev_aff].values
     y_pred = df_eval_agg[col_prev_pure].values
@@ -810,7 +795,8 @@ contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100
 df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
 df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-df_prev_cible = df_cible_annuel.copy()
+# ✅ CORRECTION : On ne garde que les mois futurs (Statut "Prévision") pour tracer la ligne pointillée
+df_prev_cible = df_cible_annuel[df_cible_annuel['Statut'] == 'Prévision'].copy()
 df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
 df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
 df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
@@ -898,7 +884,6 @@ with tab_placeholder.container():
             search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
             
         with col_export:
-            # ✅ CORRECTION : déduplication par article pour éviter les doublons de segment
             df_seg = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
             df_prev_seg = df_previsions_filtre.merge(df_seg, on='article', how='left')
             pivot_mensuel = df_prev_seg.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)

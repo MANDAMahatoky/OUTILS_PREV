@@ -19,11 +19,15 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #F4F6F8 !important; }
+    
+    /* SIDEBAR */
     [data-testid="stSidebar"] {
         background-color: #FFFFFF !important; border-right: 1px solid #E5E7EB; box-shadow: 2px 0 10px rgba(0,0,0,0.03);
     }
     [data-testid="stSidebar"] h2 { color: #E30613 !important; font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; }
     [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stNumberInput label, [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 700 !important; }
+    
+    /* HEADER */
     .hero-header {
         background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); color: white; padding: 25px 20px;
         border-radius: 0 0 20px 20px; margin-top: -60px; margin-bottom: 30px; position: relative;
@@ -33,20 +37,38 @@ st.markdown("""
     .hero-header h1 { color: white !important; font-size: 2.2rem; font-weight: 900; margin-bottom: 8px; letter-spacing: -0.02em; }
     .hero-header p { color: #FECACA; font-size: 1rem; margin-bottom: 15px; font-weight: 500; }
     .badge-demo { background-color: white; color: #E30613; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    
+    /* CARDS & KPI */
     .white-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border-top: 4px solid #E30613; margin-bottom: 20px; height: 100%; }
     .kpi-label { color: #6B7280; font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .kpi-value { color: #E30613; font-size: 2.6rem; font-weight: 900; line-height: 1.1; }
+    .kpi-value { color: #E30613; font-size: 2.6rem; font-weight: 900; line-height: 1.1; } /* Déjà en gras */
     .kpi-value-dark { color: #111827; }
     .kpi-value-green { color: #009640; }
     .kpi-value-red { color: #E30613; }
     .kpi-footer { color: #9CA3AF; font-size: 0.85rem; margin-top: 8px; font-weight: 500; }
+    
+    /* SECTIONS */
     .section-title { color: #111827; font-size: 1.2rem; font-weight: 800; margin-bottom: 5px; }
     .section-subtitle { color: #6B7280; font-size: 0.85rem; margin-bottom: 20px; font-weight: 500; }
+    
+    /* FORMS & EXPANDERS */
     div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] { background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important; }
     div[data-testid="stExpander"] { background-color: white !important; border-radius: 12px !important; border: 1px solid #E5E7EB !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02) !important; margin-bottom: 20px !important; }
     div[data-testid="stExpander"] > details > summary { background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 700 !important; color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important; }
     div[data-testid="stExpander"] > details[open] > summary { border-bottom: 1px solid #E5E7EB !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+    
+    /* ✅ MODIFICATION : FORCER LES CHIFFRES EN GRAS DANS LES TABLEAUX */
+    div[data-testid="stDataFrame"] table td {
+        font-weight: 800 !important; /* Force le gras dans les cellules */
+        color: #111827 !important; /* Couleur un peu plus foncée pour le contraste */
+    }
+    div[data-testid="stDataFrame"] table th {
+        font-weight: 900 !important; /* En-têtes encore plus gras */
+        background-color: #F3F4F6 !important;
+    }
     div[data-testid="stDataFrame"] { border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important; }
+    
+    /* NAVIGATION TABS */
     div[role="radiogroup"] { gap: 40px !important; border-bottom: 2px solid #E5E7EB !important; padding-bottom: 0px !important; margin-bottom: 30px !important; display: flex !important; flex-wrap: wrap !important; }
     div[role="radiogroup"] label { background: transparent !important; border: none !important; border-bottom: 4px solid transparent !important; border-radius: 0 !important; padding: 10px 0px !important; margin: 0 !important; }
     div[role="radiogroup"] label div p { font-size: 1.4rem !important; font-weight: 800 !important; color: #6B7280 !important; transition: color 0.2s ease !important; }
@@ -806,7 +828,13 @@ if not df_prev_plot.empty:
 if not df_real_plot.empty:
     fig1.add_trace(go.Scatter(x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], mode='lines+markers', name='Réalisé', line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3), marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))))
 
-fig1.update_layout(plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5), xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1"), yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False), height=400, hovermode="x unified")
+fig1.update_layout(
+    plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0), 
+    legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5), 
+    xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold")), 
+    yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold")), 
+    height=400, hovermode="x unified"
+)
 st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -859,18 +887,15 @@ with tab_placeholder.container():
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
-                # ✅ CORRECTION : Ajout explicite des colonnes Mois M et M-1 et du Momentum Absolu
+                # Ajout explicite des colonnes Mois M et M-1 et du Momentum Absolu
                 df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
                 
-                # Conversion en Cols si nécessaire pour l'affichage
                 df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
                 df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
                 
-                # Création des libellés de mois
                 df_sarr_calc["Mois M"] = df_sarr_calc.apply(lambda r: f"{MOIS_NOMS[int(r['mois'])-1]}-{int(r['annee'])}", axis=1)
                 df_sarr_calc["Mois M-1"] = df_sarr_calc.groupby(['agence', 'article'])["Mois M"].shift(1)
                 
-                # Calcul du Momentum en % (M vs M-1)
                 df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]) / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
                 
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
@@ -976,7 +1001,7 @@ with tab_placeholder.container():
             for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
                 fig2.add_shape(type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil, line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2')
 
-            fig2.update_layout(plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6'), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%"), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=10)), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
+            fig2.update_layout(plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6', tickfont=dict(family="Inter", size=12, weight="bold")), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%", tickfont=dict(family="Inter", size=12, weight="bold")), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=11, family="Inter", weight="bold")), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             
             with st.expander("📋 Voir le détail par article", expanded=True):

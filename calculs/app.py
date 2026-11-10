@@ -8,7 +8,15 @@ import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
-from sklearn.ensemble import RandomForestRegressor
+
+# ==============================================================================
+# GESTION DU MACHINE LEARNING (Avec sécurité si scikit-learn n'est pas installé)
+# ==============================================================================
+try:
+    from sklearn.ensemble import RandomForestRegressor
+    SKLEARN_DISPONIBLE = True
+except ImportError:
+    SKLEARN_DISPONIBLE = False
 
 # ==============================================================================
 # CONFIGURATION ET DESIGN
@@ -455,18 +463,18 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     # =========================================================================
     # INTEGRATION DU MACHINE LEARNING (RANDOM FOREST)
     # =========================================================================
-    elif methode_croissance == "🤖 IA (Machine Learning)":
+    elif methode_croissance == "🤖 IA (Machine Learning)" and SKLEARN_DISPONIBLE:
         ml_predictions = []
         # On entraîne un modèle par couple Agence/Article
         for (agence, article), group in df_realise_agg.groupby(['agence', 'article'], observed=True):
             # On ne fait du ML que si on a au moins 6 mois de données
             if len(group) >= 6:
                 try:
-                    # Features : année, mois (on peut ajouter des lags plus tard)
+                    # Features : année, mois
                     X = group[['annee', 'mois']].values
                     y = group['hl'].values
                     
-                    # Modèle Random Forest (robuste pour les séries temporelles simples)
+                    # Modèle Random Forest
                     rf = RandomForestRegressor(n_estimators=100, max_depth=5, random_state=42)
                     rf.fit(X, y)
                     
@@ -475,7 +483,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     for a in range(annee_cloture, annee_cible + 1):
                         for m in range(1, 13):
                             pred = rf.predict([[a, m]])[0]
-                            future_preds.append({'agence': agence, 'article': article, 'annee': a, 'mois': m, 'CAGR_val': pred}) # On détourne CAGR_val pour stocker la prédiction ML
+                            future_preds.append({'agence': agence, 'article': article, 'annee': a, 'mois': m, 'CAGR_val': pred}) 
                     
                     ml_predictions.extend(future_preds)
                 except Exception as e:
@@ -489,6 +497,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             df_base = df_base.drop(columns=['CAGR_val_x', 'CAGR_val_y'])
         else:
             df_base['CAGR_val'] = df_base['CAGR_Hist']
+
+    # Fallback si l'utilisateur a sélectionné l'IA mais que sklearn n'est pas dispo
+    elif methode_croissance == "🤖 IA (Machine Learning)" and not SKLEARN_DISPONIBLE:
+        df_base['CAGR_val'] = df_base['CAGR_Hist']
 
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
     df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left').fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
@@ -714,13 +726,21 @@ with st.sidebar:
         if use_objectif_manuel:
             objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4400743.0, key="param_objectif_manuel")
         
+        # Options de croissance (ML ajouté conditionnellement)
+        options_croissance = ["Tendance Linéaire", "CAGR Classique", "Moyenne 3 ans"]
+        if SKLEARN_DISPONIBLE:
+            options_croissance.append("🤖 IA (Machine Learning)")
+            
         methode_croissance = st.selectbox(
             "Méthode de prévision", 
-            options=["Tendance Linéaire", "CAGR Classique", "Moyenne 3 ans", "🤖 IA (Machine Learning)"],
+            options=options_croissance,
             index=0,
-            help="L'IA utilise un modèle Random Forest pour apprendre de l'historique. Si l'historique est trop court, elle bascule sur une méthode classique.",
+            help="L'IA utilise un modèle Random Forest. Si scikit-learn n'est pas installé, l'option n'apparaît pas.",
             key="param_methode"
         )
+        
+        if not SKLEARN_DISPONIBLE:
+            st.sidebar.warning("⚠️ Scikit-learn n'est pas installé sur le serveur. L'option IA est désactivée. Ajoutez-le dans requirements.txt.")
         
         with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
             p1, p2 = st.columns(2)
@@ -911,12 +931,12 @@ fig1.update_layout(
     xaxis=dict(
         showgrid=True, gridcolor='#F3F4F6', linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1", 
         tickfont=dict(family="Inter", size=12, weight="bold"),
-        tickangle=-45 # Inclinaison pour plus de lisibilité
+        tickangle=-45
     ), 
     yaxis=dict(
         showgrid=True, gridcolor='#E5E7EB', zeroline=False, 
         tickfont=dict(family="Inter", size=12, weight="bold"),
-        tickformat=",.0f" # Séparateur de milliers
+        tickformat=",.0f"
     ), 
     height=500, 
     hovermode="x unified"
@@ -1205,7 +1225,7 @@ with tab_placeholder.container():
             df_impact = pd.concat([df_last_3m, df_last_12m], axis=1).dropna()
             df_impact['Ecart (%)'] = ((df_impact['Moyenne_3M_Actuelle'] - df_impact['Moyenne_12M_Historique']) / df_impact['Moyenne_12M_Historique']) * 100
             
-            # ✅ Filtre et ajout des propositions d'initiatives
+            # Filtre et ajout des propositions d'initiatives
             df_impact = df_impact[df_impact['Ecart (%)'].abs() > 20].sort_values('Ecart (%)')
             
             if not df_impact.empty:

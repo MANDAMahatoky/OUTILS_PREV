@@ -78,11 +78,9 @@ st.markdown("""
 def make_bold(df):
     """Force les colonnes numériques à être en gras pour améliorer la visibilité."""
     if df is None or df.empty: return df
-    # Convertir les catégories en string pour éviter les erreurs de Styler
     for col in df.columns:
         if df[col].dtype.name == 'category':
             df[col] = df[col].astype(str)
-    # Appliquer le style gras uniquement sur les colonnes de nombres
     num_cols = df.select_dtypes(include=[np.number]).columns
     if len(num_cols) > 0:
         return df.style.set_properties(subset=num_cols, **{'font-weight': 'bold', 'color': '#111827'})
@@ -829,16 +827,42 @@ df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].
 
 fig1 = go.Figure()
 if not df_prev_plot.empty:
-    fig1.add_trace(go.Scatter(x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], mode='lines+markers', name='Prévision (Pure)', line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3), marker=dict(size=7, color='#E30613', line=dict(color='white', width=1.5))))
+    fig1.add_trace(go.Scatter(
+        x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], 
+        mode='lines+markers', name='Prévision (Pure)', 
+        line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3), 
+        marker=dict(size=7, color='#E30613', line=dict(color='white', width=2)),
+        hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
+    ))
 if not df_real_plot.empty:
-    fig1.add_trace(go.Scatter(x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], mode='lines+markers', name='Réalisé', line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3), marker=dict(size=8, color='#B91C1C', line=dict(color='white', width=1.5))))
+    fig1.add_trace(go.Scatter(
+        x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], 
+        mode='lines+markers', name='Réalisé', 
+        line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3), 
+        marker=dict(size=9, color='#B91C1C', line=dict(color='white', width=2)),
+        hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
+    ))
 
 fig1.update_layout(
-    plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=0), 
-    legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5), 
-    xaxis=dict(showgrid=False, linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold")), 
-    yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold")), 
-    height=400, hovermode="x unified"
+    plot_bgcolor='#FFFFFF', 
+    paper_bgcolor='#FFFFFF', 
+    margin=dict(l=10, r=10, t=30, b=10), 
+    legend=dict(
+        orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, 
+        font=dict(size=13, family="Inter", weight="bold")
+    ),
+    xaxis=dict(
+        showgrid=True, gridcolor='#F3F4F6', linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1", 
+        tickfont=dict(family="Inter", size=12, weight="bold"),
+        tickangle=-45 # Inclinaison pour plus de lisibilité
+    ), 
+    yaxis=dict(
+        showgrid=True, gridcolor='#E5E7EB', zeroline=False, 
+        tickfont=dict(family="Inter", size=12, weight="bold"),
+        tickformat=",.0f" # Séparateur de milliers
+    ), 
+    height=500, 
+    hovermode="x unified"
 )
 st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 st.markdown('</div>', unsafe_allow_html=True)

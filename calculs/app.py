@@ -250,7 +250,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v99"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v100"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -421,44 +421,69 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
     # =========================================================================
-    # INTEGRATION DU BUDGET QUERY (FILTRE STRICT 33 CAN + ECRASEMENT)
+    # INTEGRATION DU BUDGET QUERY (ULTRA ROBUSTE)
     # =========================================================================
     if budget_bytes is not None:
         try:
-            df_budget = pd.read_excel(io.BytesIO(budget_bytes))
-            df_budget.columns = [str(c).strip().lower() for c in df_budget.columns]
+            xls = pd.ExcelFile(io.BytesIO(budget_bytes))
+            df_budget = None
             
-            if 'mois' in df_budget.columns and 'articles' in df_budget.columns and 'attribut' in df_budget.columns and 'valeur' in df_budget.columns:
-                df_budget = df_budget.rename(columns={'articles': 'article', 'attribut': 'agence'})
+            # On cherche l'onglet qui contient les bonnes colonnes
+            for sheet in xls.sheet_names:
+                temp = pd.read_excel(xls, sheet_name=sheet)
+                temp.columns = [str(c).strip().lower() for c in temp.columns]
+                if 'mois' in temp.columns and 'articles' in temp.columns and 'valeur' in temp.columns:
+                    df_budget = temp.copy()
+                    break
+            
+            if df_budget is not None:
+                # On cherche la colonne d'agence (peut s'appeler 'attribut', 'agence', etc.)
+                agence_col = None
+                for col in ['attribut', 'agence', 'agences', 'agence ']:
+                    if col in df_budget.columns:
+                        agence_col = col
+                        break
                 
-                # FILTRE STRICT : On ne garde QUE les articles contenant "33 CAN"
-                df_budget = df_budget[df_budget['article'].astype(str).str.contains('33 CAN', case=False, na=False)].copy()
-                
-                if not df_budget.empty:
-                    df_budget['article'] = df_budget['article'].astype(str).str.strip()
-                    df_budget['agence'] = df_budget['agence'].astype(str).str.strip()
-                    df_cross['article'] = df_cross['article'].astype(str).str.strip()
-                    df_cross['agence'] = df_cross['agence'].astype(str).str.strip()
+                if agence_col is not None:
+                    df_budget = df_budget.rename(columns={'articles': 'article', agence_col: 'agence'})
                     
-                    df_budget['mois'] = pd.to_numeric(df_budget['mois'], errors='coerce')
-                    df_budget['valeur'] = pd.to_numeric(df_budget['valeur'], errors='coerce').fillna(0.0)
+                    # FILTRE STRICT : On ne garde QUE les articles contenant "33 CAN"
+                    df_budget = df_budget[df_budget['article'].astype(str).str.contains('33 CAN', case=False, na=False)].copy()
                     
-                    # Reproduction de SOMME.SI.ENS : On somme les valeurs s'il y a des doublons
-                    df_budget_agg = df_budget.groupby(['article', 'agence', 'mois'])['valeur'].sum().reset_index()
-                    
-                    if budget_all_agencies:
-                        # Si on veut appliquer à toutes les agences, on re-somme par article/mois (sans l'agence)
-                        df_budget_agg = df_budget_agg.groupby(['article', 'mois'])['valeur'].sum().reset_index()
-                        df_cross = df_cross.merge(df_budget_agg, on=['article', 'mois'], how='left', suffixes=('', '_budget'))
+                    if not df_budget.empty:
+                        # Nettoyage strict
+                        df_budget['key_article'] = df_budget['article'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
+                        df_budget['key_agence'] = df_budget['agence'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
+                        df_cross['key_article'] = df_cross['article'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
+                        df_cross['key_agence'] = df_cross['agence'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
+                        
+                        df_budget['mois'] = pd.to_numeric(df_budget['mois'], errors='coerce')
+                        df_budget['valeur'] = pd.to_numeric(df_budget['valeur'], errors='coerce').fillna(0.0)
+                        
+                        df_budget = df_budget[['key_article', 'key_agence', 'mois', 'valeur']].dropna(subset=['mois'])
+                        
+                        if budget_all_agencies:
+                            df_budget_agg = df_budget.groupby(['key_article', 'mois'])['valeur'].sum().reset_index()
+                            df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'mois'], how='left', suffixes=('', '_budget'))
+                        else:
+                            df_cross = df_cross.merge(df_budget, on=['key_article', 'key_agence', 'mois'], how='left', suffixes=('', '_budget'))
+                        
+                        masque_budget = (df_cross['valeur'].notna()) & (~df_cross['is_realise'])
+                        
+                        if masque_budget.any():
+                            df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur']
+                            st.sidebar.success(f"✅ Budget Query appliqué sur {masque_budget.sum()} lignes.")
+                        else:
+                            st.sidebar.warning("⚠️ Budget Query lu, mais aucune correspondance trouvée (vérifiez les noms d'articles/agences/mois).")
                     else:
-                        df_cross = df_cross.merge(df_budget_agg, on=['article', 'agence', 'mois'], how='left', suffixes=('', '_budget'))
-                    
-                    masque_budget = (df_cross['valeur'].notna()) & (~df_cross['is_realise'])
-                    if masque_budget.any():
-                        df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur']
+                        st.sidebar.warning("⚠️ Aucun article '33 CAN' trouvé dans le Budget Query.")
+                else:
+                    st.sidebar.error("⚠️ Colonne d'agence introuvable dans le Budget Query.")
+            else:
+                st.sidebar.error("⚠️ L'onglet Budget Query n'a pas été trouvé dans le fichier.")
                 
         except Exception as e:
-            st.warning(f"⚠️ Erreur de lecture du Budget Query : {e}")
+            st.sidebar.error(f"⚠️ Erreur de lecture du Budget Query : {e}")
 
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])

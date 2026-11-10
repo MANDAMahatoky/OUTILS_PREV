@@ -213,7 +213,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     df_h = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
     
-    # FALLBACK : Si aucune donnée sur la période, on prend la dernière année dispo
     if df_h.empty:
         max_annee = df_realise['annee'].max()
         df_h = df_realise[df_realise['annee'] == max_annee].copy()
@@ -246,13 +245,12 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
                       .merge(idx4, on=['segment', 'mois'], how='left')
                       .merge(glob, on='mois', how='left'))
 
-    # Fallback hiérarchique : Agence-Article -> Article -> Marque -> Segment -> Global -> 1.0
     result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_marque']).fillna(result['Indice_seg']).fillna(result['Indice_glob']).fillna(1.0)
     result['mois'] = result['mois'].astype(int)
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v96"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v98"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -414,8 +412,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
     df_cross['multiplicateur_cagr'] = (1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)
     
-    # STRICT EXCEL LOGIC
-    prev_2026 = (df_cross['Indice'] * df_cross['Base_EXCEL']) + df_cross['Momentum']
+    # 2026 : Run-Rate (Base_Mensuelle) * Saisonnalité (c'est le momentum de l'année en cours)
+    prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
+    
+    # 2027+ : Run-Rate * Saisonnalité * CAGR
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
 
     df_cross['Prevision_HL'] = np.where(df_cross['annee'] == annee_cloture, prev_2026, prev_futur)
@@ -436,7 +436,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 df_budget = df_budget[df_budget['article'].astype(str).str.contains('33 CAN', case=False, na=False)].copy()
                 
                 if not df_budget.empty:
-                    # Nettoyage strict pour la fusion
                     df_budget['article'] = df_budget['article'].astype(str).str.strip()
                     df_budget['agence'] = df_budget['agence'].astype(str).str.strip()
                     df_cross['article'] = df_cross['article'].astype(str).str.strip()
@@ -447,7 +446,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     
                     df_budget = df_budget[['article', 'agence', 'mois', 'valeur']].dropna(subset=['mois'])
                     
-                    # Gestion de l'option "Appliquer à toutes les agences"
                     if budget_all_agencies:
                         df_budget_agg = df_budget.groupby(['article', 'mois'])['valeur'].sum().reset_index()
                         df_cross = df_cross.merge(df_budget_agg, on=['article', 'mois'], how='left', suffixes=('', '_budget'))
@@ -563,7 +561,7 @@ with st.sidebar:
             "Méthode de croissance (pour années futures)", 
             options=["CAGR Classique", "Tendance Linéaire", "Moyenne 3 ans"],
             index=1,
-            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise la formule Momentum d'Excel.",
+            help="Appliqué uniquement à partir de l'année suivante. L'année en cours utilise le Run-Rate (Momentum).",
             key="param_methode"
         )
         
@@ -590,7 +588,7 @@ st.markdown("""
 <div class="hero-header">
     <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 5px;">Perspectives • S&OP</p>
     <h1>PREVISIONS STAR MADAGASCAR</h1>
-    <p>Moteur de prévision hybride (Formule Excel stricte pour l'année en cours, CAGR pour le futur).</p>
+    <p>Moteur de prévision hybride (Run-Rate en cours, CAGR futur) - Explorez les tendances à venir.</p>
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
@@ -715,7 +713,7 @@ if fichier_ventes is not None:
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Formule Excel stricte (Base & Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
+    st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR pour les années futures.</p>""", unsafe_allow_html=True)
 
     st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
     
@@ -826,7 +824,7 @@ if fichier_ventes is not None:
                 st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
             with st.expander("🔍 Voir le détail des calculs (Hybride)"):
-                st.markdown("**Note :** L'année de clôture utilise la formule Excel `(Indice * Base) + Momentum`. Les années suivantes utilisent `Base Mensuelle * Indice * CAGR`.")
+                st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR.")
                 cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
                 df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
                 st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})

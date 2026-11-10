@@ -16,7 +16,7 @@ st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #F4F6F8 !important; }
     
@@ -24,48 +24,48 @@ st.markdown("""
     [data-testid="stSidebar"] {
         background-color: #FFFFFF !important; border-right: 1px solid #E5E7EB; box-shadow: 2px 0 10px rgba(0,0,0,0.03);
     }
-    [data-testid="stSidebar"] h2 { color: #E30613 !important; font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; }
-    [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stNumberInput label, [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 700 !important; }
+    [data-testid="stSidebar"] h2 { color: #E30613 !important; font-size: 1.3rem; font-weight: 700; margin-bottom: 20px; }
+    [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stNumberInput label, [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
     
-    /* HEADER COMPACT */
+    /* HEADER COMPACT (Brand STAR) */
     .hero-header {
         background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); color: white; padding: 20px 30px;
         border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 10px -5px rgba(227, 6, 19, 0.3);
         display: flex; flex-direction: row; justify-content: space-between; align-items: center;
     }
-    .hero-header h1 { color: white !important; font-size: 1.6rem; font-weight: 900; margin: 0; letter-spacing: -0.02em; }
+    .hero-header h1 { color: white !important; font-size: 1.6rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
     .hero-header p { color: #FECACA; font-size: 0.9rem; margin: 0; margin-top: 4px; font-weight: 500; }
-    .badge-demo { background-color: white; color: #E30613; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 800; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .badge-demo { background-color: white; color: #E30613; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     
-    /* CARDS & KPI */
+    /* CARDS & KPI (Sans Gras Excessif) */
     .white-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border-top: 4px solid #E30613; margin-bottom: 20px; height: 100%; }
-    .kpi-label { color: #6B7280; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-    .kpi-value { color: #E30613; font-size: 2rem; font-weight: 900; line-height: 1.1; }
-    .kpi-value-dark { color: #111827; }
-    .kpi-value-green { color: #009640; }
-    .kpi-value-red { color: #E30613; }
+    .kpi-label { color: #6B7280; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .kpi-value { color: #E30613; font-size: 2rem; font-weight: 600; line-height: 1.1; }
+    .kpi-value-dark { color: #111827; font-weight: 600; }
+    .kpi-value-green { color: #009640; font-weight: 600; }
+    .kpi-value-red { color: #E30613; font-weight: 600; }
     .kpi-footer { color: #9CA3AF; font-size: 0.8rem; margin-top: 6px; font-weight: 500; }
     
     /* SECTIONS */
-    .section-title { color: #111827; font-size: 1.2rem; font-weight: 800; margin-bottom: 5px; }
+    .section-title { color: #111827; font-size: 1.2rem; font-weight: 700; margin-bottom: 5px; }
     .section-subtitle { color: #6B7280; font-size: 0.85rem; margin-bottom: 20px; font-weight: 500; }
     
     /* FORMS & EXPANDERS */
     div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] { background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important; }
     div[data-testid="stExpander"] { background-color: white !important; border-radius: 12px !important; border: 1px solid #E5E7EB !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02) !important; margin-bottom: 20px !important; }
-    div[data-testid="stExpander"] > details > summary { background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 700 !important; color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important; }
+    div[data-testid="stExpander"] > details > summary { background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 600 !important; color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important; }
     div[data-testid="stExpander"] > details[open] > summary { border-bottom: 1px solid #E5E7EB !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
     
     /* TABLES */
     div[data-testid="stDataFrame"] { border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important; }
     
-    /* NAVIGATION TABS - DESIGN PRO */
+    /* NAVIGATION TABS */
     div[role="radiogroup"] { gap: 28px !important; border-bottom: 2px solid #E5E7EB !important; padding-bottom: 0px !important; margin-bottom: 25px !important; display: flex !important; flex-wrap: wrap !important; align-items: flex-end !important; }
     div[role="radiogroup"] label { background: transparent !important; border: none !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; padding: 8px 4px 14px 4px !important; margin: 0 !important; cursor: pointer !important; transition: all 0.2s ease !important; }
-    div[role="radiogroup"] label div p { font-size: 1.05rem !important; font-weight: 700 !important; color: #6B7280 !important; transition: color 0.2s ease !important; margin: 0 !important; letter-spacing: 0.01em !important; }
+    div[role="radiogroup"] label div p { font-size: 1.05rem !important; font-weight: 600 !important; color: #6B7280 !important; transition: color 0.2s ease !important; margin: 0 !important; letter-spacing: 0.01em !important; }
     div[role="radiogroup"] label:hover div p { color: #111827 !important; }
     div[role="radiogroup"] label:has(input:checked) { border-bottom: 3px solid #E30613 !important; }
-    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 800 !important; }
+    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 700 !important; }
     div[role="radiogroup"] label > div:first-child { display: none !important; }
     div[role="radiogroup"] label:focus-within { outline: none !important; box-shadow: none !important; }
     div[role="radiogroup"] + div { margin-top: -10px !important; }
@@ -75,33 +75,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES
+# FONCTIONS UTILITAIRES (Sans Gras)
 # ==============================================================================
-def make_bold(df):
-    if df is None or df.empty: return df
-    for col in df.columns:
-        if df[col].dtype.name == 'category':
-            df[col] = df[col].astype(str)
-    num_cols = df.select_dtypes(include=[np.number]).columns
-    if len(num_cols) > 0:
-        return df.style.set_properties(subset=num_cols, **{'font-weight': 'bold', 'color': '#111827'})
-    return df
+# Suppression de la fonction make_bold, on laisse Streamlit gérer l'affichage par défaut
 
-# Fonctions de formatage conditionnel
+# Fonctions de formatage conditionnel (Couleurs sans gras)
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
         val = float(val)
-        if val > seuil_alerte: return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;' # Rouge
-        if val < seuil_bon: return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'    # Vert
-        return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'                       # Jaune
+        if val > seuil_alerte: return 'background-color: #FEE2E2; color: #991B1B;' # Rouge clair
+        if val < seuil_bon: return 'background-color: #D1FAE5; color: #065F46;'    # Vert clair
+        return 'background-color: #FEF3C7; color: #92400E;'                       # Jaune clair
     except: return ''
 
 def color_ecart(val):
     try:
         val = float(val)
-        if abs(val) > 30: return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;'     # Forte variation = Rouge
-        if abs(val) > 15: return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'     # Variation moyenne = Jaune
-        return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'                       # Stable = Vert
+        if abs(val) > 30: return 'background-color: #FEE2E2; color: #991B1B;'     # Forte variation = Rouge
+        if abs(val) > 15: return 'background-color: #FEF3C7; color: #92400E;'     # Variation moyenne = Jaune
+        return 'background-color: #D1FAE5; color: #065F46;'                       # Stable = Vert
     except: return ''
 
 def get_region(agence):
@@ -318,7 +310,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v124"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v125"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -740,7 +732,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v124"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v125"
 )
 
 if budget_status == "ok":
@@ -910,15 +902,15 @@ with tab_placeholder.container():
         with st.expander("📊 Afficher le tableau des données brutes", expanded=True):
             if len(df_enrichi) > N_MAX_DISPLAY:
                 st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_enrichi):,}.")
-                st.dataframe(make_bold(df_enrichi.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
-            else: st.dataframe(make_bold(df_enrichi), use_container_width=True, hide_index=True)
+                st.dataframe(df_enrichi.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+            else: st.dataframe(df_enrichi, use_container_width=True, hide_index=True)
 
     elif active_tab == "Réalisé Cumulé":
         st.markdown("### Réalisé Cumulé (Jusqu'au Cutoff)")
         with st.expander("📊 Afficher le tableau du réalisé", expanded=True):
             if df_realise is not None and not df_realise.empty:
                 df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl']].sum().reset_index())
-                st.dataframe(make_bold(df_real_agg.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
+                st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
             else: st.info("Aucune donnée réalisée pour le moment.")
 
     elif active_tab == "Indices & SARR":
@@ -929,7 +921,7 @@ with tab_placeholder.container():
             with st.expander("📊 Afficher les indices", expanded=True):
                 if not table_indices.empty:
                     pivot_indices = _pivot_indices_cached(table_indices)
-                    st.dataframe(make_bold(pivot_indices), use_container_width=True)
+                    st.dataframe(pivot_indices, use_container_width=True)
                 else: st.info("Pas d'historique complet.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
@@ -947,14 +939,14 @@ with tab_placeholder.container():
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
                 
                 st.dataframe(
-                    make_bold(df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum", "Momentum_M (%)"]]
+                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum", "Momentum_M (%)"]]
                     .rename(columns={
                         "SARR_Aff": "Volume M", 
                         "SARR_M1_Aff": "Volume M-1", 
                         "Momentum": "Momentum (Vol Absolu)", 
                         "Momentum_M (%)": "Momentum M vs M-1 (%)"
                     })
-                    .sort_values(["agence", "article", "Mois M"])),
+                    .sort_values(["agence", "article", "Mois M"]),
                     use_container_width=True, hide_index=True,
                     column_config={
                         "Volume M": st.column_config.NumberColumn(format="%.0f"), 
@@ -1010,13 +1002,13 @@ with tab_placeholder.container():
             if nom_total in pivot_mensuel_display.columns:
                 col_config[nom_total] = st.column_config.NumberColumn(nom_total, format="%.2f")
 
-            st.dataframe(make_bold(pivot_mensuel_display), use_container_width=True, hide_index=True, column_config=col_config, height=600)
+            st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
         with st.expander("🔍 Voir le détail des calculs (Hybride)"):
             st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR calculé.")
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
-            st.dataframe(make_bold(df_detail.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
+            st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
 
     elif active_tab == "Analyse Pareto (ABC)":
         st.markdown("### Analyse Pareto & Classification ABC")
@@ -1053,7 +1045,7 @@ with tab_placeholder.container():
             with st.expander("📋 Voir le détail par article", expanded=True):
                 df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
                 df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
-                st.dataframe(make_bold(df_table), use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe': st.column_config.TextColumn(width="small")}, height=400)
+                st.dataframe(df_table, use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe': st.column_config.TextColumn(width="small")}, height=400)
         else:
             st.info("Pas assez de données pour l'analyse.")
 
@@ -1086,7 +1078,6 @@ with tab_placeholder.container():
                 
                 # Application du formatage conditionnel sur la colonne Erreur (%)
                 styled_error_df = df_error_monthly.style.map(color_error, subset=['Erreur (%)'])
-                styled_error_df = styled_error_df.set_properties(subset=[c for c in df_error_monthly.select_dtypes(include=[np.number]).columns if c != 'Erreur (%)'], **{'font-weight': 'bold', 'color': '#111827'})
                 
                 st.dataframe(styled_error_df, use_container_width=True, hide_index=True, column_config={f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"), f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"), 'Écart': st.column_config.NumberColumn(format="localized"), 'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")})
             else:
@@ -1182,9 +1173,8 @@ with tab_placeholder.container():
                 
                 df_impact_final = df_impact.reset_index().rename(columns={'article': 'Article', 'Proposition_Initiatives': '💡 Proposition d\'Initiative'})
                 
-                # Application du formatage conditionnel sur la colonne Ecart (%)
+                # Application du formatage conditionnel sur la colonne Ecart (%) sans gras
                 styled_rupture_df = df_impact_final.style.map(color_ecart, subset=['Ecart (%)'])
-                styled_rupture_df = styled_rupture_df.set_properties(subset=[c for c in df_impact_final.select_dtypes(include=[np.number]).columns if c != 'Ecart (%)'], **{'font-weight': 'bold', 'color': '#111827'})
                 
                 st.dataframe(
                     styled_rupture_df,

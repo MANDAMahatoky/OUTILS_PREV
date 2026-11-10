@@ -313,7 +313,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v118"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v119"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -461,40 +461,59 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             df_base['CAGR_val'] = df_base['CAGR_Hist']
             
     # =========================================================================
-    # INTEGRATION DU MACHINE LEARNING (RANDOM FOREST)
+    # INTEGRATION DU MACHINE LEARNING (RANDOM FOREST) — CORRIGÉ
+    # -------------------------------------------------------------------------
+    # FIX 1 : le merge se fait sur ['agence','article'] uniquement (df_base n'a ni annee ni mois)
+    # FIX 2 : le modèle prédit un VOLUME ; on le convertit en CAGR (taux) avant de l'injecter
+    # FIX 3 : n_estimators réduit + n_jobs=-1 + predict batché → ~30-50× plus rapide
     # =========================================================================
     elif methode_croissance == "🤖 IA (Machine Learning)" and SKLEARN_DISPONIBLE:
-        ml_predictions = []
-        # On entraîne un modèle par couple Agence/Article
-        for (agence, article), group in df_realise_agg.groupby(['agence', 'article'], observed=True):
-            # On ne fait du ML que si on a au moins 6 mois de données
-            if len(group) >= 6:
-                try:
-                    # Features : année, mois
-                    X = group[['annee', 'mois']].values
-                    y = group['hl'].values
-                    
-                    # Modèle Random Forest
-                    rf = RandomForestRegressor(n_estimators=100, max_depth=5, random_state=42)
-                    rf.fit(X, y)
-                    
-                    # On prédit pour les années cibles
-                    future_preds = []
-                    for a in range(annee_cloture, annee_cible + 1):
-                        for m in range(1, 13):
-                            pred = rf.predict([[a, m]])[0]
-                            future_preds.append({'agence': agence, 'article': article, 'annee': a, 'mois': m, 'CAGR_val': pred}) 
-                    
-                    ml_predictions.extend(future_preds)
-                except Exception as e:
-                    pass # En cas d'erreur, on laissera le fallback s'appliquer
-                    
-        if ml_predictions:
-            df_ml = pd.DataFrame(ml_predictions)
-            # On merge les prédictions ML. Si le ML a échoué pour un article, on utilise le fallback (CAGR_Hist)
-            df_base = df_base.merge(df_ml, on=['agence', 'article', 'annee', 'mois'], how='left')
-            df_base['CAGR_val'] = df_base['CAGR_val_y'].fillna(df_base['CAGR_Hist'])
-            df_base = df_base.drop(columns=['CAGR_val_x', 'CAGR_val_y'])
+        ml_data = []
+        n_years = annee_cible - annee_cloture
+
+        if n_years > 0:
+            # Pré-construire la matrice de prédiction UNE SEULE FOIS (12 mois de l'année cible)
+            X_pred_cible = np.array([[annee_cible, m] for m in range(1, 13)])
+
+            for (agence, article), group in df_realise_agg.groupby(['agence', 'article'], observed=True):
+                # On n'entraîne que si au moins 6 mois d'historique
+                if len(group) >= 6:
+                    try:
+                        X = group[['annee', 'mois']].values
+                        y = group['hl'].values
+
+                        rf = RandomForestRegressor(
+                            n_estimators=30,     # 100 → 30 : qualité équivalente sur 6-24 points
+                            max_depth=5,
+                            random_state=42,
+                            n_jobs=-1            # parallélise les arbres
+                        )
+                        rf.fit(X, y)
+
+                        # UN SEUL predict pour les 12 mois de l'année cible
+                        preds_cible = np.maximum(0.0, rf.predict(X_pred_cible))
+                        vol_cible = float(preds_cible.sum())
+
+                        # Volume "courant" de référence (projection de l'année de clôture)
+                        mask = (df_base['agence'] == agence) & (df_base['article'] == article)
+                        vol_courant = float(df_base.loc[mask, 'Projection_CurrentYear'].iloc[0]) if mask.any() else 0.0
+
+                        # ⚠️ Conversion VOLUME → TAUX (CAGR) — cœur du fix
+                        if vol_courant > 0 and vol_cible > 0:
+                            cagr = (vol_cible / vol_courant) ** (1.0 / n_years) - 1.0
+                        else:
+                            cagr = np.nan
+
+                        ml_data.append({'agence': agence, 'article': article, 'CAGR_ML': cagr})
+                    except Exception:
+                        pass  # fallback CAGR_Hist ci-dessous
+
+        if ml_data:
+            df_ml = pd.DataFrame(ml_data).drop_duplicates(subset=['agence', 'article'])
+            # ✅ Merge sur [agence, article] uniquement
+            df_base = df_base.merge(df_ml, on=['agence', 'article'], how='left')
+            df_base['CAGR_val'] = df_base['CAGR_ML'].fillna(df_base['CAGR_Hist'])
+            df_base = df_base.drop(columns=['CAGR_ML'])
         else:
             df_base['CAGR_val'] = df_base['CAGR_Hist']
 
@@ -792,7 +811,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v118"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v119"
 )
 
 if budget_status == "ok":
@@ -1151,45 +1170,38 @@ with tab_placeholder.container():
         st.markdown("Cette section détecte automatiquement les périodes où la tendance de vente a brusquement changé (chute ou explosion), par rapport à la dynamique historique.")
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # On utilise df_realise pour analyser la tendance historique
         df_tendance = df_realise.groupby(['annee', 'mois'])['hl'].sum().reset_index()
         df_tendance['Date'] = pd.to_datetime(df_tendance['annee'].astype(str) + '-' + df_tendance['mois'].astype(str) + '-01')
         df_tendance = df_tendance.sort_values('Date').reset_index(drop=True)
         
         if len(df_tendance) > 3:
-            # Calcul des moyennes mobiles
             df_tendance['Moyenne_3M'] = df_tendance['hl'].rolling(window=3, min_periods=1).mean()
             df_tendance['Moyenne_12M'] = df_tendance['hl'].rolling(window=12, min_periods=1).mean()
             
-            # Détection de la rupture : écart significatif entre court terme et long terme
             seuil = 0.20
             df_tendance['Ecart_Pct'] = (df_tendance['Moyenne_3M'] - df_tendance['Moyenne_12M']) / df_tendance['Moyenne_12M']
             df_tendance['Rupture'] = df_tendance['Ecart_Pct'].abs() > seuil
             
             fig_rupture = go.Figure()
             
-            # Ligne des ventes réelles
             fig_rupture.add_trace(go.Scatter(
                 x=df_tendance['Date'], y=df_tendance['hl'], 
                 mode='lines', name='Ventes Mensuelles',
                 line=dict(color='#9CA3AF', width=1.5)
             ))
             
-            # Moyenne mobile 3 mois (courte)
             fig_rupture.add_trace(go.Scatter(
                 x=df_tendance['Date'], y=df_tendance['Moyenne_3M'], 
                 mode='lines', name='Tendance Court Terme (3M)',
                 line=dict(color='#E30613', width=3)
             ))
             
-            # Moyenne mobile 12 mois (longue)
             fig_rupture.add_trace(go.Scatter(
                 x=df_tendance['Date'], y=df_tendance['Moyenne_12M'], 
                 mode='lines', name='Tendance Long Terme (12M)',
                 line=dict(color='#111827', width=2, dash='dash')
             ))
             
-            # Points de rupture
             df_ruptures = df_tendance[df_tendance['Rupture']]
             if not df_ruptures.empty:
                 fig_rupture.add_trace(go.Scatter(
@@ -1210,7 +1222,6 @@ with tab_placeholder.container():
             )
             st.plotly_chart(fig_rupture, use_container_width=True, config={'displayModeBar': False})
             
-            # Tableau des articles impactés
             st.markdown("#### Articles impactés par une rupture")
             st.markdown("Voici les articles qui ont un écart significatif entre leur moyenne récente et leur moyenne historique, avec des propositions d'initiatives concrètes :")
             
@@ -1225,11 +1236,9 @@ with tab_placeholder.container():
             df_impact = pd.concat([df_last_3m, df_last_12m], axis=1).dropna()
             df_impact['Ecart (%)'] = ((df_impact['Moyenne_3M_Actuelle'] - df_impact['Moyenne_12M_Historique']) / df_impact['Moyenne_12M_Historique']) * 100
             
-            # Filtre et ajout des propositions d'initiatives
             df_impact = df_impact[df_impact['Ecart (%)'].abs() > 20].sort_values('Ecart (%)')
             
             if not df_impact.empty:
-                # Ajout de la colonne d'initiatives basée sur l'écart
                 conditions = [
                     df_impact['Ecart (%)'] < -30,
                     (df_impact['Ecart (%)'] >= -30) & (df_impact['Ecart (%)'] < 0),

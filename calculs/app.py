@@ -78,6 +78,12 @@ def extraire_marque(article):
     if "eau vive" in a_low: return "Eau Vive"
     return a.split()[0]
 
+def clean_text_for_key(text):
+    if pd.isna(text): return ""
+    text = str(text).lower().strip()
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')
+    return re.sub(r'[^a-z0-9]', '', text)
+
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
     {"Article": "Caprice Ananas 100 cl VER", "Contenance (Cl)": 100, "Positionnement": "Milieu"}, {"Article": "Caprice Ananas 150 cl PET", "Contenance (Cl)": 150, "Positionnement": "Milieu"},
@@ -153,7 +159,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["marque"] = df_ref["article_original"].apply(extraire_marque)
-    df_ref["cle_article"] = df_ref["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+    df_ref["cle_article"] = df_ref["article_original"].apply(clean_text_for_key)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
     df_raw = pd.read_excel(io.BytesIO(ventes_bytes), sheet_name=0, header=None)
@@ -176,7 +182,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes) -> pd.DataFrame:
     df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
     df["agence"] = df["agence"].astype(str).str.strip()
     df["annee"] = df["annee"].fillna(2026).astype(int)
-    df["cle_article"] = df["article_original"].str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+    df["cle_article"] = df["article_original"].apply(clean_text_for_key)
 
     if ref_bytes is not None:
         df_enrichi = pd.merge(df_ref, df, on="cle_article", how="inner")
@@ -250,7 +256,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v100"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v101"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -421,64 +427,58 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
     # =========================================================================
-    # INTEGRATION DU BUDGET QUERY (ULTRA ROBUSTE)
+    # INTEGRATION DU BUDGET QUERY (ROBUSTE ET DEBUGGABLE)
     # =========================================================================
     if budget_bytes is not None:
         try:
             xls = pd.ExcelFile(io.BytesIO(budget_bytes))
             df_budget = None
             
-            # On cherche l'onglet qui contient les bonnes colonnes
+            # 1. Recherche de l'onglet contenant les bonnes colonnes
             for sheet in xls.sheet_names:
                 temp = pd.read_excel(xls, sheet_name=sheet)
                 temp.columns = [str(c).strip().lower() for c in temp.columns]
-                if 'mois' in temp.columns and 'articles' in temp.columns and 'valeur' in temp.columns:
+                if any('article' in c for c in temp.columns) and any('valeur' in c for c in temp.columns):
                     df_budget = temp.copy()
                     break
             
             if df_budget is not None:
-                # On cherche la colonne d'agence (peut s'appeler 'attribut', 'agence', etc.)
-                agence_col = None
-                for col in ['attribut', 'agence', 'agences', 'agence ']:
-                    if col in df_budget.columns:
-                        agence_col = col
-                        break
+                # 2. Identification flexible des colonnes
+                col_art = next((c for c in df_budget.columns if 'article' in c), None)
+                col_val = next((c for c in df_budget.columns if 'valeur' in c), None)
+                col_mois = next((c for c in df_budget.columns if 'mois' in c), None)
+                col_ag = next((c for c in df_budget.columns if 'attribut' in c or 'agence' in c), None)
                 
-                if agence_col is not None:
-                    df_budget = df_budget.rename(columns={'articles': 'article', agence_col: 'agence'})
-                    
-                    # FILTRE STRICT : On ne garde QUE les articles contenant "33 CAN"
-                    df_budget = df_budget[df_budget['article'].astype(str).str.contains('33 CAN', case=False, na=False)].copy()
+                if col_art and col_val and col_mois:
+                    # 3. Filtre strict sur les 33 CAN
+                    mask_33 = df_budget[col_art].astype(str).str.contains('33', case=False, na=False) & df_budget[col_art].astype(str).str.contains('can', case=False, na=False)
+                    df_budget = df_budget[mask_33].copy()
                     
                     if not df_budget.empty:
-                        # Nettoyage strict
-                        df_budget['key_article'] = df_budget['article'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
-                        df_budget['key_agence'] = df_budget['agence'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
-                        df_cross['key_article'] = df_cross['article'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
-                        df_cross['key_agence'] = df_cross['agence'].astype(str).str.lower().str.strip().str.replace(r'[^a-z0-9]', '', regex=True)
+                        # 4. Nettoyage
+                        df_budget['key_article'] = df_budget[col_art].apply(clean_text_for_key)
+                        df_budget['mois'] = pd.to_numeric(df_budget[col_mois], errors='coerce')
+                        df_budget['valeur_budget'] = pd.to_numeric(df_budget[col_val], errors='coerce').fillna(0.0)
                         
-                        df_budget['mois'] = pd.to_numeric(df_budget['mois'], errors='coerce')
-                        df_budget['valeur'] = pd.to_numeric(df_budget['valeur'], errors='coerce').fillna(0.0)
+                        df_budget = df_budget.dropna(subset=['mois'])
                         
-                        df_budget = df_budget[['key_article', 'key_agence', 'mois', 'valeur']].dropna(subset=['mois'])
-                        
-                        if budget_all_agencies:
-                            df_budget_agg = df_budget.groupby(['key_article', 'mois'])['valeur'].sum().reset_index()
-                            df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'mois'], how='left', suffixes=('', '_budget'))
+                        if budget_all_agencies or not col_ag:
+                            df_budget_agg = df_budget.groupby(['key_article', 'mois'])['valeur_budget'].sum().reset_index()
+                            df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'mois'], how='left')
                         else:
-                            df_cross = df_cross.merge(df_budget, on=['key_article', 'key_agence', 'mois'], how='left', suffixes=('', '_budget'))
+                            df_budget['key_agence'] = df_budget[col_ag].apply(clean_text_for_key)
+                            df_budget_agg = df_budget.groupby(['key_article', 'key_agence', 'mois'])['valeur_budget'].sum().reset_index()
+                            df_cross = df_cross.merge(df_budget_agg, on=['key_article', 'key_agence', 'mois'], how='left')
                         
-                        masque_budget = (df_cross['valeur'].notna()) & (~df_cross['is_realise'])
+                        masque_budget = (df_cross['valeur_budget'].notna()) & (~df_cross['is_realise'])
                         
                         if masque_budget.any():
-                            df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur']
+                            df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur_budget']
                             st.sidebar.success(f"✅ Budget Query appliqué sur {masque_budget.sum()} lignes.")
                         else:
-                            st.sidebar.warning("⚠️ Budget Query lu, mais aucune correspondance trouvée (vérifiez les noms d'articles/agences/mois).")
+                            st.sidebar.warning("⚠️ Budget Query lu, mais aucune correspondance trouvée (vérifiez les noms d'articles/mois).")
                     else:
                         st.sidebar.warning("⚠️ Aucun article '33 CAN' trouvé dans le Budget Query.")
-                else:
-                    st.sidebar.error("⚠️ Colonne d'agence introuvable dans le Budget Query.")
             else:
                 st.sidebar.error("⚠️ L'onglet Budget Query n'a pas été trouvé dans le fichier.")
                 

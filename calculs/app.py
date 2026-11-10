@@ -292,7 +292,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v114"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v115"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -614,9 +614,15 @@ with st.sidebar:
         df_enrichi = charger_et_enrichir(fichier_ventes.getvalue(), fichier_ref.getvalue() if fichier_ref is not None else None)
 
         st.markdown("#### 1. Périmètre")
+        
+        # ✅ MODIFICATION : L'Agence est maintenant juste en dessous de la Région
         regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
         sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes", key="filter_region")
         df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
+
+        agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
+        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes", key="filter_agence")
+        df_temp = df_temp[df_temp["agence"].isin(sel_agences)] if sel_agences else df_temp
 
         segments_dispo = sorted([str(s) for s in df_temp["segment"].unique() if pd.notna(s)])
         sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous", key="filter_segment")
@@ -629,10 +635,6 @@ with st.sidebar:
         articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
         sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous", key="filter_article")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
-
-        agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
-        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes", key="filter_agence")
-        df_temp = df_temp[df_temp["agence"].isin(sel_agences)] if sel_agences else df_temp
 
         contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
         sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes", key="filter_contenance")
@@ -706,16 +708,16 @@ if fichier_ventes is None:
 
 df_perimetre = df_enrichi.copy()
 if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
+if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 if sel_positionnements: df_perimetre = df_perimetre[df_perimetre["positionnement"].isin(sel_positionnements)]
 if sel_contenances: df_perimetre = df_perimetre[df_perimetre["contenance_cl"].isin(sel_contenances)]
 if sel_segments: df_perimetre = df_perimetre[df_perimetre["segment"].isin(sel_segments)]
 if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_articles)]
-if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
 if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v114"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v115"
 )
 
 if budget_status == "ok":

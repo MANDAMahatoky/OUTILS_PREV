@@ -84,7 +84,6 @@ def clean_text_for_key(text):
     text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')
     return re.sub(r'[^a-z0-9]', '', text)
 
-# Nouvelle fonction pour ignorer le "cl" dans les noms d'articles du budget
 def clean_text_for_budget_key(text):
     if pd.isna(text): return ""
     text = str(text).lower().strip()
@@ -264,7 +263,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul ultra-rapide des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v107"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v110"):
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
@@ -433,9 +432,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     
     # =========================================================================
-    # INTEGRATION DU BUDGET QUERY (CORRIGÉE)
+    # INTEGRATION DU BUDGET QUERY (INCLUT 33 CAN + CRISTALLINES)
     # =========================================================================
-    # On crée une clé de jointure qui ignore le mot "cl" (ex: "33cl CAN" -> "33 CAN")
     df_cross['key_article_budget'] = df_cross['article'].apply(clean_text_for_budget_key)
     
     if budget_bytes is not None:
@@ -459,9 +457,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 if col_art and col_val and col_mois:
                     df_budget = df_budget.dropna(subset=[col_art])
                     
-                    # FILTRE STRICT : On ne garde que les 33 CAN
+                    # FILTRE : 33 CAN + CRISTALLINES
                     mask_33can = df_budget[col_art].astype(str).str.contains('33', na=False) & df_budget[col_art].astype(str).str.contains('CAN', case=False, na=False)
-                    df_budget = df_budget[mask_33can].copy()
+                    mask_cristalline = df_budget[col_art].astype(str).str.contains('Cristalline', case=False, na=False)
+                    df_budget = df_budget[mask_33can | mask_cristalline].copy()
                     
                     if not df_budget.empty:
                         df_budget['key_article_budget'] = df_budget[col_art].apply(clean_text_for_budget_key)
@@ -469,8 +468,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         df_budget['valeur_budget'] = pd.to_numeric(df_budget[col_val], errors='coerce').fillna(0.0)
                         df_budget = df_budget.dropna(subset=['mois'])
                         
-                        # Conversion Cols -> HL. Comme c'est un 33 CAN, on force la contenance à 33cl si non trouvé.
-                        # On essaie de récupérer la contenance existante pour être sûr.
+                        # Conversion Cols -> HL
                         df_temp_content = df_cross[['key_article_budget', 'contenance_cl']].drop_duplicates()
                         df_budget = df_budget.merge(df_temp_content, on='key_article_budget', how='left')
                         df_budget['contenance_cl'] = df_budget['contenance_cl'].fillna(33.0)
@@ -500,7 +498,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                             masque_budget = (df_cross['valeur_budget'].notna()) & (~df_cross['is_realise'])
                             df_cross.loc[masque_budget, 'Prevision_HL'] = df_cross.loc[masque_budget, 'valeur_budget']
                             
-                        st.sidebar.success(f"✅ Budget Query (33 CAN) appliqué.")
+                        st.sidebar.success(f"✅ Budget Query (33 CAN + Cristallines) appliqué.")
         except Exception as e:
             st.sidebar.error(f"⚠️ Erreur de lecture du Budget Query : {e}")
 
@@ -551,10 +549,10 @@ with st.sidebar:
     with st.expander("📁 Importer vos fichiers", expanded=True):
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
         fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref", help="Si fourni, l'application ne calculera que sur les articles de ce fichier.")
-        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (uniquement pour les 33 CAN).")
+        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (uniquement pour les 33 CAN + Cristallines).")
         
         if fichier_budget is not None:
-            budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du 33 CAN s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
+            budget_all_agencies = st.checkbox("Appliquer à toutes les agences", value=True, help="Si coché, les valeurs du budget s'appliqueront à toutes les agences, quel que soit l'attribut 'Agence' dans le fichier.")
         else:
             budget_all_agencies = True
 

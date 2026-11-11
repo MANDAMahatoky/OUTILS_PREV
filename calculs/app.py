@@ -10,67 +10,220 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==============================================================================
-# CONFIGURATION ET DESIGN
+# CONFIGURATION ET DESIGN PREMIUM (Brand STAR)
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #F4F6F8 !important; }
     
-    /* SIDEBAR */
+    html, body, [class*="css"] { 
+        font-family: 'Inter', sans-serif; 
+    }
+    
+    /* FOND GLOBAL */
+    .stApp { 
+        background-color: #F4F6F8 !important; 
+    }
+    
+    /* ==========================================
+       SIDEBAR (Design SaaS)
+       ========================================== */
     [data-testid="stSidebar"] {
-        background-color: #FFFFFF !important; border-right: 1px solid #E5E7EB; box-shadow: 2px 0 10px rgba(0,0,0,0.03);
+        background-color: #FFFFFF !important; 
+        border-right: 1px solid #E5E7EB; 
+        box-shadow: 2px 0 10px rgba(0,0,0,0.02);
     }
-    [data-testid="stSidebar"] h2 { color: #111827 !important; font-size: 1.1rem; font-weight: 700; margin-top: 10px; margin-bottom: 15px; }
-    [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stNumberInput label, [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
+    [data-testid="stSidebar"] h2 { 
+        color: #111827 !important; 
+        font-size: 1.1rem; 
+        font-weight: 700; 
+        margin-top: 10px; 
+        margin-bottom: 20px; 
+    }
+    [data-testid="stSidebar"] .stSelectbox label, 
+    [data-testid="stSidebar"] .stNumberInput label, 
+    [data-testid="stSidebar"] .stMultiSelect label { 
+        color: #4B5563 !important; 
+        font-size: 0.85rem !important; 
+        font-weight: 600 !important; 
+        margin-bottom: 4px;
+    }
     
-    /* HEADER COMPACT */
+    /* Expanders dans la Sidebar */
+    [data-testid="stSidebar"] div[data-testid="stExpander"] {
+        border: 1px solid #E5E7EB !important; 
+        border-radius: 8px !important;
+        background-color: #FFFFFF !important; 
+        box-shadow: none !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stExpander"] > details > summary {
+        background-color: #F9FAFB !important; 
+        border-radius: 8px !important;
+        padding: 12px 15px !important; 
+        font-weight: 600 !important; 
+        font-size: 0.9rem !important; 
+        color: #111827 !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stExpander"] > details[open] > summary {
+        border-bottom-left-radius: 0 !important; 
+        border-bottom-right-radius: 0 !important;
+        border-bottom: 1px solid #E5E7EB !important;
+    }
+
+    /* ==========================================
+       HEADER (Bandeau Corporate)
+       ========================================== */
     .hero-header {
-        background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); color: white; padding: 24px 30px;
-        border-radius: 12px; margin-top: 10px; margin-bottom: 25px; box-shadow: 0 4px 10px -5px rgba(227, 6, 19, 0.3);
-        display: flex; flex-direction: row; justify-content: space-between; align-items: center;
+        background: #E30613; 
+        color: white; 
+        padding: 24px 30px;
+        border-radius: 12px; 
+        margin-top: 5px; 
+        margin-bottom: 25px; 
+        box-shadow: 0 4px 12px rgba(227, 6, 19, 0.15);
+        display: flex; 
+        flex-direction: row; 
+        justify-content: space-between; 
+        align-items: center;
     }
-    .hero-header h1 { color: white !important; font-size: 1.6rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
-    .hero-header p { color: #FECACA; font-size: 0.9rem; margin: 0; margin-top: 6px; font-weight: 500; }
-    .badge-demo { background-color: white; color: #E30613; padding: 8px 16px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; }
+    .hero-header h1 { 
+        color: white !important; 
+        font-size: 1.6rem; 
+        font-weight: 700; 
+        margin: 0; 
+        letter-spacing: -0.02em; 
+    }
+    .hero-header p { 
+        color: rgba(255,255,255,0.8); 
+        font-size: 0.9rem; 
+        margin: 0; 
+        margin-top: 6px; 
+        font-weight: 500; 
+    }
+    .badge-demo { 
+        background-color: white; 
+        color: #E30613; 
+        padding: 8px 16px; 
+        border-radius: 20px; 
+        font-size: 0.8rem; 
+        font-weight: 700; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+        white-space: nowrap;
+    }
     
-    /* CARDS & KPI */
-    .white-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03); border: 1px solid #E5E7EB; margin-bottom: 20px; height: 100%; }
-    .kpi-label { color: #6B7280; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .kpi-value { color: #E30613; font-size: 2.2rem; font-weight: 600; line-height: 1.1; }
-    .kpi-value-dark { color: #111827; }
+    /* ==========================================
+       CARTES KPI (Style Dashboard Premium)
+       ========================================== */
+    .white-card { 
+        background: white; 
+        border-radius: 10px; 
+        padding: 20px 24px; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04); 
+        border: 1px solid #E5E7EB;
+        border-left: 4px solid #E30613; /* Accent sur le côté */
+        margin-bottom: 20px; 
+        height: 100%; 
+    }
+    .kpi-label { 
+        color: #6B7280; 
+        font-size: 0.8rem; 
+        font-weight: 600; 
+        text-transform: uppercase; 
+        letter-spacing: 0.05em; 
+        margin-bottom: 8px; 
+    }
+    .kpi-value { 
+        color: #111827; 
+        font-size: 2rem; 
+        font-weight: 700; 
+        line-height: 1.1; 
+        letter-spacing: -0.02em;
+    }
+    .kpi-value-brand { color: #E30613; }
     .kpi-value-green { color: #059669; }
     .kpi-value-red { color: #E30613; }
-    .kpi-footer { color: #9CA3AF; font-size: 0.8rem; margin-top: 8px; font-weight: 500; }
+    .kpi-footer { 
+        color: #9CA3AF; 
+        font-size: 0.8rem; 
+        margin-top: 8px; 
+        font-weight: 500; 
+    }
     
-    /* SECTIONS */
+    /* ==========================================
+       NAVIGATION (Segmented Control)
+       ========================================== */
+    div[role="radiogroup"] { 
+        gap: 8px !important; 
+        background-color: #F3F4F6; 
+        padding: 6px; 
+        border-radius: 10px; 
+        border: 1px solid #E5E7EB;
+        margin-bottom: 25px !important; 
+        display: flex !important; 
+        flex-wrap: wrap !important; 
+    }
+    div[role="radiogroup"] label { 
+        background: transparent !important; 
+        border: 1px solid transparent !important; 
+        border-radius: 6px !important; 
+        padding: 8px 16px !important; 
+        margin: 0 !important; 
+        cursor: pointer !important; 
+        transition: all 0.2s ease !important; 
+    }
+    div[role="radiogroup"] label div p { 
+        font-size: 0.9rem !important; 
+        font-weight: 600 !important; 
+        color: #4B5563 !important; 
+        margin: 0 !important; 
+    }
+    div[role="radiogroup"] label:hover { 
+        background: #E5E7EB !important; 
+    }
+    div[role="radiogroup"] label:has(input:checked) { 
+        background: #FFFFFF !important;
+        border: 1px solid #E5E7EB !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+    }
+    div[role="radiogroup"] label:has(input:checked) div p { 
+        color: #E30613 !important; 
+        font-weight: 700 !important; 
+    }
+    div[role="radiogroup"] label > div:first-child { 
+        display: none !important; 
+    }
+    
+    /* ==========================================
+       TABLES & EXPANDERS
+       ========================================== */
+    div[data-testid="stDataFrame"] { 
+        border: 1px solid #E5E7EB !important; 
+        border-radius: 8px !important; 
+        padding: 5px !important; 
+        background-color: white !important; 
+    }
+    div[data-testid="stExpander"] { 
+        background-color: white !important; 
+        border-radius: 10px !important; 
+        border: 1px solid #E5E7EB !important; 
+        box-shadow: 0 2px 4px -1px rgba(0,0,0,0.02) !important; 
+        margin-bottom: 20px !important; 
+    }
+    div[data-testid="stExpander"] > details > summary { 
+        background-color: #FFFFFF !important; 
+        border-radius: 10px !important; 
+        font-weight: 600 !important; 
+        color: #111827 !important; 
+        padding: 15px 20px !important; 
+    }
+
+    /* Titres de section */
     .section-title { color: #111827; font-size: 1.2rem; font-weight: 700; margin-bottom: 5px; }
     .section-subtitle { color: #6B7280; font-size: 0.85rem; margin-bottom: 20px; font-weight: 500; }
     
-    /* FORMS & EXPANDERS */
-    div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] { background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important; }
-    div[data-testid="stExpander"] { background-color: white !important; border-radius: 12px !important; border: 1px solid #E5E7EB !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02) !important; margin-bottom: 20px !important; }
-    div[data-testid="stExpander"] > details > summary { background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 600 !important; color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important; }
-    div[data-testid="stExpander"] > details[open] > summary { border-bottom: 1px solid #E5E7EB !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
-    
-    /* TABLES */
-    div[data-testid="stDataFrame"] { border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important; }
-    
-    /* NAVIGATION TABS */
-    div[role="radiogroup"] { gap: 28px !important; border-bottom: 2px solid #E5E7EB !important; padding-bottom: 0px !important; margin-bottom: 25px !important; display: flex !important; flex-wrap: wrap !important; align-items: flex-end !important; }
-    div[role="radiogroup"] label { background: transparent !important; border: none !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; padding: 8px 4px 14px 4px !important; margin: 0 !important; cursor: pointer !important; transition: all 0.2s ease !important; }
-    div[role="radiogroup"] label div p { font-size: 1.05rem !important; font-weight: 600 !important; color: #6B7280 !important; transition: color 0.2s ease !important; margin: 0 !important; letter-spacing: 0.01em !important; }
-    div[role="radiogroup"] label:hover div p { color: #111827 !important; }
-    div[role="radiogroup"] label:has(input:checked) { border-bottom: 3px solid #E30613 !important; }
-    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 700 !important; }
-    div[role="radiogroup"] label > div:first-child { display: none !important; }
-    div[role="radiogroup"] label:focus-within { outline: none !important; box-shadow: none !important; }
-    div[role="radiogroup"] + div { margin-top: -10px !important; }
-    
-    .block-container { padding-top: 1rem !important; }
+    .block-container { padding-top: 1.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -313,7 +466,6 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     if df_h.empty: return pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
 
     def _idx(group_cols):
-        # STRICTEMENT EXCEL : On utilise 'hl' pour les indices de saisonnalité
         v = (df_h.groupby(group_cols + ['annee', 'mois'], observed=True)['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0))
         cum_m = v.groupby(group_cols).sum()
         cum_a = v.sum(axis=1).groupby(group_cols).sum()
@@ -343,7 +495,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v130"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v131"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -379,7 +531,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0).clip(lower=0.1) 
-    # STRICTEMENT EXCEL : On utilise le réalisé 'hl' pour le SARR
     df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
@@ -403,7 +554,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
 
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
-    # STRICTEMENT EXCEL : On utilise 'hl' (réalisé) pour le YTD de l'année en cours
     df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
     df_premiere_annee = (df_realise[df_realise['hl'] > 0].groupby(['agence', 'article'], observed=True)['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'}))
@@ -413,7 +563,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
     df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
 
-    # STRICTEMENT EXCEL : On utilise 'hl' pour le volume de base du CAGR
     df_base_vol = (df_realise.groupby(['agence', 'article', 'annee'], observed=True)['hl'].sum().reset_index())
     df_base = df_base.merge(df_base_vol, left_on=['agence', 'article', 'Annee_Base'], right_on=['agence', 'article', 'annee'], how='left')
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
@@ -437,22 +586,14 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
-    # =========================================================================
     # CORRECTION LOGIQUE EXCEL : ON UTILISE LA PROJECTION POUR LE CAGR
-    # =========================================================================
-    # 1. On prépare la projection annualisée (colonne CP de votre Excel)
     df_annualise = df_base[['agence', 'article', 'Projection_CurrentYear']].copy()
-    
-    # 2. On calcule le volume historique (avec les ruptures)
     df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()
     
-    # 3. Si l'année max du CAGR est l'année en cours (ex: 2026), on remplace le volume partiel (Jan-Août) 
-    # par la Projection sur 12 mois (Projection_CurrentYear).
     if annee_max_cagr == annee_cloture:
         df_hist_cagr = df_hist_cagr.merge(df_annualise, on=['agence', 'article'], how='left')
         df_hist_cagr.loc[df_hist_cagr['annee'] == annee_cloture, 'hl_potentiel'] = df_hist_cagr.loc[df_hist_cagr['annee'] == annee_cloture, 'Projection_CurrentYear']
         df_hist_cagr = df_hist_cagr.drop(columns=['Projection_CurrentYear'])
-    # =========================================================================
 
     if not df_hist_cagr.empty:
         g = df_hist_cagr.groupby(['agence', 'article'], observed=True)
@@ -476,7 +617,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         for (agence, article), group in df_hist_cagr.groupby(['agence', 'article'], observed=True):
             try:
                 x = group['annee'].values.astype(float)
-                y = group['hl_potentiel'].values.astype(float) # Utilise le potentiel (rupture)
+                y = group['hl_potentiel'].values.astype(float)
                 mask = ~np.isnan(x) & ~np.isnan(y)
                 x = x[mask]
                 y = y[mask]
@@ -499,7 +640,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     elif methode_croissance == "Moyenne 3 ans":
         try:
-            df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl_potentiel', aggfunc='sum').fillna(0) # Utilise le potentiel
+            df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl_potentiel', aggfunc='sum').fillna(0)
             growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
             if not growth_rates.empty:
                 df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
@@ -651,7 +792,7 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# INTERFACE UTILISATEUR
+# INTERFACE UTILISATEUR (SIDEBAR & FILTRES)
 # ==============================================================================
 
 with st.sidebar:
@@ -757,6 +898,9 @@ with st.sidebar:
         st.markdown("#### 🛠️ Options d'affichage")
         show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, help="Cochez cette case pour faire apparaître l'onglet des données brutes dans la navigation.", key="param_show_raw")
 
+# ==============================================================================
+# MAIN AREA
+# ==============================================================================
 st.markdown("""
 <div class="hero-header">
     <div>
@@ -790,7 +934,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v130"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v131"
 )
 
 if budget_status == "ok":
@@ -855,24 +999,25 @@ with k1:
     st.markdown(f"""
     <div class="white-card">
         <div class="kpi-label">Atterrissage {annee_cible}</div>
-        <div class="kpi-value">{atterrissage_cible:,.0f}</div>
+        <div class="kpi-value kpi-value-brand">{atterrissage_cible:,.0f}</div>
         <div class="kpi-footer">{unite_affichage} (Total Annuel Réalisé + Prévisions)</div>
     </div>""", unsafe_allow_html=True)
 
 with k2:
     source_obj = "Manuel" if use_objectif_manuel else f"N-1 {taux_ambition:+.1f}%"
     st.markdown(f"""
-    <div class="white-card">
+    <div class="white-card" style="border-left-color: #111827;">
         <div class="kpi-label">Objectif Annuel ({source_obj})</div>
-        <div class="kpi-value kpi-value-dark">{objectif_final:,.0f}</div>
+        <div class="kpi-value">{objectif_final:,.0f}</div>
         <div class="kpi-footer">{unite_affichage} (Cible)</div>
     </div>""", unsafe_allow_html=True)
 
 with k3:
     gap_color = "kpi-value-green" if gap <= 0 else "kpi-value-red"
     gap_label = "Objectif Atteint" if gap <= 0 else "Écart Restant"
+    border_color = "#059669" if gap <= 0 else "#E30613"
     st.markdown(f"""
-    <div class="white-card">
+    <div class="white-card" style="border-left-color: {border_color};">
         <div class="kpi-label">GAP (Objectif - Atterrissage)</div>
         <div class="kpi-value {gap_color}">{gap:+,.0f}</div>
         <div class="kpi-footer">{gap_label} en {unite_affichage}</div>
@@ -942,7 +1087,7 @@ fig1.update_layout(
 st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Les prévisions sont ajustées en fonction des volumes potentiels (Ventes + Ruptures) pour une meilleure précision.</p>""", unsafe_allow_html=True)
+st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Projection basée sur la logique hybride : Run-Rate (Momentum) pour l'année en cours, CAGR ou Tendance pour les années futures.</p>""", unsafe_allow_html=True)
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
@@ -1115,13 +1260,13 @@ with tab_placeholder.container():
         st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
         st.markdown("<br>", unsafe_allow_html=True)
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3 = st.columns(3, gap="large")
         with m1:
-            st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{mae:,.0f}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="white-card" style="border-left-color: #6B7280;"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value" style="font-size: 1.8rem;">{mae:,.0f}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
         with m2:
-            st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{wmape:,.2f}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="white-card" style="border-left-color: #6B7280;"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value" style="font-size: 1.8rem;">{wmape:,.2f}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
         with m3:
-            st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{smape:,.2f}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="white-card" style="border-left-color: #6B7280;"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value" style="font-size: 1.8rem;">{smape:,.2f}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1151,13 +1296,13 @@ with tab_placeholder.container():
         
         if not df_rupture_hist.empty:
             # KPIs dédiés aux ruptures
-            kr1, kr2 = st.columns(2)
+            kr1, kr2 = st.columns(2, gap="large")
             with kr1:
                 vol_perdu_total = df_rupture_hist['rupture_hl'].sum()
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Volume Total Perdu (Ruptures)</div><div class="kpi-value kpi-value-dark">{vol_perdu_total:,.0f} HL</div><div class="kpi-footer">Sur le périmètre filtré</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-left-color: #F59E0B;"><div class="kpi-label">Volume Total Perdu (Ruptures)</div><div class="kpi-value">{vol_perdu_total:,.0f} HL</div><div class="kpi-footer">Sur le périmètre filtré</div></div>""", unsafe_allow_html=True)
             with kr2:
                 nb_mois_ruptures = df_rupture_hist.groupby(['annee', 'mois']).ngroups
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Mois impactés</div><div class="kpi-value kpi-value-dark">{nb_mois_ruptures}</div><div class="kpi-footer">Nombre de mois avec au moins une rupture</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-left-color: #F59E0B;"><div class="kpi-label">Mois impactés</div><div class="kpi-value">{nb_mois_ruptures}</div><div class="kpi-footer">Nombre de mois avec au moins une rupture</div></div>""", unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
             

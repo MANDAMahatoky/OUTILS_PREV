@@ -1,6 +1,6 @@
 # Application Streamlit : PREVISIONS STAR MADAGASCAR
 # Version Streamlit cible : >= 1.32
-# Dépendances : streamlit, pandas, numpy, plotly, openpyxl (déjà présent pour la lecture)
+# Dépendances : streamlit, pandas, numpy, plotly, openpyxl
 
 import streamlit as st
 import pandas as pd
@@ -363,7 +363,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v134"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v135"):
     budget_status = "skipped"
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
@@ -755,8 +755,6 @@ with st.sidebar:
             
             annee_cloture = st.number_input("Année Clôture", value=default_annee_cloture)
             
-            # On force l'index par défaut à 7 (Août) pour garder la cohérence avec l'ancienne version
-            # Mais l'utilisateur peut le changer.
             default_index_cutoff = default_mois_cutoff - 1
             if default_annee_cloture == 2026 and default_mois_cutoff == 12:
                 default_index_cutoff = 7 # Force Août si les données vont jusqu'à Déc
@@ -867,7 +865,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annees_is[0], annees_is[1], annees_cagr[0], annees_cagr[1], 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v134"
+    budget_all_agencies, cache_bust="v135"
 )
 
 if table_indices is None:
@@ -1097,7 +1095,7 @@ with tab_prev:
             pivot_mensuel_export.to_excel(writer, sheet_name='Previsions', index=False)
         st.download_button(label="Export Excel", data=buffer.getvalue(), file_name=f"previsions_{annee_cible}.xlsx", mime="application/vnd.ms-excel", use_container_width=True)
 
-    # Tableau avec Heatmap
+    # Tableau sans Heatmap (pour éviter le besoin de matplotlib)
     if search_query:
         mask = pivot_mensuel_export.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
         pivot_mensuel_display = pivot_mensuel_export[mask]
@@ -1110,10 +1108,7 @@ with tab_prev:
     total_row['Segments'] = ''
     pivot_mensuel_display = pd.concat([pivot_mensuel_display, pd.DataFrame([total_row])], ignore_index=True)
 
-    # Style Heatmap
-    styled_df = pivot_mensuel_display.style.background_gradient(cmap='Reds', subset=pivot_mensuel_display.columns[2:-1]).format({col: "{:,.0f}" for col in pivot_mensuel_display.columns if col not in ['Articles', 'Segments']})
-    
-    st.dataframe(styled_df, use_container_width=True, hide_index=True, height=600)
+    st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, height=600)
 
 # Onglet 3 : Analyses
 with tab_analyses:

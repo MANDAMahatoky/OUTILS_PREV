@@ -999,7 +999,7 @@ with st.container(border=True):
     # N-1 Data
     df_n1_plot = pd.DataFrame()
     if not df_n1.empty:
-        df_n1['Date_Str'] = (annee_cible - 1).astype(str) + '-' + df_n1['mois'].astype(str).str.zfill(2) + '-01'
+        df_n1['Date_Str'] = str(annee_cible - 1) + '-' + df_n1['mois'].astype(str).str.zfill(2) + '-01'
         df_n1['Date_Plot'] = pd.to_datetime(df_n1['Date_Str']) + pd.DateOffset(years=1) # Decaler sur l'annee cible pour comparaison
         contenance_safe_n1 = df_n1['contenance_cl'].replace(0, 100).fillna(100.0)
         df_n1['Volume_Aff'] = df_n1['hl'] * (10000.0 / contenance_safe_n1) if unite_affichage == "Cols" else df_n1['hl']

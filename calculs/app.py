@@ -242,15 +242,13 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
 def charger_ruptures(rupture_bytes):
     if rupture_bytes is None: return pd.DataFrame()
     try:
-        # MODIFICATION : Recherche intelligente de l'onglet des ruptures
         xls = pd.ExcelFile(io.BytesIO(rupture_bytes))
         sheet_rupture = None
         for name in xls.sheet_names:
             if name.lower() in ["rupture", "ruptures"]:
                 sheet_rupture = name
                 break
-        if sheet_rupture is None:
-            return pd.DataFrame() # L'onglet n'existe pas, on ignore
+        if sheet_rupture is None: return pd.DataFrame()
 
         df = pd.read_excel(xls, sheet_name=sheet_rupture, header=None)
         df = df.iloc[1:, [0, 1, 2, 3]].copy()
@@ -276,7 +274,6 @@ def charger_ruptures(rupture_bytes):
 @st.cache_data(show_spinner="Chargement et enrichissement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: bytes) -> pd.DataFrame:
     if ref_bytes is not None:
-        # MODIFICATION : Recherche intelligente de l'onglet référentiel
         xls_ref = pd.ExcelFile(io.BytesIO(ref_bytes))
         sheet_ref = None
         for name in xls_ref.sheet_names:
@@ -284,7 +281,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
                 sheet_ref = name
                 break
         if sheet_ref is None:
-            sheet_ref = 1 if len(xls_ref.sheet_names) > 1 else 0 # Fallback : 2ème onglet
+            sheet_ref = 1 if len(xls_ref.sheet_names) > 1 else 0
             
         df_ref = pd.read_excel(xls_ref, sheet_name=sheet_ref)
         df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (Cl)": "contenance_cl"}, errors="ignore")
@@ -400,7 +397,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v135"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v136"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -491,7 +488,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
-    df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()
+    # --- INTÉGRATION DE LA RUPTURE DE TENDANCE ICI ---
+    annee_debut_effective = max(annee_min_cagr, annee_rupture_tendance)
+    
+    df_hist_cagr = df_realise[(df_realise['annee'] >= annee_debut_effective) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()
     if not df_hist_cagr.empty:
         g = df_hist_cagr.groupby(['agence', 'article'], observed=True)
         df_vol_debut = (df_hist_cagr[df_hist_cagr['annee'] == g['annee'].transform('min')].groupby(['agence', 'article'], observed=True)['hl_potentiel'].sum().rename('Vol_Debut').reset_index())
@@ -703,7 +703,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📁 Importation")
     
-    # NOUVEAU : Bouton pour choisir le mode d'importation
+    # Bouton pour choisir le mode d'importation
     mode_import = st.radio(
         "Mode d'importation", 
         options=["Fichier unique (Multi-onglets)", "Fichiers séparés"], 
@@ -765,6 +765,15 @@ with st.sidebar:
             p5, p6 = st.columns(2)
             with p5: annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026, key="param_annee_cloture")
             with p6: mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}", key="param_mois_cutoff")
+            
+            # --- NOUVEAU : Paramètre de rupture de tendance ---
+            annee_rupture_tendance = st.number_input(
+                "Année de rupture de tendance (Ignorer avant)", 
+                min_value=2010, max_value=2030, value=2017, 
+                help="Si le marché a changé en 2024 (nouveau produit, crise), mettez 2024. Le modèle ignorera l'historique antérieur pour le calcul du CAGR/Tendance.",
+                key="param_rupture_tendance"
+            )
+            # --------------------------------------------------
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre tableau)", options=MOIS_NOMS, default=[], key="param_mois_cible", help="Filtre uniquement le tableau des prévisions, pas le KPI global.")
 
@@ -866,12 +875,13 @@ if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_ar
 if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
-# Calcul
+# Calcul (Ajout de annee_rupture_tendance dans l'appel)
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
+    annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v135"
+    budget_all_agencies, cache_bust="v136"
 )
 
 if budget_status == "ok":
@@ -1023,6 +1033,15 @@ with st.container(border=True):
             marker=dict(size=9, color=COLORS['ROUGE_FONCE'], line=dict(color='white', width=2)),
             hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
         ))
+
+    # --- NOUVEAU : Ligne verticale pour indiquer la rupture de tendance ---
+    if annee_rupture_tendance > annee_min_cagr:
+        try:
+            x_val = pd.to_datetime(f"{annee_rupture_tendance}-01-01")
+            fig1.add_vline(x=x_val, line_width=2, line_dash="dash", line_color=COLORS['GRIS'], annotation_text="Rupture", annotation_position="top left")
+        except Exception:
+            pass
+    # -------------------------------------------------------------------
 
     fig1.update_layout(
         plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], 

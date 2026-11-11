@@ -71,10 +71,58 @@ st.markdown(f"""
         box-shadow: 0 2px 8px rgba(0,0,0,0.02); padding: 20px;
     }}
     
-    /* TABS CUSTOM */
-    .stTabs [data-baseweb="tab-list"] {{ gap: 24px; border-bottom: 2px solid {COLORS['BORDURE']}; }}
-    .stTabs [data-baseweb="tab"] {{ height: 50px; background-color: transparent; border-radius: 0; padding: 0 10px; font-weight: 600; color: {COLORS['TEXTE_SECONDAIRE']}; }}
-    .stTabs [aria-selected="true"] {{ color: {COLORS['ROUGE']} !important; border-bottom: 3px solid {COLORS['ROUGE']} !important; }}
+    /* ==========================================
+       NAVIGATION TABS (AGRANDIS)
+       ========================================== */
+    div[role="radiogroup"] {{ 
+        gap: 32px !important; 
+        border-bottom: 2px solid {COLORS['BORDURE']} !important; 
+        padding-bottom: 0px !important; 
+        margin-bottom: 30px !important; 
+        display: flex !important; 
+        flex-wrap: wrap !important; 
+        align-items: flex-end !important; 
+    }}
+    div[role="radiogroup"] label {{ 
+        background: transparent !important; 
+        border: none !important; 
+        border-bottom: 4px solid transparent !important; 
+        border-radius: 0 !important; 
+        padding: 10px 4px 16px 4px !important; 
+        margin: 0 !important; 
+        cursor: pointer !important; 
+        transition: all 0.2s ease !important; 
+    }}
+    div[role="radiogroup"] label div p {{ 
+        font-size: 1.35rem !important; /* Taille augmentée */
+        font-weight: 600 !important; 
+        color: {COLORS['TEXTE_SECONDAIRE']} !important; 
+        transition: color 0.2s ease !important; 
+        margin: 0 !important; 
+        letter-spacing: 0.01em !important; 
+    }}
+    div[role="radiogroup"] label:hover div p {{ 
+        color: {COLORS['TEXTE']} !important; 
+    }}
+    div[role="radiogroup"] label:has(input:checked) {{ 
+        border-bottom: 4px solid {COLORS['ROUGE']} !important; 
+    }}
+    div[role="radiogroup"] label:has(input:checked) div p {{ 
+        color: {COLORS['ROUGE']} !important; 
+        font-weight: 800 !important; 
+    }}
+    div[role="radiogroup"] label > div:first-child {{ 
+        display: none !important; 
+    }}
+    div[role="radiogroup"] label:focus-within {{ 
+        outline: none !important; 
+        box-shadow: none !important; 
+    }}
+    
+    /* Espacement entre les onglets et le contenu en dessous */
+    div[role="radiogroup"] + div {{ 
+        margin-top: 15px !important; 
+    }}
     
     .block-container {{ padding-top: 1rem !important; }}
 </style>
@@ -347,7 +395,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v131"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v132"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -793,7 +841,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v131"
+    budget_all_agencies, cache_bust="v132"
 )
 
 if budget_status == "ok":

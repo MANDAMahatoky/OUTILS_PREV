@@ -86,7 +86,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES (inchangées)
+# FONCTIONS UTILITAIRES
 # ==============================================================================
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
@@ -352,7 +352,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v129"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v130"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -641,7 +641,7 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# INTERFACE UTILISATEUR (DESIGN AMÉLIORÉ)
+# INTERFACE UTILISATEUR
 # ==============================================================================
 
 with st.sidebar:
@@ -750,17 +750,18 @@ with st.sidebar:
 # MAIN AREA
 # ==============================================================================
 
-st.markdown(f"""
-<div class="hero-header">
-    <div>
-        <h1>PREVISIONS STAR MADAGASCAR</h1>
-        <p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p>
-    </div>
-    <div class="badge-demo">⭐ Données Officielles STAR</div>
-</div>
-""", unsafe_allow_html=True)
-
 if fichier_ventes is None:
+    # Affichage unique du header quand aucun fichier n'est chargé
+    st.markdown(f"""
+    <div class="hero-header">
+        <div>
+            <h1>PREVISIONS STAR MADAGASCAR</h1>
+            <p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p>
+        </div>
+        <div class="badge-demo">⭐ Données Officielles STAR</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     st.info(
         "👋 **Bienvenue !** Pour démarrer :\n\n"
         "1. Importez votre fichier de **Ventes** (`DATA_BRUT.xlsx`) dans la barre latérale.\n"
@@ -770,6 +771,17 @@ if fichier_ventes is None:
         "5. Ajustez les filtres et paramètres, puis explorez les onglets."
     )
     st.stop()
+
+# Affichage unique du header quand le fichier est chargé
+st.markdown(f"""
+<div class="hero-header">
+    <div>
+        <h1>PREVISIONS STAR MADAGASCAR</h1>
+        <p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p>
+    </div>
+    <div class="badge-demo">⭐ Données Officielles STAR</div>
+</div>
+""", unsafe_allow_html=True)
 
 # Définition des filtres actifs pour l'affichage
 filtres_actifs = []
@@ -782,16 +794,6 @@ if sel_emballages: filtres_actifs.append(f"Emballage : {', '.join(sel_emballages
 if sel_positionnements: filtres_actifs.append(f"Positionnement : {', '.join(sel_positionnements)}")
 if sel_occasions: filtres_actifs.append(f"Occasion : {', '.join(sel_occasions)}")
 if sel_articles: filtres_actifs.append(f"Article : {', '.join(sel_articles)}")
-
-st.markdown(f"""
-<div class="hero-header">
-    <div>
-        <h1>PREVISIONS STAR MADAGASCAR</h1>
-        <p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p>
-    </div>
-    <div class="badge-demo">⭐ Données Officielles STAR</div>
-</div>
-""", unsafe_allow_html=True)
 
 # Ligne de contexte
 nb_regions = len(sel_regions) if sel_regions else len(regions_dispo)
@@ -844,7 +846,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v129"
+    budget_all_agencies, cache_bust="v130"
 )
 
 if budget_status == "ok":
@@ -978,6 +980,8 @@ with st.container(border=True):
     df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
 
     fig1 = go.Figure()
+    
+    # Prévision en rouge pointillé
     if not df_prev_plot.empty:
         fig1.add_trace(go.Scatter(
             x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], 
@@ -986,12 +990,14 @@ with st.container(border=True):
             marker=dict(size=7, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
             hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
         ))
+        
+    # Réalisé en rouge continu (un peu plus foncé pour le contraste)
     if not df_real_plot.empty:
         fig1.add_trace(go.Scatter(
             x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], 
             mode='lines+markers', name='Réalisé', 
-            line=dict(color=COLORS['TEXTE'], width=4, shape='spline', smoothing=1.3), 
-            marker=dict(size=9, color=COLORS['TEXTE'], line=dict(color='white', width=2)),
+            line=dict(color=COLORS['ROUGE_FONCE'], width=4, shape='spline', smoothing=1.3), 
+            marker=dict(size=9, color=COLORS['ROUGE_FONCE'], line=dict(color='white', width=2)),
             hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
         ))
 

@@ -1,239 +1,215 @@
-# OUTILS_PREV — Moteur de Suivi Prévisionnel S&OP
+📘 README — PREVISIONS STAR MADAGASCAR
+🎯 Présentation
+PREVISIONS STAR MADAGASCAR est une application web interactive développée avec Streamlit permettant de générer des prévisions de ventes (en HL ou en Colis) pour le portefeuille de produits STAR Madagascar (boissons : BG, Bières, Eaux, Energy, Jus, Vins, Négoce).
 
-Bienvenue dans le dépôt `OUTILS_PREV`. Ce projet met à disposition un moteur Python de planification et de prévision commerciale pour le suivi S&OP (Sales & Operations Planning).
+L'application repose sur un moteur de prévision hybride combinant :
 
-Il permet d:
-- ingérer un export de ventes et un référentiel actif,
-- convertir les quantités vendues en hectolitres (HL),
-- calculer les coefficients saisonniers et la vitesse de vente ajustée (SARR),
-- projeter le volume annuel avec garde-fou de croissance (CAGR),
-- appliquer les règles métier spécifiques (FOSA, articles de référence, cas particuliers),
-- produire un rapport Excel de restitution prêt à exploiter.
+🧮 Run-Rate (projection linéaire du réalisé cumulé)
 
----
-
-## Objectif du projet
-
-Le moteur remplace les calculs manuels et les outils Excel fragiles par une chaîne de traitement automatisée, reproductible et traçable.
-
-Le processus couvre :
-1. ingestion des données d'export et du référentiel,
-2. normalisation et conversion des volumes,
-3. calcul de la saisonnalité et du momentum,
-4. annualisation et projection de l'année en cours,
-5. génération d'un fichier Excel S&OP multi-onglets.
-
----
-
-## Arborescence du dépôt
-
-```text
-OUTILS_PREV/
-├── .github/
-│   └── workflows/
-│       └── tests.yml
-├── calculs/
-│   ├── main_cli.py                 # Point d'entrée CLI principal
-│   ├── requirements.txt            # Dépendances Python du moteur
-│   └── src/
-│       └── suivi_prev_engine.py    # Moteur de calcul principal
-├── config/
-│   └── rules_config.yaml           # Règles métier et paramètres de calcul
-├── metier/
-│   └── data/
-│       └── Export_Suivi_PREV_SOP.xlsx  # Sortie Excel générée localement
-├── .gitignore
-├── README.md
-└── Export_Suivi_PREV_SOP.xlsx       # Fichier de sortie généré au niveau racine
-```
+📊 Indices de saisonnalité (par Agence × Article → Article → Marque → Segment → Global)
 
----
-
-## Pré-requis
-
-- Python 3.10+
-- `pip` et un environnement virtuel conseillé
-
-Installation des dépendances :
-
-```bash
-cd OUTILS_PREV
-python -m venv .venv
-source .venv/bin/activate
-pip install -r calculs/requirements.txt
-```
+📈 CAGR historique ou Tendance linéaire ou Moyenne 3 ans
 
----
+⚡ Momentum (dynamique court-terme via moyennes mobiles 3 mois)
 
-## Utilisation rapide
+🎯 Budget Query (écrasement optionnel des prévisions sur le périmètre budgété)
 
-Le point d'entrée principal est :
+🩹 Ruptures (réintégration des volumes perdus dans le potentiel)
 
-```bash
-python calculs/main_cli.py --config config/rules_config.yaml --output Export_Suivi_PREV_SOP.xlsx
-```
-
-### Avec fichiers d'entrée explicites
-
-```bash
-python calculs/main_cli.py \
-  --config config/rules_config.yaml \
-  --export ./chemin/vers/export_ventes.xlsx \
-  --actif ./chemin/vers/referentiel_actif.xlsx \
-  --output ./metier/data/Export_Suivi_PREV_SOP.xlsx
-```
-
-### Cas sans données fournies
-
-Si aucun export ni référentiel n'est fourni, le script génère automatiquement un jeu de données de démonstration pour valider le moteur et produire un rapport exemple.
-
----
-
-## Fonctionnalités principales
+✨ Fonctionnalités principales
+Fonctionnalité	Description
+🔍 Filtres dynamiques en cascade	Région, Marque, Agence, Contenance, Segment, Emballage, Article, Positionnement, Occasion
+📅 Navigation par onglets	Réalisé Cumulé, Indices & SARR, Prévisions, Pareto (ABC), Fiabilité, Ruptures, Données Brutes (optionnel)
+📊 KPIs temps réel	Atterrissage vs N-1, Objectif, GAP, Fiabilité (WMAPE)
+📈 Visualisation Plotly	Courbe Réalisé vs Prévision, Pareto ABC, Histogramme des ruptures
+🎯 Objectif paramétrable	Automatique (taux d'ambition) ou manuel
+📤 Export CSV	Tableau pivot des prévisions mensuelles au format Excel
+🔬 Diagnostic du modèle	Détail des calculs (Indice, SARR, Momentum, CAGR) pour chaque ligne de prévision
+🎨 Charte graphique STAR	Design premium rouge/blanc, composants stylisés (KPI cards, tabs, progress bars)
+⚙️ Installation
+Prérequis
+Python 3.9+
 
-### 1) Ingestion et normalisation
-- lecture des données de vente et du référentiel actif,
-- conversion des quantités vendues en hectolitres (HL),
-- calcul du volume ajusté par prise en compte des ventes perdues en rupture,
-- alignement des dates, agences et SKU.
+Accès Internet (pour le chargement de la police Inter via Google Fonts)
 
-### 2) Calcul de saisonnalité
-- calcul des coefficients mensuels par agence et SKU,
-- gestion des exceptions métier via configuration YAML,
-- héritage de profil de saisonnalité depuis un article de référence,
-- coefficients fixes pour certains produits (ex. canettes).
+Dépendances
+bash
+pip install streamlit pandas numpy plotly openpyxl
+Lancement
+bash
+streamlit run app.py
+L'application est accessible sur http://localhost:8501.
 
-### 3) SARR et momentum
-- calcul du run rate saisonnalisé (SARR),
-- lissage glissant sur 4 mois,
-- calcul de momentum sur la variation de la vitesse de vente,
-- plancher strict à `0.0` en garde-fou.
+📂 Fichiers d'entrée
+L'application accepte 4 fichiers Excel, dont 1 obligatoire et 3 optionnels :
 
-### 4) Projection annuelle et CAGR
-- annualisation selon le poids saisonnier écoulé,
-- calcul du CAGR brut,
-- plafonnement sur la moyenne globale de l'article pour limiter les dérives,
-- fallback automatique sur le budget si le signal historique est insuffisant ou nul.
+1️⃣ Ventes (obligatoire) — DATA_BRUT.xlsx
+Fichier brut des ventes, attendu en format pivot avec colonnes :
+Année | Mois | Segment | Produit | Agence | Nature | Volume (HL)
 
-### 5) Cas métier spécifiques
-- ventilation des volumes FOSA selon un objectif cible,
-- reconversion des HL en unités physiques (bouteilles, canettes, caisses),
-- prise en charge des règles métier dans le fichier de configuration.
+Les lignes contenant "TOTAL" sont automatiquement exclues.
 
-### 6) Rapport Excel S&OP
-Le moteur génère un classeur avec plusieurs onglets, dont :
-- synthèse S&OP,
-- base détaillée plate,
-- déclinaisons en unités physiques,
-- audit et traçabilité.
+La colonne Nature contient l'article préfixé (ex: 12345-Caprice Orange 33 cl CAN).
 
----
+Le mois peut être numérique (1-12), une date Excel ou un libellé texte (janvier, février…).
 
-## Fichier de configuration
+2️⃣ Référentiel (optionnel) — Classeur2.xlsx
+Onglet Ref actif, colonnes :
+Article | Positionnement | Occasion | Contenance (Cl)
 
-Le fichier `config/rules_config.yaml` centralise les règles métier du projet.
+Permet de restreindre le périmètre aux articles actifs et d'enrichir la classification (positionnement, occasion, contenance).
 
-Exemple de contenu :
+Si absent, l'application utilise une liste interne de 70 articles STAR (REF_DEFAUT) couvrant BG, Bières, Eaux, Energy, Alcomix.
 
-```yaml
-conversions:
-  divisor_hl: 10000.0
+3️⃣ Budget Query (optionnel)
+Écrase les prévisions sur l'année cible avec les valeurs budgétées.
 
-seasonality_exceptions:
-  fixed_coefficients:
-    - pattern: "CAN_33CL"
-      value: 1.0
-  reference_mapping:
-    "CAPRICE_35CL": "ARTICLE_REF_BOISSON"
+Détection automatique de la feuille contenant article + valeur + mois
 
-guardrails:
-  momentum_floor: 0.0
-  cagr_fallback_triggers: [0.0, -1.0]
-  budget_divisor_default: 1.0
+Filtre automatique sur les articles 33 cl CAN
 
-special_cases:
-  fosa:
-    target_volume_hl: 15000.0
-  cap_citron:
-    unit_conversion: true
-```
+Conversion automatique Volume × Contenance / 10 000 → HL
 
-Ces paramètres permettent d'adapter le moteur à la logique métier sans modifier le code Python.
+4️⃣ Ruptures (optionnel)
+Onglet Rupture (avec une ligne d'en-tête à ignorer), colonnes :
+Mois (ex: "3 2025") | Agence | Article | Volume perdu (HL)
 
----
+Les volumes perdus sont réintégrés dans le potentiel (hl_potentiel = hl + rupture_hl) pour ne pas biaiser les indices.
 
-## Détails techniques
+🚀 Utilisation
+Étape 1 — Importation
+Dans la barre latérale gauche, importez :
 
-### Moteur principal
-- `calculs/src/suivi_prev_engine.py`
+Le fichier Ventes (obligatoire)
 
-Contient les classes suivantes :
-- `RulesConfig`
-- `DataIngestionPipeline`
-- `SeasonalityEngine`
-- `SARREngine`
-- `CAGREngine`
-- `SpecialCasesEngine`
-- `SOPReporter`
+Le Référentiel (optionnel)
 
-### Point d'entrée CLI
-- `calculs/main_cli.py`
+Le Budget Query (optionnel)
 
-Le script supporte :
-- `--config` : chemin vers le fichier YAML de configuration,
-- `--export` : fichier Excel/CSV des ventes,
-- `--actif` : fichier Excel/CSV du référentiel actif,
-- `--output` : chemin de sortie du rapport Excel final.
+Les Ruptures (optionnel)
 
----
+Étape 2 — Paramétrage du modèle
+Paramètre	Description	Défaut
+Année Cible	Année à projeter	2026
+Unité d'affichage	HL ou Colis	HL
+Taux d'ambition vs N-1	Objectif = Réalisé N-1 × (1 + taux)	5 %
+Forcer objectif manuel	Saisir une valeur absolue	Désactivé
+Méthode de prévision	Tendance Linéaire / CAGR Classique / Moyenne 3 ans	Tendance Linéaire
+Étape 3 — Paramètres avancés (expander ⚙️)
+Année Min / Max IS : Fenêtre de calcul des indices de saisonnalité (défaut : 2024-2025)
 
-## CI / Qualité
+Année Min / Max CAGR : Fenêtre historique pour la croissance (défaut : 2017-2025)
 
-Le dépôt inclut une pipeline GitHub Actions dans :
+Année Clôture : Année du dernier réalisé connu (défaut : 2026)
 
-```text
-.github/workflows/tests.yml
-```
+Mois Cutoff : Dernier mois réalisé de l'année de clôture (défaut : Septembre)
 
-Cette configuration permet de lancer les vérifications automatisées sur le projet.
+Mois cible (filtre tableau) : Filtre le tableau des prévisions, sans impacter les KPIs globaux
 
----
+Étape 4 — Filtres de périmètre
+Dans l'expander "🎯 Filtres de périmètre", sélectionnez vos dimensions (multi-select en cascade) : Région → Marque → Agence → Contenance → Segment → Emballage → Article → Positionnement → Occasion.
 
-## Exemple de sortie
+📊 Comprendre les onglets
+🗂️ Données Brutes (optionnel)
+Affichage du référentiel enrichi (ventes + ruptures + potentiel) sur le périmètre filtré.
 
-La sortie générée est un fichier Excel de type :
+📈 Réalisé Cumulé
+Tableau agrégé du réalisé jusqu'au cutoff (Ventes Réelles, Pertes Ruptures, Volume Potentiel).
 
-```text
-Export_Suivi_PREV_SOP.xlsx
-```
+🧮 Indices & SARR
+Indices de Saisonnalité : tableau Agence × Article × Mois (1 à 12)
 
-avec un ensemble d'onglets dédiés à la synthèse, au plan de demande, aux déclinaisons unités et à l'audit.
+Table SARR : 5 derniers mois avec Momentum absolu et Momentum % (vs M-1)
 
----
+🔮 Prévisions
+Tableau pivot Article × Mois (format Excel) avec recherche, export CSV et détail des calculs (Indice, Base_EXCEL, Momentum, Base_Mensuelle, CAGR).
 
-## À noter
+📊 Pareto (ABC)
+Classification ABC (A : 0-80 %, B : 80-95 %, C : 95-100 %)
 
-- Le projet est conçu pour un usage analytique et décisionnel en S&OP.
-- Les règles métier peuvent être modifiées dans `config/rules_config.yaml` sans toucher au moteur de calcul.
-- L'architecture actuelle est fonctionnelle et orientée vers la reproductibilité, la traçabilité et l'automatisation des prévisions.
+Graphique combiné (barres volumes + courbe cumulée) avec lignes de seuil 80 % / 95 %
 
----
+Tableau détaillé par article
 
-## Licence
+🎯 Fiabilité
+MAE (Erreur Absolue Moyenne)
 
-Aucune licence n'est explicitement définie dans le dépôt pour l'instant.
+WMAPE (Weighted MAPE — standard industrie)
 
----
+SMAPE (Symétrique)
 
-## Contribution
+Tableau mensuel Prévision vs Réalisé avec coloration conditionnelle
 
-Pour faire évoluer le moteur :
-1. modifier le code dans `calculs/src/suivi_prev_engine.py`,
-2. ajuster le fichier de config si nécessaire,
-3. valider le comportement via le CLI ou la CI.
+🩹 Ruptures
+Volume total perdu + nombre de mois impactés
 
----
+Histogramme mensuel des pertes
 
-## Résumé
+Détail par Agence / Article / Mois
 
-`OUTILS_PREV` est un moteur Python de prévision commerciale et de planification S&OP, capable de transformer des données de vente brutes en projections exploitables et en rapports Excel structurés.
+🧠 Algorithme de prévision (résumé)
+text
+1. Périmètre actif   = couples (Agence, Article) avec ventes > 0 sur les 2 dernières années
+2. Indices saison.   = Moyenne pondérée par niveau (Agence×Article → Article → Marque → Segment → Global)
+3. SARR              = HL mensuel / Indice de saisonnalité
+4. Base_EXCEL        = max(SARR_M, Moyenne mobile 3 mois)   ← retient le plus fort
+5. Momentum          = moyenne des écarts successifs (M vs M-1, M-1 vs M-2, M-2 vs M-3)
+6. Run-Rate          = YTD_HL / Cumul_Coef(mois 1 → cutoff) × 12
+7. CAGR              = selon méthode choisie (Classique / Tendance linéaire / Moyenne 3 ans)
+                       → borné entre -20 % et +30 %
+8. Prévision année N = Base_Mensuelle × Indice × (1 + CAGR)^(N - annee_cloture)
+9. Ajustement Budget = si fichier Budget fourni, prévisions année cible remplacées
+10. Volume_HL        = Réalisé si ≤ cutoff, sinon Prévision
+11. Volume_Cols      = Volume_HL × (10 000 / Contenance_cl)
+💡 Note : L'année de clôture utilise la projection Run-Rate pure (sans CAGR) pour éviter l'explosion du momentum absolu. Les années suivantes ajoutent le CAGR.
+
+🎨 Charte graphique
+Couleur	Code	Usage
+🔴 Rouge STAR	#E30613	Couleur principale, accents
+🔴 Rouge foncé	#B3050F	Courbe réalisé
+🔴 Rouge clair	#FDECEE	Fonds d'alerte
+⚪ Blanc	#FFFFFF	Fonds de cartes
+⚫ Texte	#111827	Typographie principale
+🟢 Vert	#059669	Indicateurs positifs
+Police : Inter (Google Fonts)
+
+🗂️ Arborescence du projet
+text
+.
+├── app.py                    # Application Streamlit (mono-fichier)
+├── LOGO_STAR.png             # Logo affiché dans la sidebar
+├── README.md                 # Ce fichier
+└── (fichiers Excel à importer via l'UI)
+🛠️ Points techniques
+Cache Streamlit (@st.cache_data) sur le chargement et le calcul → performances optimales
+
+Nettoyage des clés articles : normalisation Unicode + suppression des caractères spéciaux + harmonisation 33 cl / 33cl
+
+Détection automatique du format pivot (présence d'une année valide en colonne 0 ou 1)
+
+Gestion robuste des dates Excel (numériques, séries 1900, libellés multilingues)
+
+Exclusion automatique des lignes "TOTAL" et des natures vides
+
+Limite d'affichage à 5 000 lignes sur les gros tableaux pour éviter le lag
+
+📌 Limitations connues
+Un seul onglet de ventes est lu (le premier).
+
+Le Budget Query filtre sur les articles 33 cl CAN uniquement (logique métier spécifique).
+
+L'application ne persiste aucune donnée : tout est recalculé à chaque session.
+
+La classification segment est heuristique (basée sur des regex d'articles) et peut nécessiter un ajustement si de nouveaux produits sont ajoutés.
+
+👤 Auteur / Contact
+STAR Madagascar — Direction Commerciale / Business Intelligence
+
+Pour toute question ou évolution :
+
+📧 contact@star.mg
+
+🌐 https://www.star.m
+
+📜 Licence
+Usage interne STAR Madagascar. Toute diffusion externe est soumise à autorisation préalable.

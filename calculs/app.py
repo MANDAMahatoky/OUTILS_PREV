@@ -47,16 +47,11 @@ st.markdown(f"""
     /* HEADER */
     .hero-header {{
         background: {COLORS['ROUGE']}; color: white; padding: 20px 30px;
-        border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;
+        border-radius: 12px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center;
     }}
     .hero-header h1 {{ color: white !important; font-size: 1.6rem; font-weight: 700; margin: 0; }}
     .hero-header p {{ color: rgba(255,255,255,0.9); font-size: 0.9rem; margin: 5px 0 0 0; }}
     .badge-demo {{ background-color: white; color: {COLORS['ROUGE']}; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; }}
-    
-    .context-line {{ font-size: 0.85rem; color: {COLORS['TEXTE_SECONDAIRE']}; margin-bottom: 20px; padding-left: 5px; }}
-    
-    /* FILTRES ACTIFS */
-    .filter-chip {{ display: inline-block; background-color: {COLORS['ROUGE_CLAIR']}; color: {COLORS['ROUGE_FONCE']}; padding: 4px 12px; border-radius: 16px; font-size: 0.8rem; font-weight: 600; margin-right: 8px; margin-bottom: 8px; }}
     
     /* KPI CARDS */
     .kpi-card {{ background: {COLORS['BLANC']}; border-radius: 10px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); border: 1px solid {COLORS['BORDURE']}; border-left: 4px solid {COLORS['ROUGE']}; height: 100%; }}
@@ -352,7 +347,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v130"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v131"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -751,7 +746,6 @@ with st.sidebar:
 # ==============================================================================
 
 if fichier_ventes is None:
-    # Affichage unique du header quand aucun fichier n'est chargé
     st.markdown(f"""
     <div class="hero-header">
         <div>
@@ -772,7 +766,6 @@ if fichier_ventes is None:
     )
     st.stop()
 
-# Affichage unique du header quand le fichier est chargé
 st.markdown(f"""
 <div class="hero-header">
     <div>
@@ -782,52 +775,6 @@ st.markdown(f"""
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
-
-# Définition des filtres actifs pour l'affichage
-filtres_actifs = []
-if sel_regions: filtres_actifs.append(f"Région : {', '.join(sel_regions)}")
-if sel_agences: filtres_actifs.append(f"Agence : {', '.join(sel_agences)}")
-if sel_segments: filtres_actifs.append(f"Segment : {', '.join(sel_segments)}")
-if sel_marques: filtres_actifs.append(f"Marque : {', '.join(sel_marques)}")
-if sel_contenances: filtres_actifs.append(f"Contenance : {', '.join(map(str, sel_contenances))}")
-if sel_emballages: filtres_actifs.append(f"Emballage : {', '.join(sel_emballages)}")
-if sel_positionnements: filtres_actifs.append(f"Positionnement : {', '.join(sel_positionnements)}")
-if sel_occasions: filtres_actifs.append(f"Occasion : {', '.join(sel_occasions)}")
-if sel_articles: filtres_actifs.append(f"Article : {', '.join(sel_articles)}")
-
-# Ligne de contexte
-nb_regions = len(sel_regions) if sel_regions else len(regions_dispo)
-nb_agences = len(sel_agences) if sel_agences else len(agences_dispo)
-nb_articles = len(sel_articles) if sel_articles else len(articles_dispo)
-st.markdown(f"""
-<div class="context-line">
-    Périmètre : <b>{nb_regions} régions</b> · <b>{nb_agences} agences</b> · <b>{nb_articles} articles</b> | 
-    Réalisé jusqu'à <b>{MOIS_NOMS[annee_cloture - 1] if False else ''}</b> | 
-    Méthode : <b>{methode_croissance}</b> | 
-    Unité : <b>{unite_affichage}</b>
-</div>
-""", unsafe_allow_html=True)
-
-# Chips des filtres actifs
-chip_html = "".join([f'<span class="filter-chip">{f}</span>' for f in filtres_actifs])
-if not filtres_actifs:
-    chip_html = '<span class="filter-chip" style="background-color: #F3F4F6; color: #6B7280;">Aucun filtre – toutes les données</span>'
-st.markdown(f"<div>{chip_html}</div>", unsafe_allow_html=True)
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Glossaire
-with st.expander("📖 Comprendre les termes"):
-    st.markdown("""
-    - **SARR** : *Seasonally Adjusted Run Rate*. Volume lissé de la saisonnalité.
-    - **Momentum** : Variation moyenne des 3 derniers mois.
-    - **Indice de saisonnalité (IS)** : Coefficient multiplicateur par mois.
-    - **CAGR** : Taux de Croissance Annuel Moyen.
-    - **Cutoff** : Mois de séparation entre réel et prévision.
-    - **Cols** : Nombre de colis (converti depuis les HL).
-    - **WMAPE** : Erreur moyenne pondérée (précision globale).
-    - **SMAPE** : Erreur moyenne symétrique (précision sur petits volumes).
-    - **Classes ABC** : Classement des articles par contribution au volume (A=80%, B=15%, C=5%).
-    """)
 
 # Application des filtres pour le calcul
 df_perimetre = df_enrichi.copy()
@@ -846,7 +793,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v130"
+    budget_all_agencies, cache_bust="v131"
 )
 
 if budget_status == "ok":
@@ -991,7 +938,7 @@ with st.container(border=True):
             hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
         ))
         
-    # Réalisé en rouge continu (un peu plus foncé pour le contraste)
+    # Réalisé en rouge continu
     if not df_real_plot.empty:
         fig1.add_trace(go.Scatter(
             x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], 
@@ -1010,8 +957,6 @@ with st.container(border=True):
         height=500, hovermode="x unified"
     )
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
-
-st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Les prévisions sont ajustées en fonction des volumes potentiels (Ventes + Ruptures) pour une meilleure précision.</p>""", unsafe_allow_html=True)
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 

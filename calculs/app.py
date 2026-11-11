@@ -343,7 +343,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v129"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v130"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -437,8 +437,23 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
-    # ICI ON UTILISE RUPTURE : On utilise 'hl_potentiel' pour l'historique du CAGR
+    # =========================================================================
+    # CORRECTION LOGIQUE EXCEL : ON UTILISE LA PROJECTION POUR LE CAGR
+    # =========================================================================
+    # 1. On prépare la projection annualisée (colonne CP de votre Excel)
+    df_annualise = df_base[['agence', 'article', 'Projection_CurrentYear']].copy()
+    
+    # 2. On calcule le volume historique (avec les ruptures)
     df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()
+    
+    # 3. Si l'année max du CAGR est l'année en cours (ex: 2026), on remplace le volume partiel (Jan-Août) 
+    # par la Projection sur 12 mois (Projection_CurrentYear).
+    if annee_max_cagr == annee_cloture:
+        df_hist_cagr = df_hist_cagr.merge(df_annualise, on=['agence', 'article'], how='left')
+        df_hist_cagr.loc[df_hist_cagr['annee'] == annee_cloture, 'hl_potentiel'] = df_hist_cagr.loc[df_hist_cagr['annee'] == annee_cloture, 'Projection_CurrentYear']
+        df_hist_cagr = df_hist_cagr.drop(columns=['Projection_CurrentYear'])
+    # =========================================================================
+
     if not df_hist_cagr.empty:
         g = df_hist_cagr.groupby(['agence', 'article'], observed=True)
         df_vol_debut = (df_hist_cagr[df_hist_cagr['annee'] == g['annee'].transform('min')].groupby(['agence', 'article'], observed=True)['hl_potentiel'].sum().rename('Vol_Debut').reset_index())
@@ -775,7 +790,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v129"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v130"
 )
 
 if budget_status == "ok":

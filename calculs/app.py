@@ -1,6 +1,6 @@
 # Application Streamlit : PREVISIONS STAR MADAGASCAR
 # Version Streamlit cible : >= 1.32
-# Dépendances : streamlit, pandas, numpy, plotly, openpyxl, xlsxwriter
+# Dépendances : streamlit, pandas, numpy, plotly, openpyxl (déjà présent pour la lecture)
 
 import streamlit as st
 import pandas as pd
@@ -363,7 +363,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v133"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v134"):
     budget_status = "skipped"
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
@@ -867,7 +867,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annees_is[0], annees_is[1], annees_cagr[0], annees_cagr[1], 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v133"
+    budget_all_agencies, cache_bust="v134"
 )
 
 if table_indices is None:
@@ -1092,7 +1092,8 @@ with tab_prev:
         
     with col_export_xlsx:
         buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        # On utilise 'openpyxl' qui est déjà installé par défaut avec pandas
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             pivot_mensuel_export.to_excel(writer, sheet_name='Previsions', index=False)
         st.download_button(label="Export Excel", data=buffer.getvalue(), file_name=f"previsions_{annee_cible}.xlsx", mime="application/vnd.ms-excel", use_container_width=True)
 

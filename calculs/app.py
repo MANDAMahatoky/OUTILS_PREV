@@ -14,83 +14,94 @@ from pathlib import Path
 # ==============================================================================
 st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_icon="⭐", initial_sidebar_state="expanded")
 
-st.markdown("""
+# Charte graphique STAR
+COLORS = {
+    "ROUGE": "#E30613",
+    "ROUGE_FONCE": "#B3050F",
+    "ROUGE_CLAIR": "#FDECEE",
+    "BLANC": "#FFFFFF",
+    "TEXTE": "#111827",
+    "TEXTE_SECONDAIRE": "#6B7280",
+    "BORDURE": "#E5E7EB",
+    "GRIS": "#9CA3AF",
+    "VERT": "#059669"
+}
+
+st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #F4F6F8 !important; }
+    
+    html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
+    .stApp {{ background-color: #FAFAFA !important; }}
     
     /* SIDEBAR */
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF !important; border-right: 1px solid #E5E7EB; box-shadow: 2px 0 10px rgba(0,0,0,0.03);
-    }
-    [data-testid="stSidebar"] h2 { color: #111827 !important; font-size: 1.1rem; font-weight: 700; margin-top: 10px; margin-bottom: 15px; }
-    [data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stNumberInput label, [data-testid="stSidebar"] .stMultiSelect label { color: #4B5563 !important; font-size: 0.85rem !important; font-weight: 600 !important; }
+    [data-testid="stSidebar"] {{
+        background-color: {COLORS['BLANC']} !important; 
+        border-right: 1px solid {COLORS['BORDURE']}; 
+    }}
+    [data-testid="stSidebar"] h2 {{ color: {COLORS['TEXTE']} !important; font-size: 1.1rem; font-weight: 700; }}
+    [data-testid="stSidebar"] .stSelectbox label, 
+    [data-testid="stSidebar"] .stNumberInput label, 
+    [data-testid="stSidebar"] .stMultiSelect label {{ color: {COLORS['TEXTE_SECONDAIRE']} !important; font-size: 0.85rem !important; font-weight: 600 !important; }}
     
-    /* HEADER COMPACT */
-    .hero-header {
-        background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); color: white; padding: 24px 30px;
-        border-radius: 12px; margin-top: 10px; margin-bottom: 25px; box-shadow: 0 4px 10px -5px rgba(227, 6, 19, 0.3);
-        display: flex; flex-direction: row; justify-content: space-between; align-items: center;
-    }
-    .hero-header h1 { color: white !important; font-size: 1.6rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
-    .hero-header p { color: #FECACA; font-size: 0.9rem; margin: 0; margin-top: 6px; font-weight: 500; }
-    .badge-demo { background-color: white; color: #E30613; padding: 8px 16px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; }
+    /* HEADER */
+    .hero-header {{
+        background: {COLORS['ROUGE']}; color: white; padding: 20px 30px;
+        border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;
+    }}
+    .hero-header h1 {{ color: white !important; font-size: 1.6rem; font-weight: 700; margin: 0; }}
+    .hero-header p {{ color: rgba(255,255,255,0.9); font-size: 0.9rem; margin: 5px 0 0 0; }}
+    .badge-demo {{ background-color: white; color: {COLORS['ROUGE']}; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; }}
     
-    /* CARDS & KPI */
-    .white-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03); border: 1px solid #E5E7EB; margin-bottom: 20px; height: 100%; }
-    .kpi-label { color: #6B7280; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .kpi-value { color: #E30613; font-size: 2.2rem; font-weight: 600; line-height: 1.1; }
-    .kpi-value-dark { color: #111827; }
-    .kpi-value-green { color: #059669; }
-    .kpi-value-red { color: #E30613; }
-    .kpi-footer { color: #9CA3AF; font-size: 0.8rem; margin-top: 8px; font-weight: 500; }
+    .context-line {{ font-size: 0.85rem; color: {COLORS['TEXTE_SECONDAIRE']}; margin-bottom: 20px; padding-left: 5px; }}
     
-    /* SECTIONS */
-    .section-title { color: #111827; font-size: 1.2rem; font-weight: 700; margin-bottom: 5px; }
-    .section-subtitle { color: #6B7280; font-size: 0.85rem; margin-bottom: 20px; font-weight: 500; }
+    /* FILTRES ACTIFS */
+    .filter-chip {{ display: inline-block; background-color: {COLORS['ROUGE_CLAIR']}; color: {COLORS['ROUGE_FONCE']}; padding: 4px 12px; border-radius: 16px; font-size: 0.8rem; font-weight: 600; margin-right: 8px; margin-bottom: 8px; }}
     
-    /* FORMS & EXPANDERS */
-    div[data-baseweb="select"] > div, div[data-testid="stNumberInput"] input, div[data-testid="stMultiSelect"] { background-color: #F9FAFB !important; border-radius: 8px !important; border: 1px solid #D1D5DB !important; }
-    div[data-testid="stExpander"] { background-color: white !important; border-radius: 12px !important; border: 1px solid #E5E7EB !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02) !important; margin-bottom: 20px !important; }
-    div[data-testid="stExpander"] > details > summary { background-color: #F9FAFB !important; border-radius: 12px !important; font-weight: 600 !important; color: #111827 !important; padding: 15px 20px !important; border-bottom: 1px solid transparent !important; }
-    div[data-testid="stExpander"] > details[open] > summary { border-bottom: 1px solid #E5E7EB !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+    /* KPI CARDS */
+    .kpi-card {{ background: {COLORS['BLANC']}; border-radius: 10px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); border: 1px solid {COLORS['BORDURE']}; border-left: 4px solid {COLORS['ROUGE']}; height: 100%; }}
+    .kpi-label {{ color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; }}
+    .kpi-value {{ color: {COLORS['TEXTE']}; font-size: 2rem; font-weight: 700; line-height: 1.1; }}
+    .kpi-delta {{ font-size: 0.85rem; font-weight: 600; margin-top: 5px; }}
+    .kpi-delta.up {{ color: {COLORS['VERT']}; }}
+    .kpi-delta.down {{ color: {COLORS['ROUGE']}; }}
     
-    /* TABLES */
-    div[data-testid="stDataFrame"] { border: 1px solid #E5E7EB !important; border-radius: 8px !important; padding: 10px !important; background-color: white !important; }
+    /* PROGRESS BAR */
+    .progress-container {{ width: 100%; background-color: {COLORS['BORDURE']}; border-radius: 4px; height: 8px; margin-top: 10px; }}
+    .progress-bar {{ height: 8px; border-radius: 4px; background-color: {COLORS['ROUGE']}; }}
     
-    /* NAVIGATION TABS */
-    div[role="radiogroup"] { gap: 28px !important; border-bottom: 2px solid #E5E7EB !important; padding-bottom: 0px !important; margin-bottom: 25px !important; display: flex !important; flex-wrap: wrap !important; align-items: flex-end !important; }
-    div[role="radiogroup"] label { background: transparent !important; border: none !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; padding: 8px 4px 14px 4px !important; margin: 0 !important; cursor: pointer !important; transition: all 0.2s ease !important; }
-    div[role="radiogroup"] label div p { font-size: 1.05rem !important; font-weight: 600 !important; color: #6B7280 !important; transition: color 0.2s ease !important; margin: 0 !important; letter-spacing: 0.01em !important; }
-    div[role="radiogroup"] label:hover div p { color: #111827 !important; }
-    div[role="radiogroup"] label:has(input:checked) { border-bottom: 3px solid #E30613 !important; }
-    div[role="radiogroup"] label:has(input:checked) div p { color: #E30613 !important; font-weight: 700 !important; }
-    div[role="radiogroup"] label > div:first-child { display: none !important; }
-    div[role="radiogroup"] label:focus-within { outline: none !important; box-shadow: none !important; }
-    div[role="radiogroup"] + div { margin-top: -10px !important; }
+    /* ST CONTAINER BORDER */
+    div[data-testid="stVerticalBlockBorderWrapper"] {{
+        background-color: {COLORS['BLANC']}; border-radius: 12px; border: 1px solid {COLORS['BORDURE']} !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02); padding: 20px;
+    }}
     
-    .block-container { padding-top: 1rem !important; }
+    /* TABS CUSTOM */
+    .stTabs [data-baseweb="tab-list"] {{ gap: 24px; border-bottom: 2px solid {COLORS['BORDURE']}; }}
+    .stTabs [data-baseweb="tab"] {{ height: 50px; background-color: transparent; border-radius: 0; padding: 0 10px; font-weight: 600; color: {COLORS['TEXTE_SECONDAIRE']}; }}
+    .stTabs [aria-selected="true"] {{ color: {COLORS['ROUGE']} !important; border-bottom: 3px solid {COLORS['ROUGE']} !important; }}
+    
+    .block-container {{ padding-top: 1rem !important; }}
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES
+# FONCTIONS UTILITAIRES (inchangées)
 # ==============================================================================
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
         val = float(val)
-        if val > seuil_alerte: return 'background-color: #FEE2E2; color: #991B1B;'
-        if val < seuil_bon: return 'background-color: #D1FAE5; color: #065F46;'
-        return 'background-color: #FEF3C7; color: #92400E;'
+        if val > seuil_alerte: return f'background-color: {COLORS["ROUGE_CLAIR"]}; color: {COLORS["ROUGE_FONCE"]};'
+        if val < seuil_bon: return f'background-color: #D1FAE5; color: {COLORS["VERT"]};'
+        return f'background-color: #FEF3C7; color: #92400E;'
     except: return ''
 
 def color_ecart(val):
     try:
         val = float(val)
-        if abs(val) > 30: return 'background-color: #FEE2E2; color: #991B1B;'
-        if abs(val) > 15: return 'background-color: #FEF3C7; color: #92400E;'
-        return 'background-color: #D1FAE5; color: #065F46;'
+        if abs(val) > 30: return f'background-color: {COLORS["ROUGE_CLAIR"]}; color: {COLORS["ROUGE_FONCE"]};'
+        if abs(val) > 15: return f'background-color: #FEF3C7; color: #92400E;'
+        return f'background-color: #D1FAE5; color: {COLORS["VERT"]};'
     except: return ''
 
 def get_region(agence):
@@ -197,7 +208,7 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (INTEGRATION STRICTE EXCEL + RUPTURES POUR LE CAGR)
+# LOGIQUE DE CALCUL (INCHANGÉE)
 # ==============================================================================
 @st.cache_data(show_spinner=False)
 def charger_ruptures(rupture_bytes):
@@ -290,7 +301,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = np.select(conditions, choices, default="AUTRE / INCONNU")
     
-    # --- INTEGRATION DES RUPTURES ---
     df_ruptures = charger_ruptures(rupture_bytes)
     if not df_ruptures.empty:
         df_enrichi = df_enrichi.merge(df_ruptures, on=['annee', 'mois', 'agence', 'cle_article'], how='left')
@@ -313,7 +323,6 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     if df_h.empty: return pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
 
     def _idx(group_cols):
-        # STRICTEMENT EXCEL : On utilise 'hl' pour les indices de saisonnalité
         v = (df_h.groupby(group_cols + ['annee', 'mois'], observed=True)['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0))
         cum_m = v.groupby(group_cols).sum()
         cum_a = v.sum(axis=1).groupby(group_cols).sum()
@@ -379,7 +388,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0).clip(lower=0.1) 
-    # STRICTEMENT EXCEL : On utilise le réalisé 'hl' pour le SARR
     df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
@@ -403,7 +411,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
 
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
-    # STRICTEMENT EXCEL : On utilise 'hl' (réalisé) pour le YTD de l'année en cours
     df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
     df_premiere_annee = (df_realise[df_realise['hl'] > 0].groupby(['agence', 'article'], observed=True)['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'}))
@@ -413,7 +420,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
     df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
 
-    # STRICTEMENT EXCEL : On utilise 'hl' pour le volume de base du CAGR
     df_base_vol = (df_realise.groupby(['agence', 'article', 'annee'], observed=True)['hl'].sum().reset_index())
     df_base = df_base.merge(df_base_vol, left_on=['agence', 'article', 'Annee_Base'], right_on=['agence', 'article', 'annee'], how='left')
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
@@ -437,7 +443,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
-    # ICI ON UTILISE RUPTURE : On utilise 'hl_potentiel' pour l'historique du CAGR
     df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()
     if not df_hist_cagr.empty:
         g = df_hist_cagr.groupby(['agence', 'article'], observed=True)
@@ -461,7 +466,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         for (agence, article), group in df_hist_cagr.groupby(['agence', 'article'], observed=True):
             try:
                 x = group['annee'].values.astype(float)
-                y = group['hl_potentiel'].values.astype(float) # Utilise le potentiel (rupture)
+                y = group['hl_potentiel'].values.astype(float)
                 mask = ~np.isnan(x) & ~np.isnan(y)
                 x = x[mask]
                 y = y[mask]
@@ -484,7 +489,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     elif methode_croissance == "Moyenne 3 ans":
         try:
-            df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl_potentiel', aggfunc='sum').fillna(0) # Utilise le potentiel
+            df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl_potentiel', aggfunc='sum').fillna(0)
             growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
             if not growth_rates.empty:
                 df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
@@ -636,7 +641,7 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# INTERFACE UTILISATEUR
+# INTERFACE UTILISATEUR (DESIGN AMÉLIORÉ)
 # ==============================================================================
 
 with st.sidebar:
@@ -646,18 +651,17 @@ with st.sidebar:
     if LOGO_PATH.exists(): st.image(str(LOGO_PATH), use_container_width=True)
     else: st.warning("⚠️ Logo non trouvé")
     
-    st.markdown("<h2>🎯 Filtres & Paramètres</h2>", unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("### 📁 Importation")
+    fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
+    fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref")
+    fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget")
+    fichier_rupture = st.file_uploader("Ruptures (Optionnel)", type=["xlsx"], key="uploader_rupture")
     
-    with st.expander("📁 Importer vos fichiers", expanded=True):
-        fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
-        fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref", help="Si fourni, l'application ne calculera que sur les articles de ce fichier.")
-        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget", help="Permet d'écraser les prévisions mathématiques par des valeurs manuelles (uniquement pour les 33 CAN).")
-        fichier_rupture = st.file_uploader("Ruptures (rupture.xlsx)", type=["xlsx"], key="uploader_rupture", help="Fichier contenant l'historique des volumes perdus (Rup Hl) par mois/agence/article.")
-        
-        if fichier_budget is not None:
-            budget_all_agencies = st.checkbox("Appliquer le Budget à toutes les agences", value=True, help="Si coché, les valeurs du 33 CAN s'appliqueront à toutes les agences.", key="chk_budget_all")
-        else:
-            budget_all_agencies = True
+    if fichier_budget is not None:
+        budget_all_agencies = st.checkbox("Appliquer le Budget à toutes les agences", value=True)
+    else:
+        budget_all_agencies = True
 
     if fichier_ventes is not None:
         df_enrichi = charger_et_enrichir(
@@ -666,7 +670,8 @@ with st.sidebar:
             fichier_rupture.getvalue() if fichier_rupture is not None else None
         )
 
-        st.markdown("#### 1. Périmètre")
+        st.markdown("---")
+        st.markdown("### 🎯 Périmètre")
         
         regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
         sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes", key="filter_region")
@@ -704,12 +709,12 @@ with st.sidebar:
         sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous", key="filter_article")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
 
-        st.markdown("#### 2. Paramètres de la cible")
-        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")
+        st.markdown("---")
+        st.markdown("### ⚙️ Paramètres")
         
+        annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")
         unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=0, horizontal=True, key="param_unite")
         
-        st.markdown("##### 🎯 Définition de l'Objectif")
         taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)", key="param_taux")
         
         use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
@@ -723,7 +728,7 @@ with st.sidebar:
             key="param_methode"
         )
         
-        with st.expander("⚙️ Paramètres avancés (IS, CAGR, Cutoff)"):
+        with st.expander("⚙️ Paramètres avancés"):
             p1, p2 = st.columns(2)
             with p1: annee_min_is = st.number_input("Année Min IS", min_value=2010, max_value=2030, value=2024, key="param_min_is")
             with p2: annee_max_is = st.number_input("Année Max IS", min_value=annee_min_is, max_value=2030, value=max(2025, annee_min_is), key="param_max_is")
@@ -739,10 +744,13 @@ with st.sidebar:
             mois_cibles_selection = st.multiselect("Mois cible (Filtre tableau)", options=MOIS_NOMS, default=[], key="param_mois_cible", help="Filtre uniquement le tableau des prévisions, pas le KPI global.")
 
         st.markdown("---")
-        st.markdown("#### 🛠️ Options d'affichage")
-        show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, help="Cochez cette case pour faire apparaître l'onglet des données brutes dans la navigation.", key="param_show_raw")
+        show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, key="param_show_raw")
 
-st.markdown("""
+# ==============================================================================
+# MAIN AREA
+# ==============================================================================
+
+st.markdown(f"""
 <div class="hero-header">
     <div>
         <h1>PREVISIONS STAR MADAGASCAR</h1>
@@ -757,12 +765,69 @@ if fichier_ventes is None:
         "👋 **Bienvenue !** Pour démarrer :\n\n"
         "1. Importez votre fichier de **Ventes** (`DATA_BRUT.xlsx`) dans la barre latérale.\n"
         "2. (Optionnel) Importez un **Référentiel** pour restreindre le périmètre.\n"
-        "3. (Optionnel) Importez un **Budget Query** pour écraser les prévisions (uniquement pour les 33 CAN).\n"
-        "4. (Recommandé) Importez votre fichier de **Ruptures** pour fiabiliser les calculs.\n"
+        "3. (Optionnel) Importez un **Budget Query** pour écraser les prévisions.\n"
+        "4. (Optionnel) Importez un fichier de **Ruptures**.\n"
         "5. Ajustez les filtres et paramètres, puis explorez les onglets."
     )
     st.stop()
 
+# Définition des filtres actifs pour l'affichage
+filtres_actifs = []
+if sel_regions: filtres_actifs.append(f"Région : {', '.join(sel_regions)}")
+if sel_agences: filtres_actifs.append(f"Agence : {', '.join(sel_agences)}")
+if sel_segments: filtres_actifs.append(f"Segment : {', '.join(sel_segments)}")
+if sel_marques: filtres_actifs.append(f"Marque : {', '.join(sel_marques)}")
+if sel_contenances: filtres_actifs.append(f"Contenance : {', '.join(map(str, sel_contenances))}")
+if sel_emballages: filtres_actifs.append(f"Emballage : {', '.join(sel_emballages)}")
+if sel_positionnements: filtres_actifs.append(f"Positionnement : {', '.join(sel_positionnements)}")
+if sel_occasions: filtres_actifs.append(f"Occasion : {', '.join(sel_occasions)}")
+if sel_articles: filtres_actifs.append(f"Article : {', '.join(sel_articles)}")
+
+st.markdown(f"""
+<div class="hero-header">
+    <div>
+        <h1>PREVISIONS STAR MADAGASCAR</h1>
+        <p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p>
+    </div>
+    <div class="badge-demo">⭐ Données Officielles STAR</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Ligne de contexte
+nb_regions = len(sel_regions) if sel_regions else len(regions_dispo)
+nb_agences = len(sel_agences) if sel_agences else len(agences_dispo)
+nb_articles = len(sel_articles) if sel_articles else len(articles_dispo)
+st.markdown(f"""
+<div class="context-line">
+    Périmètre : <b>{nb_regions} régions</b> · <b>{nb_agences} agences</b> · <b>{nb_articles} articles</b> | 
+    Réalisé jusqu'à <b>{MOIS_NOMS[annee_cloture - 1] if False else ''}</b> | 
+    Méthode : <b>{methode_croissance}</b> | 
+    Unité : <b>{unite_affichage}</b>
+</div>
+""", unsafe_allow_html=True)
+
+# Chips des filtres actifs
+chip_html = "".join([f'<span class="filter-chip">{f}</span>' for f in filtres_actifs])
+if not filtres_actifs:
+    chip_html = '<span class="filter-chip" style="background-color: #F3F4F6; color: #6B7280;">Aucun filtre – toutes les données</span>'
+st.markdown(f"<div>{chip_html}</div>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Glossaire
+with st.expander("📖 Comprendre les termes"):
+    st.markdown("""
+    - **SARR** : *Seasonally Adjusted Run Rate*. Volume lissé de la saisonnalité.
+    - **Momentum** : Variation moyenne des 3 derniers mois.
+    - **Indice de saisonnalité (IS)** : Coefficient multiplicateur par mois.
+    - **CAGR** : Taux de Croissance Annuel Moyen.
+    - **Cutoff** : Mois de séparation entre réel et prévision.
+    - **Cols** : Nombre de colis (converti depuis les HL).
+    - **WMAPE** : Erreur moyenne pondérée (précision globale).
+    - **SMAPE** : Erreur moyenne symétrique (précision sur petits volumes).
+    - **Classes ABC** : Classement des articles par contribution au volume (A=80%, B=15%, C=5%).
+    """)
+
+# Application des filtres pour le calcul
 df_perimetre = df_enrichi.copy()
 if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
 if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
@@ -774,8 +839,12 @@ if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_ar
 if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
+# Calcul
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v129"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
+    annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
+    fichier_budget.getvalue() if fichier_budget is not None else None, 
+    budget_all_agencies, cache_bust="v129"
 )
 
 if budget_status == "ok":
@@ -835,102 +904,114 @@ if not df_eval_agg.empty and df_eval_agg[col_prev_aff].sum() > 0:
 else:
     mae, wmape, smape = 0.0, 0.0, 0.0
 
-k1, k2, k3 = st.columns(3, gap="large")
+# Delta N-1
+delta_n1_pct = ((atterrissage_cible - hist_n1_val) / hist_n1_val * 100) if hist_n1_val > 0 else 0
+delta_class = "up" if delta_n1_pct >= 0 else "down"
+delta_icon = "▲" if delta_n1_pct >= 0 else "▼"
+
+# Progression Objectif
+progression = (atterrissage_cible / objectif_final * 100) if objectif_final > 0 else 0
+progression = min(max(progression, 0), 100)
+
+# Affichage des 4 KPI
+k1, k2, k3, k4 = st.columns(4, gap="large")
 with k1:
     st.markdown(f"""
-    <div class="white-card">
+    <div class="kpi-card">
         <div class="kpi-label">Atterrissage {annee_cible}</div>
         <div class="kpi-value">{atterrissage_cible:,.0f}</div>
-        <div class="kpi-footer">{unite_affichage} (Total Annuel Réalisé + Prévisions)</div>
+        <div class="kpi-delta {delta_class}">{delta_icon} {abs(delta_n1_pct):.1f}% vs N-1</div>
     </div>""", unsafe_allow_html=True)
 
 with k2:
-    source_obj = "Manuel" if use_objectif_manuel else f"N-1 {taux_ambition:+.1f}%"
     st.markdown(f"""
-    <div class="white-card">
-        <div class="kpi-label">Objectif Annuel ({source_obj})</div>
-        <div class="kpi-value kpi-value-dark">{objectif_final:,.0f}</div>
-        <div class="kpi-footer">{unite_affichage} (Cible)</div>
+    <div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};">
+        <div class="kpi-label">Objectif Annuel ({unite_affichage})</div>
+        <div class="kpi-value">{objectif_final:,.0f}</div>
+        <div class="progress-container">
+            <div class="progress-bar" style="width: {progression}%;"></div>
+        </div>
+        <div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem;">{progression:.1f}% couvert</div>
     </div>""", unsafe_allow_html=True)
 
 with k3:
-    gap_color = "kpi-value-green" if gap <= 0 else "kpi-value-red"
-    gap_label = "Objectif Atteint" if gap <= 0 else "Écart Restant"
+    gap_color = COLORS["VERT"] if gap <= 0 else COLORS["ROUGE"]
+    gap_icon = "✔" if gap <= 0 else "⚠"
+    gap_pct = (gap / objectif_final * 100) if objectif_final > 0 else 0
     st.markdown(f"""
-    <div class="white-card">
-        <div class="kpi-label">GAP (Objectif - Atterrissage)</div>
-        <div class="kpi-value {gap_color}">{gap:+,.0f}</div>
-        <div class="kpi-footer">{gap_label} en {unite_affichage}</div>
+    <div class="kpi-card" style="border-left-color: {gap_color};">
+        <div class="kpi-label">GAP</div>
+        <div class="kpi-value" style="color: {gap_color};">{gap:+,.0f}</div>
+        <div class="kpi-delta" style="color: {gap_color};">{gap_icon} {abs(gap_pct):.1f}% de l'objectif</div>
+    </div>""", unsafe_allow_html=True)
+
+with k4:
+    wmape_icon = "✔" if wmape < 5 else ("⚠" if wmape <= 10 else "✖")
+    wmape_color = COLORS["VERT"] if wmape < 5 else (COLORS["ROUGE"] if wmape > 10 else COLORS["TEXTE_SECONDAIRE"])
+    st.markdown(f"""
+    <div class="kpi-card" style="border-left-color: {wmape_color};">
+        <div class="kpi-label">Fiabilité (WMAPE)</div>
+        <div class="kpi-value" style="color: {wmape_color};">{wmape:.1f}%</div>
+        <div class="kpi-delta" style="color: {wmape_color};">{wmape_icon} Erreur moyenne</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-st.markdown(f"""
-<div class="white-card">
-    <div class="section-title">Superposition Réalisé vs Prévision ({annee_cible})</div>
-    <div class="section-subtitle">Comparaison mensuelle sur l'année complète</div>
-""", unsafe_allow_html=True)
+# ==============================================================================
+# GRAPHIQUE PRINCIPAL
+# ==============================================================================
+with st.container(border=True):
+    st.markdown(f"#### Superposition Réalisé vs Prévision ({annee_cible})")
 
-df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
-if annee_cible == annee_cloture: df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
+    df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
+    if annee_cible == annee_cloture: df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
 
-df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
-df_real_cible['Date_Plot'] = pd.to_datetime(df_real_cible['Date_Str'])
-contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100.0)
-df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
-df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
+    df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
+    df_real_cible['Date_Plot'] = pd.to_datetime(df_real_cible['Date_Str'])
+    contenance_safe_real = df_real_cible['contenance_cl'].replace(0, 100).fillna(100.0)
+    df_real_cible['Volume_Aff'] = df_real_cible['hl'] * (10000.0 / contenance_safe_real) if unite_affichage == "Cols" else df_real_cible['hl']
+    df_real_plot = df_real_cible.groupby('Date_Plot', observed=True)['Volume_Aff'].sum().reset_index().rename(columns={'Volume_Aff': 'Volume'})
 
-df_prev_cible = df_cible_annuel.copy()
-df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
-df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
-df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
+    df_prev_cible = df_cible_annuel.copy()
+    df_prev_cible['Date_Str'] = df_prev_cible['annee'].astype(str) + '-' + df_prev_cible['mois'].astype(str).str.zfill(2) + '-01'
+    df_prev_cible['Date_Plot'] = pd.to_datetime(df_prev_cible['Date_Str'])
+    df_prev_plot = df_prev_cible.groupby('Date_Plot', observed=True)[col_prev_pure].sum().reset_index().rename(columns={col_prev_pure: 'Volume'})
 
-fig1 = go.Figure()
-if not df_prev_plot.empty:
-    fig1.add_trace(go.Scatter(
-        x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], 
-        mode='lines+markers', name='Prévision (Pure)', 
-        line=dict(color='#E30613', width=3, dash='dot', shape='spline', smoothing=1.3), 
-        marker=dict(size=7, color='#E30613', line=dict(color='white', width=2)),
-        hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
-    ))
-if not df_real_plot.empty:
-    fig1.add_trace(go.Scatter(
-        x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], 
-        mode='lines+markers', name='Réalisé', 
-        line=dict(color='#B91C1C', width=4, shape='spline', smoothing=1.3), 
-        marker=dict(size=9, color='#B91C1C', line=dict(color='white', width=2)),
-        hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
-    ))
+    fig1 = go.Figure()
+    if not df_prev_plot.empty:
+        fig1.add_trace(go.Scatter(
+            x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], 
+            mode='lines+markers', name='Prévision', 
+            line=dict(color=COLORS['ROUGE'], width=3, dash='dot', shape='spline', smoothing=1.3), 
+            marker=dict(size=7, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
+            hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
+        ))
+    if not df_real_plot.empty:
+        fig1.add_trace(go.Scatter(
+            x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], 
+            mode='lines+markers', name='Réalisé', 
+            line=dict(color=COLORS['TEXTE'], width=4, shape='spline', smoothing=1.3), 
+            marker=dict(size=9, color=COLORS['TEXTE'], line=dict(color='white', width=2)),
+            hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
+        ))
 
-fig1.update_layout(
-    plot_bgcolor='#FFFFFF', 
-    paper_bgcolor='#FFFFFF', 
-    margin=dict(l=10, r=10, t=30, b=10), 
-    legend=dict(
-        orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, 
-        font=dict(size=13, family="Inter", weight="bold")
-    ),
-    xaxis=dict(
-        showgrid=True, gridcolor='#F3F4F6', linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1", 
-        tickfont=dict(family="Inter", size=12, weight="bold"),
-        tickangle=-45
-    ), 
-    yaxis=dict(
-        showgrid=True, gridcolor='#E5E7EB', zeroline=False, 
-        tickfont=dict(family="Inter", size=12, weight="bold"),
-        tickformat=",.0f"
-    ), 
-    height=500, 
-    hovermode="x unified"
-)
-st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
-st.markdown('</div>', unsafe_allow_html=True)
+    fig1.update_layout(
+        plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], 
+        margin=dict(l=10, r=10, t=30, b=10), 
+        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")),
+        xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), 
+        yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), 
+        height=500, hovermode="x unified"
+    )
+    st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
 st.markdown("""<p style="color: #9CA3AF; font-size: 0.75rem; margin-top: 10px;">Les prévisions sont ajustées en fonction des volumes potentiels (Ventes + Ruptures) pour une meilleure précision.</p>""", unsafe_allow_html=True)
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
+# ==============================================================================
+# NAVIGATION PAR ONGLETS
+# ==============================================================================
 tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions", "Analyse Rupture"]
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
@@ -1004,7 +1085,7 @@ with tab_placeholder.container():
 
     elif active_tab == "Prévisions Détaillées":
         st.markdown("### Prévisions Détaillées")
-        st.markdown(f"Projections mensuelles pour : **<span style='color: #E30613;'>{label_mois_str}</span>**", unsafe_allow_html=True)
+        st.markdown(f"Projections mensuelles pour : **<span style='color: {COLORS['ROUGE']};'>{label_mois_str}</span>**", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
         col_search, col_export = st.columns([3, 1])
@@ -1075,17 +1156,17 @@ with tab_placeholder.container():
             df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...')
             
             fig2 = go.Figure()
-            couleurs = {'A': '#E30613', 'B': '#F59E0B', 'C': '#9CA3AF'}
+            couleurs = {'A': COLORS['ROUGE'], 'B': '#F59E0B', 'C': '#9CA3AF'}
             for classe in ['A', 'B', 'C']:
                 df_class = df_pareto_graph[df_pareto_graph['Classe'] == classe]
                 if not df_class.empty:
                     fig2.add_trace(go.Bar(x=df_class['Index'], y=df_class[col_prev_aff], name=f'Classe {classe}', marker_color=couleurs[classe], customdata=df_class['article'], hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"))
-            fig2.add_trace(go.Scatter(x=df_pareto_graph['Index'], y=df_pareto_graph['Cumul_Pct'], name='% Cumulé', mode='lines+markers', line=dict(color='#111827', width=2), marker=dict(size=6, color='#111827'), yaxis='y2', customdata=df_pareto_graph['article'], hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"))
+            fig2.add_trace(go.Scatter(x=df_pareto_graph['Index'], y=df_pareto_graph['Cumul_Pct'], name='% Cumulé', mode='lines+markers', line=dict(color=COLORS['TEXTE'], width=2), marker=dict(size=6, color=COLORS['TEXTE']), yaxis='y2', customdata=df_pareto_graph['article'], hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"))
             
-            for seuil, color in [(80, '#E30613'), (95, '#F59E0B')]:
+            for seuil, color in [(80, COLORS['ROUGE']), (95, '#F59E0B')]:
                 fig2.add_shape(type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil, line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2')
 
-            fig2.update_layout(plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor='#F3F4F6', tickfont=dict(family="Inter", size=12, weight="bold")), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%", tickfont=dict(family="Inter", size=12, weight="bold")), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=11, family="Inter", weight="bold")), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
+            fig2.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=12, weight="bold")), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%", tickfont=dict(family="Inter", size=12, weight="bold")), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=11, family="Inter", weight="bold")), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             
             with st.expander("📋 Voir le détail par article", expanded=True):
@@ -1102,11 +1183,11 @@ with tab_placeholder.container():
 
         m1, m2, m3 = st.columns(3)
         with m1:
-            st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{mae:,.0f}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{mae:,.0f}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
         with m2:
-            st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{wmape:,.2f}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{wmape:,.2f}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
         with m3:
-            st.markdown(f"""<div class="white-card" style="border-top: 4px solid #4B5563;"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{smape:,.2f}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{smape:,.2f}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1135,7 +1216,6 @@ with tab_placeholder.container():
         df_rupture_hist = df_perimetre[df_perimetre['rupture_hl'] > 0].copy()
         
         if not df_rupture_hist.empty:
-            # KPIs dédiés aux ruptures
             kr1, kr2 = st.columns(2)
             with kr1:
                 vol_perdu_total = df_rupture_hist['rupture_hl'].sum()
@@ -1146,7 +1226,6 @@ with tab_placeholder.container():
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Graphique
             df_rupture_mensuel = df_rupture_hist.groupby(['annee', 'mois'], observed=True)['rupture_hl'].sum().reset_index()
             df_rupture_mensuel['Date'] = pd.to_datetime(df_rupture_mensuel['annee'].astype(str) + '-' + df_rupture_mensuel['mois'].astype(str) + '-01')
             df_rupture_mensuel = df_rupture_mensuel.sort_values('Date')
@@ -1160,15 +1239,14 @@ with tab_placeholder.container():
             ))
             
             fig_rupture.update_layout(
-                plot_bgcolor='#FFFFFF', paper_bgcolor='#FFFFFF', 
+                plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], 
                 margin=dict(l=10, r=10, t=30, b=10),
-                xaxis=dict(showgrid=True, gridcolor='#F3F4F6', linecolor='#E5E7EB', tickformat="%b-%y", dtick="M1"),
-                yaxis=dict(showgrid=True, gridcolor='#E5E7EB', zeroline=False, title="Volume Perdu (HL)"),
+                xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1"),
+                yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, title="Volume Perdu (HL)"),
                 height=400, hovermode="x unified", showlegend=False
             )
             st.plotly_chart(fig_rupture, use_container_width=True, config={'displayModeBar': False})
             
-            # Tableau
             st.markdown("#### Détail des articles impactés")
             df_detail_rupture = df_rupture_hist.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)['rupture_hl'].sum().reset_index()
             df_detail_rupture = df_detail_rupture.sort_values(['annee', 'mois', 'rupture_hl'], ascending=[False, False, False])

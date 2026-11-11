@@ -236,13 +236,23 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (INCHANGÉE)
+# LOGIQUE DE CALCUL
 # ==============================================================================
 @st.cache_data(show_spinner=False)
 def charger_ruptures(rupture_bytes):
     if rupture_bytes is None: return pd.DataFrame()
     try:
-        df = pd.read_excel(io.BytesIO(rupture_bytes), sheet_name="Rupture", header=None)
+        # MODIFICATION : Recherche intelligente de l'onglet des ruptures
+        xls = pd.ExcelFile(io.BytesIO(rupture_bytes))
+        sheet_rupture = None
+        for name in xls.sheet_names:
+            if name.lower() in ["rupture", "ruptures"]:
+                sheet_rupture = name
+                break
+        if sheet_rupture is None:
+            return pd.DataFrame() # L'onglet n'existe pas, on ignore
+
+        df = pd.read_excel(xls, sheet_name=sheet_rupture, header=None)
         df = df.iloc[1:, [0, 1, 2, 3]].copy()
         df.columns = ['Mois_Str', 'agence', 'article', 'rupture_hl']
         
@@ -266,7 +276,17 @@ def charger_ruptures(rupture_bytes):
 @st.cache_data(show_spinner="Chargement et enrichissement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: bytes) -> pd.DataFrame:
     if ref_bytes is not None:
-        df_ref = pd.read_excel(io.BytesIO(ref_bytes), sheet_name="Ref actif")
+        # MODIFICATION : Recherche intelligente de l'onglet référentiel
+        xls_ref = pd.ExcelFile(io.BytesIO(ref_bytes))
+        sheet_ref = None
+        for name in xls_ref.sheet_names:
+            if name.lower() in ["ref actif", "classeur.2", "classeur2", "referentiel", "référentiel"]:
+                sheet_ref = name
+                break
+        if sheet_ref is None:
+            sheet_ref = 1 if len(xls_ref.sheet_names) > 1 else 0 # Fallback : 2ème onglet
+            
+        df_ref = pd.read_excel(xls_ref, sheet_name=sheet_ref)
         df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (Cl)": "contenance_cl"}, errors="ignore")
         for col in ["positionnement", "occasion", "contenance_cl"]:
             if col not in df_ref.columns: df_ref[col] = "Non renseigné" if col != "contenance_cl" else 100.0
@@ -682,10 +702,30 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### 📁 Importation")
-    fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
-    fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref")
-    fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget")
-    fichier_rupture = st.file_uploader("Ruptures (Optionnel)", type=["xlsx"], key="uploader_rupture")
+    
+    # NOUVEAU : Bouton pour choisir le mode d'importation
+    mode_import = st.radio(
+        "Mode d'importation", 
+        options=["Fichier unique (Multi-onglets)", "Fichiers séparés"], 
+        index=0,
+        help="Choisissez 'Fichier unique' si vous avez un seul Excel avec les onglets Ventes, classeur.2, budget_query, rupture."
+    )
+    
+    if mode_import == "Fichier unique (Multi-onglets)":
+        fichier_unique = st.file_uploader("Fichier Global (DATA_BASEX.xlsx)", type=["xlsx"], key="uploader_unique")
+        if fichier_unique is not None:
+            fichier_ventes = fichier_unique
+            fichier_ref = fichier_unique
+            fichier_budget = fichier_unique
+            fichier_rupture = fichier_unique
+        else:
+            fichier_ventes = fichier_ref = fichier_budget = fichier_rupture = None
+    else:
+        # Option classique conservée
+        fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
+        fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref")
+        fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget")
+        fichier_rupture = st.file_uploader("Ruptures (Optionnel)", type=["xlsx"], key="uploader_rupture")
     
     if fichier_budget is not None:
         budget_all_agencies = st.checkbox("Appliquer le Budget à toutes les agences", value=True)
@@ -748,11 +788,9 @@ if fichier_ventes is None:
     
     st.info(
         "👋 **Bienvenue !** Pour démarrer :\n\n"
-        "1. Importez votre fichier de **Ventes** (`DATA_BRUT.xlsx`) dans la barre latérale.\n"
-        "2. (Optionnel) Importez un **Référentiel** pour restreindre le périmètre.\n"
-        "3. (Optionnel) Importez un **Budget Query** pour écraser les prévisions.\n"
-        "4. (Optionnel) Importez un fichier de **Ruptures**.\n"
-        "5. Ajustez les filtres et paramètres, puis explorez les onglets."
+        "1. Choisissez votre mode d'importation dans la barre latérale (Fichier global ou fichiers séparés).\n"
+        "2. Importez vos données.\n"
+        "3. Ajustez les filtres et paramètres, puis explorez les onglets."
     )
     st.stop()
 
@@ -764,7 +802,7 @@ df_enrichi = charger_et_enrichir(
 )
 
 if df_enrichi.empty or "annee" not in df_enrichi.columns:
-    st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide. Veuillez vérifier qu'il contient les colonnes requises (Année, Mois, Agence, Nature, Volume).")
+    st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide. Veuillez vérifier qu'il contient les colonnes requises.")
     st.stop()
 
 # Affichage Header
@@ -968,7 +1006,6 @@ with st.container(border=True):
 
     fig1 = go.Figure()
     
-    # Prévision en rouge pointillé
     if not df_prev_plot.empty:
         fig1.add_trace(go.Scatter(
             x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], 
@@ -978,7 +1015,6 @@ with st.container(border=True):
             hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
         ))
         
-    # Réalisé en rouge continu
     if not df_real_plot.empty:
         fig1.add_trace(go.Scatter(
             x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], 

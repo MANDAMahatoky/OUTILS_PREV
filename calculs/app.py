@@ -47,11 +47,17 @@ st.markdown(f"""
     /* HEADER */
     .hero-header {{
         background: {COLORS['ROUGE']}; color: white; padding: 20px 30px;
-        border-radius: 12px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center;
+        border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;
     }}
     .hero-header h1 {{ color: white !important; font-size: 1.6rem; font-weight: 700; margin: 0; }}
     .hero-header p {{ color: rgba(255,255,255,0.9); font-size: 0.9rem; margin: 5px 0 0 0; }}
     .badge-demo {{ background-color: white; color: {COLORS['ROUGE']}; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; }}
+    
+    /* FILTRES CONTAINER */
+    div[data-testid="stVerticalBlockBorderWrapper"] {{
+        background-color: {COLORS['BLANC']}; border-radius: 12px; border: 1px solid {COLORS['BORDURE']} !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02); padding: 15px 20px; margin-bottom: 20px;
+    }}
     
     /* KPI CARDS */
     .kpi-card {{ background: {COLORS['BLANC']}; border-radius: 10px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); border: 1px solid {COLORS['BORDURE']}; border-left: 4px solid {COLORS['ROUGE']}; height: 100%; }}
@@ -65,71 +71,34 @@ st.markdown(f"""
     .progress-container {{ width: 100%; background-color: {COLORS['BORDURE']}; border-radius: 4px; height: 8px; margin-top: 10px; }}
     .progress-bar {{ height: 8px; border-radius: 4px; background-color: {COLORS['ROUGE']}; }}
     
-    /* ST CONTAINER BORDER */
-    div[data-testid="stVerticalBlockBorderWrapper"] {{
-        background-color: {COLORS['BLANC']}; border-radius: 12px; border: 1px solid {COLORS['BORDURE']} !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02); padding: 20px;
-    }}
-    
-    /* ==========================================
-       NAVIGATION TABS (ANTI-RETOUR À LA LIGNE)
-       ========================================== */
+    /* NAVIGATION TABS */
     div[role="radiogroup"] {{ 
-        gap: 20px !important; /* Réduit de 32px à 20px */
+        gap: 20px !important; 
         border-bottom: 2px solid {COLORS['BORDURE']} !important; 
         padding-bottom: 0px !important; 
         margin-bottom: 30px !important; 
         display: flex !important; 
-        flex-wrap: nowrap !important; /* EMPÊCHE LE PASSAGE À LA LIGNE */
-        overflow-x: auto !important; /* Ajoute un scroll horizontal si l'écran est trop petit */
+        flex-wrap: nowrap !important; 
+        overflow-x: auto !important; 
         align-items: flex-end !important; 
         white-space: nowrap !important;
     }}
-    
-    /* Cache la barre de scroll pour un look plus propre */
-    div[role="radiogroup"]::-webkit-scrollbar {{
-        display: none;
-    }}
-    
+    div[role="radiogroup"]::-webkit-scrollbar {{ display: none; }}
     div[role="radiogroup"] label {{ 
-        background: transparent !important; 
-        border: none !important; 
-        border-bottom: 4px solid transparent !important; 
-        border-radius: 0 !important; 
-        padding: 10px 4px 16px 4px !important; 
-        margin: 0 !important; 
-        cursor: pointer !important; 
-        transition: all 0.2s ease !important; 
+        background: transparent !important; border: none !important; 
+        border-bottom: 4px solid transparent !important; border-radius: 0 !important; 
+        padding: 10px 4px 16px 4px !important; margin: 0 !important; 
+        cursor: pointer !important; transition: all 0.2s ease !important; 
     }}
     div[role="radiogroup"] label div p {{ 
-        font-size: 1.2rem !important; 
-        font-weight: 600 !important; 
-        color: {COLORS['TEXTE_SECONDAIRE']} !important; 
-        transition: color 0.2s ease !important; 
-        margin: 0 !important; 
-        letter-spacing: 0.01em !important; 
+        font-size: 1.2rem !important; font-weight: 600 !important; 
+        color: {COLORS['TEXTE_SECONDAIRE']} !important; transition: color 0.2s ease !important; margin: 0 !important; 
     }}
-    div[role="radiogroup"] label:hover div p {{ 
-        color: {COLORS['TEXTE']} !important; 
-    }}
-    div[role="radiogroup"] label:has(input:checked) {{ 
-        border-bottom: 4px solid {COLORS['ROUGE']} !important; 
-    }}
-    div[role="radiogroup"] label:has(input:checked) div p {{ 
-        color: {COLORS['ROUGE']} !important; 
-        font-weight: 800 !important; 
-    }}
-    div[role="radiogroup"] label > div:first-child {{ 
-        display: none !important; 
-    }}
-    div[role="radiogroup"] label:focus-within {{ 
-        outline: none !important; 
-        box-shadow: none !important; 
-    }}
-    
-    div[role="radiogroup"] + div {{ 
-        margin-top: 15px !important; 
-    }}
+    div[role="radiogroup"] label:hover div p {{ color: {COLORS['TEXTE']} !important; }}
+    div[role="radiogroup"] label:has(input:checked) {{ border-bottom: 4px solid {COLORS['ROUGE']} !important; }}
+    div[role="radiogroup"] label:has(input:checked) div p {{ color: {COLORS['ROUGE']} !important; font-weight: 800 !important; }}
+    div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
+    div[role="radiogroup"] label:focus-within {{ outline: none !important; box-shadow: none !important; }}
     
     .block-container {{ padding-top: 1rem !important; }}
 </style>
@@ -402,7 +371,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v133"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v134"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -691,9 +660,10 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# INTERFACE UTILISATEUR
+# INTERFACE UTILISATEUR : SIDEBAR & FILTRES
 # ==============================================================================
 
+# --- SIDEBAR : UNIQUEMENT IMPORTATION ET PARAMETRES ---
 with st.sidebar:
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
     LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
@@ -714,57 +684,13 @@ with st.sidebar:
         budget_all_agencies = True
 
     if fichier_ventes is not None:
-        df_enrichi = charger_et_enrichir(
-            fichier_ventes.getvalue(), 
-            fichier_ref.getvalue() if fichier_ref is not None else None,
-            fichier_rupture.getvalue() if fichier_rupture is not None else None
-        )
-
         st.markdown("---")
-        st.markdown("### 🎯 Périmètre")
-        
-        regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
-        sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes", key="filter_region")
-        df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
-
-        agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
-        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes", key="filter_agence")
-        df_temp = df_temp[df_temp["agence"].isin(sel_agences)] if sel_agences else df_temp
-
-        segments_dispo = sorted([str(s) for s in df_temp["segment"].unique() if pd.notna(s)])
-        sel_segments = st.multiselect("Segment", options=segments_dispo, placeholder="Tous", key="filter_segment")
-        df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
-
-        marques_dispo = sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"])
-        sel_marques = st.multiselect("Marque", options=marques_dispo, placeholder="Toutes", key="filter_marque")
-        df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
-
-        contenances_dispo = sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)])
-        sel_contenances = st.multiselect("Contenance (cl)", options=contenances_dispo, placeholder="Toutes", key="filter_contenance")
-        df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
-
-        emballages_dispo = sorted([str(e) for e in df_temp["emballage"].unique() if pd.notna(e) and str(e) != "AUTRE"])
-        sel_emballages = st.multiselect("Emballage", options=emballages_dispo, placeholder="Tous", key="filter_emballage")
-        df_temp = df_temp[df_temp["emballage"].isin(sel_emballages)] if sel_emballages else df_temp
-
-        positionnements_dispo = sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)])
-        sel_positionnements = st.multiselect("Positionnement", options=positionnements_dispo, placeholder="Tous", key="filter_positionnement")
-        df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
-
-        occasions_dispo = sorted([str(o) for o in df_temp["occasion"].unique() if pd.notna(o) and str(o) != "Non renseigné"])
-        sel_occasions = st.multiselect("Occasion", options=occasions_dispo, placeholder="Toutes", key="filter_occasion")
-        df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
-
-        articles_dispo = sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)])
-        sel_articles = st.multiselect("Article", options=articles_dispo, placeholder="Tous", key="filter_article")
-        df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
-
-        st.markdown("---")
-        st.markdown("### ⚙️ Paramètres")
+        st.markdown("### ⚙️ Paramètres du modèle")
         
         annee_cible = st.number_input("Année Cible", min_value=2020, max_value=2035, value=2026, key="param_annee_cible")
         unite_affichage = st.radio("Unité d'affichage", options=["HL", "Cols"], index=0, horizontal=True, key="param_unite")
         
+        st.markdown("##### 🎯 Objectif")
         taux_ambition = st.number_input("Taux d'ambition vs N-1 (%)", value=5.0, step=1.0, help="Objectif calculé = Volume Réalisé N-1 * (1 + Taux)", key="param_taux")
         
         use_objectif_manuel = st.checkbox("Forcer un objectif manuel", key="param_use_objectif")
@@ -821,6 +747,18 @@ if fichier_ventes is None:
     )
     st.stop()
 
+# Chargement des données
+df_enrichi = charger_et_enrichir(
+    fichier_ventes.getvalue(), 
+    fichier_ref.getvalue() if fichier_ref is not None else None,
+    fichier_rupture.getvalue() if fichier_rupture is not None else None
+)
+
+if df_enrichi.empty or "annee" not in df_enrichi.columns:
+    st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide. Veuillez vérifier qu'il contient les colonnes requises (Année, Mois, Agence, Nature, Volume).")
+    st.stop()
+
+# Affichage Header
 st.markdown(f"""
 <div class="hero-header">
     <div>
@@ -830,6 +768,46 @@ st.markdown(f"""
     <div class="badge-demo">⭐ Données Officielles STAR</div>
 </div>
 """, unsafe_allow_html=True)
+
+# --- ZONE DE FILTRES DANS LA ZONE PRINCIPALE (Mieux organisé) ---
+with st.container(border=True):
+    st.markdown("#### 🎯 Filtres de périmètre")
+    f1, f2, f3, f4 = st.columns(4)
+    
+    with f1:
+        regions_dispo = sorted([str(r) for r in df_enrichi["region"].unique() if pd.notna(r) and str(r) not in ["Aucune vente", "Autre"]])
+        sel_regions = st.multiselect("Région", options=regions_dispo, placeholder="Toutes", key="filter_region")
+        df_temp = df_enrichi[df_enrichi["region"].isin(sel_regions)] if sel_regions else df_enrichi
+
+        sel_marques = st.multiselect("Marque", options=sorted([str(m) for m in df_temp["marque"].unique() if pd.notna(m) and str(m) != "Inconnu"]), placeholder="Toutes", key="filter_marque")
+        df_temp = df_temp[df_temp["marque"].isin(sel_marques)] if sel_marques else df_temp
+
+    with f2:
+        agences_dispo = sorted([str(a) for a in df_temp["agence"].unique() if pd.notna(a) and str(a) != "Aucune vente"])
+        sel_agences = st.multiselect("Agence", options=agences_dispo, placeholder="Toutes", key="filter_agence")
+        df_temp = df_temp[df_temp["agence"].isin(sel_agences)] if sel_agences else df_temp
+
+        sel_contenances = st.multiselect("Contenance (cl)", options=sorted([int(c) for c in df_temp["contenance_cl"].unique() if pd.notna(c)]), placeholder="Toutes", key="filter_contenance")
+        df_temp = df_temp[df_temp["contenance_cl"].isin(sel_contenances)] if sel_contenances else df_temp
+
+    with f3:
+        sel_segments = st.multiselect("Segment", options=sorted([str(s) for s in df_temp["segment"].unique() if pd.notna(s)]), placeholder="Tous", key="filter_segment")
+        df_temp = df_temp[df_temp["segment"].isin(sel_segments)] if sel_segments else df_temp
+
+        sel_emballages = st.multiselect("Emballage", options=sorted([str(e) for e in df_temp["emballage"].unique() if pd.notna(e) and str(e) != "AUTRE"]), placeholder="Tous", key="filter_emballage")
+        df_temp = df_temp[df_temp["emballage"].isin(sel_emballages)] if sel_emballages else df_temp
+
+    with f4:
+        sel_articles = st.multiselect("Article", options=sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)]), placeholder="Tous", key="filter_article")
+        df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
+        
+        # On peut ajouter Positionnement et Occasion ici si besoin, mais on garde 4 colonnes pour l'instant
+        sel_positionnements = st.multiselect("Positionnement", options=sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)]), placeholder="Tous", key="filter_positionnement")
+        df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
+        
+        sel_occasions = st.multiselect("Occasion", options=sorted([str(o) for o in df_temp["occasion"].unique() if pd.notna(o) and str(o) != "Non renseigné"]), placeholder="Toutes", key="filter_occasion")
+        df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
+
 
 # Application des filtres pour le calcul
 df_perimetre = df_enrichi.copy()
@@ -848,7 +826,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v133"
+    budget_all_agencies, cache_bust="v134"
 )
 
 if budget_status == "ok":
@@ -1018,7 +996,6 @@ st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_al
 # ==============================================================================
 # NAVIGATION PAR ONGLETS
 # ==============================================================================
-# Noms légèrement raccourcis pour garantir qu'ils tiennent sur une seule ligne
 tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)", "Fiabilité", "Ruptures"]
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 

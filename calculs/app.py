@@ -72,17 +72,25 @@ st.markdown(f"""
     }}
     
     /* ==========================================
-       NAVIGATION TABS (AGRANDIS)
+       NAVIGATION TABS (ANTI-RETOUR À LA LIGNE)
        ========================================== */
     div[role="radiogroup"] {{ 
-        gap: 32px !important; 
+        gap: 20px !important; /* Réduit de 32px à 20px */
         border-bottom: 2px solid {COLORS['BORDURE']} !important; 
         padding-bottom: 0px !important; 
         margin-bottom: 30px !important; 
         display: flex !important; 
-        flex-wrap: wrap !important; 
+        flex-wrap: nowrap !important; /* EMPÊCHE LE PASSAGE À LA LIGNE */
+        overflow-x: auto !important; /* Ajoute un scroll horizontal si l'écran est trop petit */
         align-items: flex-end !important; 
+        white-space: nowrap !important;
     }}
+    
+    /* Cache la barre de scroll pour un look plus propre */
+    div[role="radiogroup"]::-webkit-scrollbar {{
+        display: none;
+    }}
+    
     div[role="radiogroup"] label {{ 
         background: transparent !important; 
         border: none !important; 
@@ -94,7 +102,7 @@ st.markdown(f"""
         transition: all 0.2s ease !important; 
     }}
     div[role="radiogroup"] label div p {{ 
-        font-size: 1.35rem !important; /* Taille augmentée */
+        font-size: 1.2rem !important; 
         font-weight: 600 !important; 
         color: {COLORS['TEXTE_SECONDAIRE']} !important; 
         transition: color 0.2s ease !important; 
@@ -119,7 +127,6 @@ st.markdown(f"""
         box-shadow: none !important; 
     }}
     
-    /* Espacement entre les onglets et le contenu en dessous */
     div[role="radiogroup"] + div {{ 
         margin-top: 15px !important; 
     }}
@@ -395,7 +402,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v132"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v133"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -841,7 +848,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v132"
+    budget_all_agencies, cache_bust="v133"
 )
 
 if budget_status == "ok":
@@ -1011,7 +1018,8 @@ st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_al
 # ==============================================================================
 # NAVIGATION PAR ONGLETS
 # ==============================================================================
-tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions Détaillées", "Analyse Pareto (ABC)", "Fiabilité Prévisions", "Analyse Rupture"]
+# Noms légèrement raccourcis pour garantir qu'ils tiennent sur une seule ligne
+tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)", "Fiabilité", "Ruptures"]
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
 active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
@@ -1082,7 +1090,7 @@ with tab_placeholder.container():
                     }
                 )
 
-    elif active_tab == "Prévisions Détaillées":
+    elif active_tab == "Prévisions":
         st.markdown("### Prévisions Détaillées")
         st.markdown(f"Projections mensuelles pour : **<span style='color: {COLORS['ROUGE']};'>{label_mois_str}</span>**", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1136,7 +1144,7 @@ with tab_placeholder.container():
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
             st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
 
-    elif active_tab == "Analyse Pareto (ABC)":
+    elif active_tab == "Pareto (ABC)":
         st.markdown("### Analyse Pareto & Classification ABC")
         st.markdown("La classification ABC est une méthode de gestion des stocks qui consiste à diviser les articles en trois classes en fonction de leur contribution au volume total :")
         st.markdown("- **Classe A (0-80%)** : Les articles vitaux (généralement 20% des articles qui font 80% des ventes).\n- **Classe B (80-95%)** : Les articles intermédiaires.\n- **Classe C (95-100%)** : Les articles à faible rotation (la longue traîne).")
@@ -1175,7 +1183,7 @@ with tab_placeholder.container():
         else:
             st.info("Pas assez de données pour l'analyse.")
 
-    elif active_tab == "Fiabilité Prévisions":
+    elif active_tab == "Fiabilité":
         st.markdown("### Qualité et Fiabilité du Modèle")
         st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1207,7 +1215,7 @@ with tab_placeholder.container():
             else:
                 st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")
 
-    elif active_tab == "Analyse Rupture":
+    elif active_tab == "Ruptures":
         st.markdown("### Analyse de Rupture de Tendance")
         st.markdown("Cette section affiche les volumes perdus à cause des ruptures de stock, tels qu'importés depuis votre fichier de référence.")
         st.markdown("<br>", unsafe_allow_html=True)

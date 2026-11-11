@@ -648,10 +648,6 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
 # INTERFACE UTILISATEUR : SIDEBAR & FILTRES
 # ==============================================================================
 
-# Session state pour filtres
-if "filtres" not in st.session_state:
-    st.session_state.filtres = {}
-
 with st.sidebar:
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
     LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
@@ -768,13 +764,37 @@ with st.sidebar:
 # MAIN AREA
 # ==============================================================================
 
+# Garde-fou : Si pas de fichier, on affiche un message d'accueil et on s'arrête
+if fichier_ventes is None:
+    st.markdown(f"""
+    <div class="hero-header">
+        <div>
+            <h1>PREVISIONS STAR MADAGASCAR</h1>
+            <p>Moteur de prévision hybride</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.info(
+        "👋 **Bienvenue !** Pour démarrer :\n\n"
+        "1. Importez votre fichier de **Ventes** (`DATA_BRUT.xlsx`) dans la barre latérale.\n"
+        "2. (Optionnel) Importez un **Référentiel** pour restreindre le périmètre.\n"
+        "3. (Optionnel) Importez un **Budget Query** pour écraser les prévisions.\n"
+        "4. (Optionnel) Importez un fichier de **Ruptures**.\n"
+        "5. Ajustez les filtres et explorez les onglets."
+    )
+    st.stop()
+
 # Définition des filtres actifs pour l'affichage
 filtres_actifs = []
 if sel_regions: filtres_actifs.append(f"Région : {', '.join(sel_regions)}")
 if sel_agences: filtres_actifs.append(f"Agence : {', '.join(sel_agences)}")
 if sel_segments: filtres_actifs.append(f"Segment : {', '.join(sel_segments)}")
 if sel_marques: filtres_actifs.append(f"Marque : {', '.join(sel_marques)}")
-# Ajouter les autres filtres si nécessaire...
+if sel_contenances: filtres_actifs.append(f"Contenance : {', '.join(map(str, sel_contenances))}")
+if sel_emballages: filtres_actifs.append(f"Emballage : {', '.join(sel_emballages)}")
+if sel_positionnements: filtres_actifs.append(f"Positionnement : {', '.join(sel_positionnements)}")
+if sel_occasions: filtres_actifs.append(f"Occasion : {', '.join(sel_occasions)}")
+if sel_articles: filtres_actifs.append(f"Article : {', '.join(sel_articles)}")
 
 st.markdown(f"""
 <div class="hero-header">

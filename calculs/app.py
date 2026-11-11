@@ -371,7 +371,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v137"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v134"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -660,9 +660,10 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# INTERFACE UTILISATEUR : SIDEBAR & IMPORTATION UNIQUE
+# INTERFACE UTILISATEUR : SIDEBAR & FILTRES
 # ==============================================================================
 
+# --- SIDEBAR : UNIQUEMENT IMPORTATION ET PARAMETRES ---
 with st.sidebar:
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
     LOGO_PATH = BASE_DIR / "LOGO_STAR.png"
@@ -672,61 +673,17 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### 📁 Importation")
+    fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
+    fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref")
+    fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget")
+    fichier_rupture = st.file_uploader("Ruptures (Optionnel)", type=["xlsx"], key="uploader_rupture")
     
-    # UN SEUL UPLOAD
-    fichier_global = st.file_uploader("Fichier STAR_DATABASE.xlsx", type=["xlsx"])
-    
-    ventes_bytes, ref_bytes, budget_bytes, rupture_bytes = None, None, None, None
-    
-    if fichier_global is not None:
-        try:
-            xls = pd.ExcelFile(io.BytesIO(fichier_global.getvalue()))
-            sheets = xls.sheet_names
-            
-            # Extraction des feuilles au format bytes pour ne pas toucher aux fonctions
-            if "Ventes" in sheets:
-                df_v = pd.read_excel(xls, sheet_name="Ventes", header=None)
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='openpyxl') as w:
-                    df_v.to_excel(w, index=False, header=False)
-                ventes_bytes = buf.getvalue()
-                st.success("✅ Feuille 'Ventes' chargée")
-            else:
-                st.error("❌ Feuille 'Ventes' manquante.")
-                
-            if "Ref actif" in sheets:
-                df_r = pd.read_excel(xls, sheet_name="Ref actif")
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='openpyxl') as w:
-                    df_r.to_excel(w, index=False, sheet_name="Ref actif")
-                ref_bytes = buf.getvalue()
-                st.success("✅ Feuille 'Ref actif' chargée")
-                
-            if "Rupture" in sheets:
-                df_rup = pd.read_excel(xls, sheet_name="Rupture", header=None)
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='openpyxl') as w:
-                    df_rup.to_excel(w, index=False, header=False, sheet_name="Rupture")
-                rupture_bytes = buf.getvalue()
-                st.success("✅ Feuille 'Rupture' chargée")
-                
-            if "Budget" in sheets:
-                df_b = pd.read_excel(xls, sheet_name="Budget")
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='openpyxl') as w:
-                    df_b.to_excel(w, index=False, sheet_name="Budget")
-                budget_bytes = buf.getvalue()
-                st.success("✅ Feuille 'Budget' chargée")
-                
-        except Exception as e:
-            st.error(f"Erreur de lecture du fichier : {e}")
-
-    if budget_bytes is not None:
+    if fichier_budget is not None:
         budget_all_agencies = st.checkbox("Appliquer le Budget à toutes les agences", value=True)
     else:
         budget_all_agencies = True
 
-    if ventes_bytes is not None:
+    if fichier_ventes is not None:
         st.markdown("---")
         st.markdown("### ⚙️ Paramètres du modèle")
         
@@ -769,7 +726,7 @@ with st.sidebar:
 # MAIN AREA
 # ==============================================================================
 
-if ventes_bytes is None:
+if fichier_ventes is None:
     st.markdown(f"""
     <div class="hero-header">
         <div>
@@ -782,18 +739,23 @@ if ventes_bytes is None:
     
     st.info(
         "👋 **Bienvenue !** Pour démarrer :\n\n"
-        "1. Créez un fichier Excel unique (ex: `STAR_DATABASE.xlsx`).\n"
-        "2. Ajoutez-y 4 onglets nommés exactement : **Ventes**, **Ref actif**, **Rupture**, **Budget**.\n"
-        "3. Importez ce fichier unique dans la barre latérale.\n"
-        "4. Ajustez les filtres et paramètres, puis explorez les onglets."
+        "1. Importez votre fichier de **Ventes** (`DATA_BRUT.xlsx`) dans la barre latérale.\n"
+        "2. (Optionnel) Importez un **Référentiel** pour restreindre le périmètre.\n"
+        "3. (Optionnel) Importez un **Budget Query** pour écraser les prévisions.\n"
+        "4. (Optionnel) Importez un fichier de **Ruptures**.\n"
+        "5. Ajustez les filtres et paramètres, puis explorez les onglets."
     )
     st.stop()
 
 # Chargement des données
-df_enrichi = charger_et_enrichir(ventes_bytes, ref_bytes, rupture_bytes)
+df_enrichi = charger_et_enrichir(
+    fichier_ventes.getvalue(), 
+    fichier_ref.getvalue() if fichier_ref is not None else None,
+    fichier_rupture.getvalue() if fichier_rupture is not None else None
+)
 
 if df_enrichi.empty or "annee" not in df_enrichi.columns:
-    st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide. Veuillez vérifier l'onglet 'Ventes'.")
+    st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide. Veuillez vérifier qu'il contient les colonnes requises (Année, Mois, Agence, Nature, Volume).")
     st.stop()
 
 # Affichage Header
@@ -807,8 +769,9 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- ZONE DE FILTRES DANS LA ZONE PRINCIPALE (Déroulante) ---
-with st.expander("🎯 Filtres de périmètre", expanded=False):
+# --- ZONE DE FILTRES DANS LA ZONE PRINCIPALE (Mieux organisé) ---
+with st.container(border=True):
+    st.markdown("#### 🎯 Filtres de périmètre")
     f1, f2, f3, f4 = st.columns(4)
     
     with f1:
@@ -838,6 +801,7 @@ with st.expander("🎯 Filtres de périmètre", expanded=False):
         sel_articles = st.multiselect("Article", options=sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)]), placeholder="Tous", key="filter_article")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
         
+        # On peut ajouter Positionnement et Occasion ici si besoin, mais on garde 4 colonnes pour l'instant
         sel_positionnements = st.multiselect("Positionnement", options=sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)]), placeholder="Tous", key="filter_positionnement")
         df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
         
@@ -861,13 +825,14 @@ if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
-    budget_bytes, budget_all_agencies, cache_bust="v137"
+    fichier_budget.getvalue() if fichier_budget is not None else None, 
+    budget_all_agencies, cache_bust="v134"
 )
 
 if budget_status == "ok":
     st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
 elif budget_status == "warning":
-    st.sidebar.warning("⚠️ Aucune donnée valide (33 CAN) trouvée dans l'onglet Budget.")
+    st.sidebar.warning("⚠️ Aucune donnée valide (33 CAN) trouvée dans le fichier Budget.")
 elif budget_status == "error":
     st.sidebar.error("⚠️ Erreur de lecture du Budget Query, ignoré.")
 

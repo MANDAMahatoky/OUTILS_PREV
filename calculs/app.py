@@ -53,12 +53,21 @@ st.markdown(f"""
     .hero-header p {{ color: rgba(255,255,255,0.9); font-size: 0.9rem; margin: 5px 0 0 0; }}
     .badge-demo {{ background-color: white; color: {COLORS['ROUGE']}; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; }}
     
-    /* FILTRES CONTAINER */
-    div[data-testid="stVerticalBlockBorderWrapper"] {{
-        background-color: {COLORS['BLANC']}; border-radius: 12px; border: 1px solid {COLORS['BORDURE']} !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02); padding: 15px 20px; margin-bottom: 20px;
+    /* FILTRES CONTAINER (Expander) */
+    div[data-testid="stExpander"] {{
+        background-color: {COLORS['BLANC']} !important; border-radius: 10px !important; 
+        border: 1px solid {COLORS['BORDURE']} !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; 
+        margin-bottom: 20px !important;
     }}
-    
+    div[data-testid="stExpander"] > details > summary {{
+        background-color: {COLORS['BLANC']} !important; border-radius: 10px !important;
+        padding: 15px 20px !important; font-weight: 600 !important; font-size: 1rem !important; color: {COLORS['TEXTE']} !important;
+    }}
+    div[data-testid="stExpander"] > details[open] > summary {{
+        border-bottom: 1px solid {COLORS['BORDURE']} !important;
+        border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important;
+    }}
+
     /* KPI CARDS */
     .kpi-card {{ background: {COLORS['BLANC']}; border-radius: 10px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); border: 1px solid {COLORS['BORDURE']}; border-left: 4px solid {COLORS['ROUGE']}; height: 100%; }}
     .kpi-label {{ color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; }}
@@ -371,7 +380,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v134"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v135"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -769,9 +778,8 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- ZONE DE FILTRES DANS LA ZONE PRINCIPALE (Mieux organisé) ---
-with st.container(border=True):
-    st.markdown("#### 🎯 Filtres de périmètre")
+# --- ZONE DE FILTRES DANS LA ZONE PRINCIPALE (Déroulante) ---
+with st.expander("🎯 Filtres de périmètre", expanded=False):
     f1, f2, f3, f4 = st.columns(4)
     
     with f1:
@@ -801,7 +809,6 @@ with st.container(border=True):
         sel_articles = st.multiselect("Article", options=sorted([str(a) for a in df_temp["article"].unique() if pd.notna(a)]), placeholder="Tous", key="filter_article")
         df_temp = df_temp[df_temp["article"].isin(sel_articles)] if sel_articles else df_temp
         
-        # On peut ajouter Positionnement et Occasion ici si besoin, mais on garde 4 colonnes pour l'instant
         sel_positionnements = st.multiselect("Positionnement", options=sorted([str(p) for p in df_temp["positionnement"].unique() if pd.notna(p)]), placeholder="Tous", key="filter_positionnement")
         df_temp = df_temp[df_temp["positionnement"].isin(sel_positionnements)] if sel_positionnements else df_temp
         
@@ -826,7 +833,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v134"
+    budget_all_agencies, cache_bust="v135"
 )
 
 if budget_status == "ok":

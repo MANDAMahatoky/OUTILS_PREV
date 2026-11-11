@@ -1,5 +1,5 @@
 # Application Streamlit : PREVISIONS STAR MADAGASCAR
-# Version Streamlit cible : >= 1.32 (utilisation de st.popover, st.tabs, st.column_config)
+# Version Streamlit cible : >= 1.32
 # Dépendances : streamlit, pandas, numpy, plotly, openpyxl, xlsxwriter
 
 import streamlit as st
@@ -363,7 +363,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v132"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v133"):
     budget_status = "skipped"
     annees_recentes = [annee_cloture, annee_cloture - 1]
     df_recent = df_perimetre[df_perimetre['annee'].isin(annees_recentes)]
@@ -680,7 +680,7 @@ with st.sidebar:
             st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide. Veuillez vérifier qu'il contient les colonnes requises (Année, Mois, Agence, Nature, Volume).")
             st.stop()
             
-        # Déduction auto du cutoff
+        # Déduction auto du cutoff (Dernier mois avec des ventes > 0)
         df_valid = df_enrichi[df_enrichi['hl'] > 0]
         if not df_valid.empty:
             default_annee_cloture = int(df_valid['annee'].max())
@@ -751,10 +751,17 @@ with st.sidebar:
             annees_is = st.slider("Période IS", 2010, 2030, (2024, 2025), help="Années utilisées pour calculer les indices de saisonnalité.")
             
             st.markdown("**Historique pour la croissance (CAGR)**")
-            annees_cagr = st.slider("Période CAGR", 2010, 2030, (2017, 2025), help="Années utilisées pour calculer le taux de croissance annuel moyen.")
+            annees_cagr = st.slider("Période CAGR", 2010, 2030, (2017, 2026), help="Années utilisées pour calculer le taux de croissance annuel moyen.")
             
             annee_cloture = st.number_input("Année Clôture", value=default_annee_cloture)
-            mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=default_mois_cutoff-1, format_func=lambda m: MOIS_NOMS[m-1])
+            
+            # On force l'index par défaut à 7 (Août) pour garder la cohérence avec l'ancienne version
+            # Mais l'utilisateur peut le changer.
+            default_index_cutoff = default_mois_cutoff - 1
+            if default_annee_cloture == 2026 and default_mois_cutoff == 12:
+                default_index_cutoff = 7 # Force Août si les données vont jusqu'à Déc
+                
+            mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=default_index_cutoff, format_func=lambda m: MOIS_NOMS[m-1])
             
             mois_cibles_selection = st.multiselect("Filtrer les mois (tableau)", options=MOIS_NOMS, default=[])
 
@@ -860,7 +867,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     df_perimetre, annees_is[0], annees_is[1], annees_cagr[0], annees_cagr[1], 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v132"
+    budget_all_agencies, cache_bust="v133"
 )
 
 if table_indices is None:

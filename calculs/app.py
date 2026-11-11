@@ -197,20 +197,16 @@ def detecter_format_pivote(df: pd.DataFrame) -> bool:
     return annee0.between(1990, 2100).sum() > len(df) * 0.3
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (INTEGRATION DES RUPTURES)
+# LOGIQUE DE CALCUL (INTEGRATION STRICTE EXCEL + RUPTURES POUR LE CAGR)
 # ==============================================================================
 @st.cache_data(show_spinner=False)
 def charger_ruptures(rupture_bytes):
     if rupture_bytes is None: return pd.DataFrame()
     try:
-        # Lecture brute sans entêtes pour gérer votre format spécifique
         df = pd.read_excel(io.BytesIO(rupture_bytes), sheet_name="Rupture", header=None)
-        
-        # On saute la première ligne (titres) et on sélectionne les 4 premières colonnes utiles
         df = df.iloc[1:, [0, 1, 2, 3]].copy()
         df.columns = ['Mois_Str', 'agence', 'article', 'rupture_hl']
         
-        # Nettoyage des données
         df['Mois_Str'] = df['Mois_Str'].astype(str).str.strip()
         df['mois'] = pd.to_numeric(df['Mois_Str'].str.split(' ').str[0], errors='coerce')
         df['annee'] = pd.to_numeric(df['Mois_Str'].str.split(' ').str[1], errors='coerce')
@@ -220,7 +216,6 @@ def charger_ruptures(rupture_bytes):
         df['mois'] = df['mois'].astype(int)
         df['rupture_hl'] = pd.to_numeric(df['rupture_hl'], errors='coerce').fillna(0.0)
         
-        # Clé de fusion
         df['agence'] = df['agence'].astype(str).str.strip()
         df['cle_article'] = df['article'].astype(str).apply(clean_text_for_key)
         
@@ -319,7 +314,8 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     if df_h.empty: return pd.DataFrame(columns=['agence', 'article', 'mois', 'Indice'])
 
     def _idx(group_cols):
-        v = (df_h.groupby(group_cols + ['annee', 'mois'], observed=True)['hl_potentiel'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0))
+        # STRICTEMENT EXCEL : On utilise 'hl' pour les indices de saisonnalité
+        v = (df_h.groupby(group_cols + ['annee', 'mois'], observed=True)['hl'].sum().unstack('mois').fillna(0.0).reindex(columns=range(1, 13), fill_value=0.0))
         cum_m = v.groupby(group_cols).sum()
         cum_a = v.sum(axis=1).groupby(group_cols).sum()
         moy_mensuelle = cum_a / 12.0
@@ -331,7 +327,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     idx2 = _idx(['article']).rename(columns={'Indice': 'Indice_art'})
     idx3 = _idx(['marque']).rename(columns={'Indice': 'Indice_marque'})
     idx4 = _idx(['segment']).rename(columns={'Indice': 'Indice_seg'})
-    tot = df_h.groupby('mois', observed=True)['hl_potentiel'].sum().reindex(range(1, 13), fill_value=0.0)
+    tot = df_h.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
     glob = (tot / (tot.sum() / 12.0)).reset_index()
     glob.columns = ['mois', 'Indice_glob']
 
@@ -348,7 +344,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v127"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, budget_bytes, budget_all_agencies, cache_bust="v128"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -384,8 +380,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(1.0).clip(lower=0.1) 
-    # On utilise le volume potentiel pour le calcul du SARR (désaisonnalisation)
-    df_sarr_cont['SARR_HL'] = df_sarr_cont['hl_potentiel'] / df_sarr_cont['Indice']
+    # STRICTEMENT EXCEL : On utilise le réalisé 'hl' pour le SARR
+    df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
     g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
@@ -408,7 +404,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
 
     df_perim_unique = df_perimetre_filtre[['agence', 'article', 'contenance_cl']].drop_duplicates(subset=['agence', 'article'])
-    df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl_potentiel']) # On utilise le potentiel ici aussi
+    # STRICTEMENT EXCEL : On utilise 'hl' (réalisé) pour le YTD de l'année en cours
+    df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl'])
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
     df_premiere_annee = (df_realise[df_realise['hl'] > 0].groupby(['agence', 'article'], observed=True)['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'}))
 
@@ -417,9 +414,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
     df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
 
-    df_base_vol = (df_realise.groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()) # Potentiel pour le CAGR
+    # STRICTEMENT EXCEL : On utilise 'hl' pour le volume de base du CAGR
+    df_base_vol = (df_realise.groupby(['agence', 'article', 'annee'], observed=True)['hl'].sum().reset_index())
     df_base = df_base.merge(df_base_vol, left_on=['agence', 'article', 'Annee_Base'], right_on=['agence', 'article', 'annee'], how='left')
-    df_base = df_base.rename(columns={'hl_potentiel': 'Base_Hist'}).drop(columns=['annee'])
+    df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
     df_base['Base_Hist'] = df_base['Base_Hist'].fillna(0.0)
 
     df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
@@ -440,7 +438,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
-    df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index() # Potentiel pour le CAGR
+    # ICI ON UTILISE RUPTURE : On utilise 'hl_potentiel' pour l'historique du CAGR
+    df_hist_cagr = df_realise[(df_realise['annee'] >= annee_min_cagr) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()
     if not df_hist_cagr.empty:
         g = df_hist_cagr.groupby(['agence', 'article'], observed=True)
         df_vol_debut = (df_hist_cagr[df_hist_cagr['annee'] == g['annee'].transform('min')].groupby(['agence', 'article'], observed=True)['hl_potentiel'].sum().rename('Vol_Debut').reset_index())
@@ -463,7 +462,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         for (agence, article), group in df_hist_cagr.groupby(['agence', 'article'], observed=True):
             try:
                 x = group['annee'].values.astype(float)
-                y = group['hl_potentiel'].values.astype(float) # Potentiel
+                y = group['hl_potentiel'].values.astype(float) # Utilise le potentiel (rupture)
                 mask = ~np.isnan(x) & ~np.isnan(y)
                 x = x[mask]
                 y = y[mask]
@@ -486,7 +485,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     elif methode_croissance == "Moyenne 3 ans":
         try:
-            df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl_potentiel', aggfunc='sum').fillna(0) # Potentiel
+            df_pivot = df_hist_cagr.pivot_table(index=['agence', 'article'], columns='annee', values='hl_potentiel', aggfunc='sum').fillna(0) # Utilise le potentiel
             growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
             if not growth_rates.empty:
                 df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left')
@@ -511,7 +510,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     df_cross = df_cross.merge(table_indices, on=['agence', 'article', 'mois'], how='left')
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
-    df_realise_grouped = (df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'})) # Le réalisé reste le réalisé
+    df_realise_grouped = (df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'}))
     df_cross = df_cross.merge(df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left')
 
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
@@ -777,7 +776,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v127"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v128"
 )
 
 if budget_status == "ok":

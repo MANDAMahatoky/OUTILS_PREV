@@ -660,108 +660,6 @@ def analyser_comportement_sku(df_sarr, df_perimetre):
         })
     return pd.DataFrame(resultats)
 
-def generer_rapport_excel(df_previsions, df_perimetre, kpis, unite_affichage, filtres_appliques=None):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        ws_synth = writer.book.create_sheet('Synthèse')
-        
-        ws_synth['A1'] = f'RAPPORT DE PRÉVISIONS STAR - ANNÉE {kpis["annee_cible"]}'
-        ws_synth['A1'].font = Font(bold=True, size=14, color='FFFFFF')
-        ws_synth['A1'].fill = PatternFill(start_color='E30613', end_color='E30613', fill_type='solid')
-        ws_synth.merge_cells('A1:C1')
-        ws_synth['A1'].alignment = Alignment(horizontal='center', vertical='center')
-        ws_synth.row_dimensions[1].height = 25
-        
-        ws_synth['A3'] = 'Date du rapport'; ws_synth['A3'].font = Font(bold=True)
-        ws_synth['B3'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
-        
-        row = 5
-        ws_synth.cell(row=row, column=1, value='📋 PÉRIMÈTRE APPLIQUÉ').font = Font(bold=True, size=12, color='FFFFFF')
-        ws_synth.cell(row=row, column=1).fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid')
-        ws_synth.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
-        
-        row += 1
-        if filtres_appliques:
-            for label, valeur in filtres_appliques.items():
-                ws_synth.cell(row=row, column=1, value=label).font = Font(bold=True)
-                ws_synth.cell(row=row, column=2, value=valeur if valeur else 'Toutes/Tous')
-                row += 1
-        else:
-            ws_synth.cell(row=row, column=1, value='Aucun filtre (périmètre complet)')
-            row += 1
-        
-        row += 1
-        ws_synth.cell(row=row, column=1, value='🎯 INDICATEURS CLÉS').font = Font(bold=True, size=12, color='FFFFFF')
-        ws_synth.cell(row=row, column=1).fill = PatternFill(start_color='E30613', end_color='E30613', fill_type='solid')
-        ws_synth.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
-        
-        row += 1
-        for col, h in enumerate(['KPI', 'Valeur', 'Unité'], 1):
-            cell = ws_synth.cell(row=row, column=col, value=h)
-            cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center')
-        
-        kpis_rows = [('Atterrissage Prévu', kpis['atterrissage'], unite_affichage), ('Objectif Annuel', kpis['objectif'], unite_affichage), ('GAP vs Objectif', kpis['gap'], unite_affichage), ('Fiabilité (WMAPE)', kpis['wmape'] / 100, '%')]
-        for kpi_label, kpi_val, kpi_unit in kpis_rows:
-            row += 1
-            ws_synth.cell(row=row, column=1, value=kpi_label)
-            cell_val = ws_synth.cell(row=row, column=2, value=kpi_val)
-            cell_val.number_format = '0.0%' if kpi_unit == '%' else '#,##0.00'
-            ws_synth.cell(row=row, column=3, value=kpi_unit)
-            if 'GAP' in kpi_label and kpi_val < 0:
-                cell_val.fill = PatternFill(start_color='FDECEE', end_color='FDECEE', fill_type='solid'); cell_val.font = Font(bold=True, color='B3050F')
-            elif 'GAP' in kpi_label and kpi_val >= 0:
-                cell_val.fill = PatternFill(start_color='D1FAE5', end_color='D1FAE5', fill_type='solid'); cell_val.font = Font(bold=True, color='059669')
-        
-        ws_synth.column_dimensions['A'].width = 30; ws_synth.column_dimensions['B'].width = 20; ws_synth.column_dimensions['C'].width = 15
-
-        # ONGLET 2 : PRÉVISIONS
-        df_prev_cible = df_previsions[df_previsions['annee'] == kpis['annee_cible']].copy()
-        df_seg = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
-        df_prev_seg = df_prev_cible.merge(df_seg, on='article', how='left')
-        
-        pivot = df_prev_seg.pivot_table(
-            index=['article', 'segment'], 
-            columns='mois', 
-            values='Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols', 
-            aggfunc='sum'
-        )
-        pivot = pivot.reindex(columns=range(1, 13), fill_value=0)
-        pivot.columns = [MOIS_NOMS[int(c) - 1] for c in pivot.columns]
-        pivot['Total Année'] = pivot.sum(axis=1)
-        pivot = pivot.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
-        
-        pivot.to_excel(writer, sheet_name='Prévisions', index=False)
-        ws_prev = writer.sheets['Prévisions']
-        for cell in ws_prev[1]:
-            cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        
-        ws_prev.column_dimensions['A'].width = 35; ws_prev.column_dimensions['B'].width = 15
-        for col in range(3, 16): ws_prev.column_dimensions[chr(64 + col)].width = 10
-
-        # ONGLET 3 : TOP 20 ARTICLES
-        df_alert_cible = df_previsions[df_previsions['annee'] == kpis['annee_cible']]
-        df_alert = df_alert_cible.groupby('article', observed=True).agg({'Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols': 'sum', 'Momentum': 'mean', 'CAGR (%)': 'mean'}).reset_index()
-        df_alert = df_alert.sort_values(by='Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols', ascending=False).head(20)
-        df_alert.columns = ['Article', f'Volume Total ({unite_affichage})', 'Momentum Moyen', 'CAGR Moyen (%)']
-        
-        df_alert.to_excel(writer, sheet_name='Top 20 Articles', index=False)
-        ws_alert = writer.sheets['Top 20 Articles']
-        for cell in ws_alert[1]:
-            cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center', vertical='center')
-        ws_alert.column_dimensions['A'].width = 40; ws_alert.column_dimensions['B'].width = 20; ws_alert.column_dimensions['C'].width = 15; ws_alert.column_dimensions['D'].width = 15
-
-        # ONGLET 4 : TOP RUPTURES
-        df_rupture = df_perimetre[df_perimetre['rupture_hl'] > 0].groupby('article', observed=True)['rupture_hl'].sum().reset_index()
-        if not df_rupture.empty:
-            df_rupture = df_rupture.sort_values(by='rupture_hl', ascending=False).head(20)
-            df_rupture.columns = ['Article', 'Volume Perdu (HL)']
-            df_rupture.to_excel(writer, sheet_name='Top Ruptures', index=False)
-            ws_rupt = writer.sheets['Top Ruptures']
-            for cell in ws_rupt[1]:
-                cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center', vertical='center')
-            ws_rupt.column_dimensions['A'].width = 40; ws_rupt.column_dimensions['B'].width = 20
-    return output.getvalue()
-
 # ==============================================================================
 # INTERFACE UTILISATEUR
 # ==============================================================================
@@ -821,13 +719,13 @@ with st.sidebar:
             st.cache_data.clear()
             st.rerun()
 
-        # ⭐ NOUVEAU : Regroupement des onglets avancés pour alléger la sidebar
         with st.expander("👁️ Affichage des onglets avancés"):
             show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, key="param_show_raw")
             show_analyse_comp = st.checkbox("Afficher l'onglet Analyse Comportementale", value=False, key="param_show_analyse")
 
 if fichier_ventes is None:
-    st.markdown(f"""<div class="hero-header"><div><h1>PREVISIONS STAR MADAGASCAR</h1><p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p></div><div class="badge-demo">⭐ Données Officielles STAR</div></div>""", unsafe_allow_html=True)
+    # Le texte ici a été supprimé
+    st.markdown(f"""<div class="hero-header"><div><h1>PREVISIONS STAR MADAGASCAR</h1></div><div class="badge-demo">⭐ Données Officielles STAR</div></div>""", unsafe_allow_html=True)
     st.info("👋 **Bienvenue !** Pour démarrer :\n\n1. Choisissez votre mode d'importation dans la barre latérale.\n2. Importez vos données.\n3. Ajustez les filtres et paramètres.")
     st.stop()
 
@@ -836,7 +734,8 @@ if df_enrichi.empty or "annee" not in df_enrichi.columns:
     st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide.")
     st.stop()
 
-st.markdown(f"""<div class="hero-header"><div><h1>PREVISIONS STAR MADAGASCAR</h1><p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p></div><div class="badge-demo">⭐ Données Officielles STAR</div></div>""", unsafe_allow_html=True)
+# Le texte ici a été supprimé
+st.markdown(f"""<div class="hero-header"><div><h1>PREVISIONS STAR MADAGASCAR</h1></div><div class="badge-demo">⭐ Données Officielles STAR</div></div>""", unsafe_allow_html=True)
 
 with st.expander("🎯 Filtres de périmètre", expanded=False):
     f1, f2, f3, f4 = st.columns(4)
@@ -979,65 +878,13 @@ with st.container(border=True):
     fig1.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), height=500, hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
-# EXPORT EXCEL SIDEBAR
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📤 Export Direction")
-
-nb_articles_filtres = df_previsions['article'].nunique()
-nb_lignes_filtrees = len(df_previsions)
-
-st.sidebar.caption(f"🎯 Le rapport contiendra **{nb_articles_filtres} articles** (sur {nb_lignes_filtrees:,} lignes).")
-if nb_articles_filtres < 10:
-    st.sidebar.success(f"✅ Filtre actif : export limité à ces {nb_articles_filtres} articles.")
-else:
-    st.sidebar.info("🌍 Périmètre large : beaucoup d'articles.")
-
-filtres_appliques = {
-    "Région": ", ".join(sel_regions) if sel_regions else "Toutes",
-    "Marque": ", ".join(sel_marques) if sel_marques else "Toutes",
-    "Agence": ", ".join(sel_agences) if sel_agences else "Toutes",
-    "Contenance": ", ".join([str(c) for c in sel_contenances]) if sel_contenances else "Toutes",
-    "Segment": ", ".join(sel_segments) if sel_segments else "Tous",
-    "Emballage": ", ".join(sel_emballages) if sel_emballages else "Tous",
-    "Article": ", ".join(sel_articles) if sel_articles else "Tous",
-    "Positionnement": ", ".join(sel_positionnements) if sel_positionnements else "Tous",
-    "Occasion": ", ".join(sel_occasions) if sel_occasions else "Toutes",
-}
-
-kpis_export = {
-    "annee_cible": annee_cible, "atterrissage": atterrissage_cible,
-    "objectif": objectif_final, "gap": gap, "wmape": wmape
-}
-
-excel_data = generer_rapport_excel(
-    df_previsions, 
-    df_perimetre, 
-    kpis_export, 
-    unite_affichage, 
-    filtres_appliques=filtres_appliques
-)
-
-nom_fichier = f"Rapport_STAR_{annee_cible}"
-if sel_agences and len(sel_agences) <= 2: nom_fichier += f"_{'_'.join(sel_agences)}"
-elif sel_regions and len(sel_regions) <= 2: nom_fichier += f"_{'_'.join(sel_regions)}"
-nom_fichier += ".xlsx"
-
-st.sidebar.download_button(
-    label="📊 Télécharger le Rapport Excel",
-    data=excel_data,
-    file_name=nom_fichier,
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    use_container_width=True,
-    key="btn_export_excel_direction"
-)
-
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
 # ==============================================================================
-# CONSTRUCTION DYNAMIQUE DES ONGLETS (modifié : Analyse Comportementale conditionnelle)
+# CONSTRUCTION DYNAMIQUE DES ONGLETS
 # ==============================================================================
 tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)", "Fiabilité", "Ruptures"]
-if show_analyse_comp: tab_names.insert(4, "Analyse Comportementale")  # juste après Pareto
+if show_analyse_comp: tab_names.insert(4, "Analyse Comportementale")
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
 active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
@@ -1103,8 +950,11 @@ with tab_placeholder.container():
         with col_search:
             search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
         with col_export:
+            # L'exportation CSV a été supprimée ici
+            pass
+
+        with st.expander("📊 Afficher le tableau des prévisions détaillées (Format Excel)", expanded=True):
             df_seg = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
-            
             df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
             df_prev_seg = df_prev_cible.merge(df_seg, on='article', how='left')
             
@@ -1117,15 +967,7 @@ with tab_placeholder.container():
             
             pivot_mensuel[nom_total] = pivot_mensuel.sum(axis=1)
             pivot_mensuel = pivot_mensuel[pivot_mensuel[nom_total] > 0]
-            
-            pivot_mensuel_export = pivot_mensuel.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
-            for col in pivot_mensuel_export.columns:
-                if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
-                    pivot_mensuel_export[col] = pivot_mensuel_export[col].apply(lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8') if pd.notna(x) else "")
-            csv = pivot_mensuel_export.to_csv(sep=';', index=False).encode('utf-8-sig')
-            st.download_button(label="Exporter en CSV", data=csv, file_name=f"previsions_star_{annee_cible}.csv", mime="text/csv", use_container_width=True, key="btn_export_csv")
 
-        with st.expander("📊 Afficher le tableau des prévisions détaillées (Format Excel)", expanded=True):
             pivot_mensuel_reset = pivot_mensuel.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
             if search_query:
                 mask = pivot_mensuel_reset.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
@@ -1212,10 +1054,7 @@ with tab_placeholder.container():
                 st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">📊 SKU Analysés</div><div class="kpi-value">{nb_total}</div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']};">Total</div></div>""", unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            
-            csv_analyse = df_display.to_csv(sep=';', index=False).encode('utf-8-sig')
-            st.download_button(label="📥 Exporter le diagnostic en CSV", data=csv_analyse, file_name=f"analyse_comportementale_{annee_cible}.csv", mime="text/csv", use_container_width=True)
-            
+
             with st.expander(f"📋 Diagnostic détaillé ({len(df_display)} SKU)", expanded=True):
                 for _, row in df_display.iterrows():
                     with st.container(border=True):

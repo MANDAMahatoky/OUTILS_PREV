@@ -64,7 +64,7 @@ def color_error(val, seuil_alerte=10, seuil_bon=5):
 
 def get_region_vectorized(series):
     a = series.astype(str).str.lower().str.replace(r'[-_ ]', '', regex=True)
-    return np.select(
+    result = np.select(
         [
             a.str.contains('andranomahery|antsirabe', regex=True),
             a.str.contains('tanjombato|tamatave', regex=True),
@@ -74,6 +74,7 @@ def get_region_vectorized(series):
         ['Centre', 'Est', 'Nord', 'Sud'],
         default='Autre'
     )
+    return pd.Series(result, index=series.index)
 
 def extraire_marque(article):
     if pd.isna(article): return "Inconnu"
@@ -198,7 +199,6 @@ def charger_ruptures(rupture_bytes):
         df['cle_article'] = map_unique_apply(df['article'].astype(str), clean_text_for_key)
         
         df = df.groupby(['annee', 'mois', 'agence', 'cle_article'], as_index=False)['rupture_hl'].sum()
-        # Conversion en category
         df['agence'] = df['agence'].astype('category')
         df['cle_article'] = df['cle_article'].astype('category')
         
@@ -264,8 +264,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].astype('float32').fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
-    df_enrichi["marque"] = df_enrichi["marque"].fillna("Inconnu").astype('category')
-    df_enrichi["emballage"] = df_enrichi["emballage"].fillna("AUTRE").astype('category')
+    
+    # CORRECTION ICI : On sécurise le .astype('category') sur des Series Pandas
+    df_enrichi["marque"] = df_enrichi["marque"].astype(object).fillna("Inconnu").astype('category')
+    df_enrichi["emballage"] = df_enrichi["emballage"].astype(object).fillna("AUTRE").astype('category')
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").astype('float32').fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
 
@@ -273,9 +275,12 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0).astype('float32')
+    
+    # CORRECTION ICI : appel sécurisé de get_region_vectorized
     df_enrichi["region"] = get_region_vectorized(df_enrichi["agence"]).astype('category')
-    df_enrichi["occasion"] = df_enrichi["occasion"].fillna("Non renseigné").astype('category')
-    df_enrichi["positionnement"] = df_enrichi["positionnement"].fillna("Non renseigné").astype('category')
+    
+    df_enrichi["occasion"] = df_enrichi["occasion"].astype(object).fillna("Non renseigné").astype('category')
+    df_enrichi["positionnement"] = df_enrichi["positionnement"].astype(object).fillna("Non renseigné").astype('category')
     
     conditions = [df_enrichi["article"].str.contains(x, case=False, na=False) for x in ["booster|alcoomix", "caprice|tonic|world cola|d jino|youzou|coca|fanta|sprite", "beaufort|fresh|thb|gold|queen|skol|castel|libertalia", "cristal|cristalline|eau vive|eau", "xxl|fosa", "judor|jus", "vin", "negoce"]]
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
@@ -329,7 +334,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v153"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v154"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -793,7 +798,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v153"
+    budget_all_agencies, cache_bust="v154"
 )
 
 if budget_status == "ok":

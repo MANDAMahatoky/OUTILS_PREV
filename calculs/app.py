@@ -63,7 +63,6 @@ def color_error(val, seuil_alerte=10, seuil_bon=5):
     except: return ''
 
 def get_region_vectorized(series):
-    # OPTIMISATION : remplacements de chaînes simples au lieu de regex (plus rapide)
     a = series.astype(str).str.lower().str.replace("-", "").str.replace(" ", "").str.replace("_", "")
     result = np.select(
         [
@@ -152,7 +151,6 @@ REF_DEFAUT = [
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
 def normaliser_mois(serie: pd.Series) -> pd.Series:
-    # OPTIMISATION : Si déjà numérique, on retourne directement
     if pd.api.types.is_numeric_dtype(serie):
         return serie.fillna(1).astype(int)
     
@@ -170,7 +168,7 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
     return texte_series.map(mois_map).fillna(1).astype(int)
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (OPTIMISÉE)
+# LOGIQUE DE CALCUL
 # ==============================================================================
 @st.cache_data(show_spinner=False)
 def charger_ruptures(rupture_bytes):
@@ -197,7 +195,7 @@ def charger_ruptures(rupture_bytes):
         df = df.dropna(subset=['mois', 'annee', 'agence', 'article'])
         df['annee'] = df['annee'].astype(int)
         df['mois'] = df['mois'].astype(int)
-        df['rupture_hl'] = pd.to_numeric(df['rupture_hl'], errors='coerce').astype('float32').fillna(0.0)
+        df['rupture_hl'] = pd.to_numeric(df['rupture_hl'], errors='coerce').astype(float).fillna(0.0)
         df['agence'] = df['agence'].astype(str).str.strip()
         
         df['cle_article'] = map_unique_apply(df['article'].astype(str), clean_text_for_key)
@@ -246,7 +244,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
             df_rupt = df_rupt.dropna(subset=['mois', 'annee', 'agence', 'article'])
             df_rupt['annee'] = df_rupt['annee'].astype(int)
             df_rupt['mois'] = df_rupt['mois'].astype(int)
-            df_rupt['rupture_hl'] = pd.to_numeric(df_rupt['rupture_hl'], errors='coerce').astype('float32').fillna(0.0)
+            df_rupt['rupture_hl'] = pd.to_numeric(df_rupt['rupture_hl'], errors='coerce').astype(float).fillna(0.0)
             df_rupt['agence'] = df_rupt['agence'].astype(str).str.strip()
             df_rupt['cle_article'] = map_unique_apply(df_rupt['article'].astype(str), clean_text_for_key)
             df_ruptures = df_rupt.groupby(['annee', 'mois', 'agence', 'cle_article'], as_index=False)['rupture_hl'].sum()
@@ -292,9 +290,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df = df_raw.rename(columns=rename).copy()
     df["annee"] = pd.to_numeric(df["annee"], errors="coerce")
     df["mois"] = normaliser_mois(df["mois"])
-    df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").astype('float32').fillna(0.0)
+    df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").astype(float).fillna(0.0)
     
-    # OPTIMISATION : Vérification des "total" colonne par colonne (plus rapide que la concaténation)
     masque_total = (df['segment'].astype(str).str.contains("total", case=False, na=False) | 
                     df['produit'].astype(str).str.contains("total", case=False, na=False) | 
                     df['agence'].astype(str).str.contains("total", case=False, na=False) | 
@@ -312,18 +309,18 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
         
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
-    df_enrichi["volume_brut"] = df_enrichi["volume_brut"].astype('float32').fillna(0.0)
+    df_enrichi["volume_brut"] = df_enrichi["volume_brut"].astype(float).fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     
     df_enrichi["marque"] = df_enrichi["marque"].astype(object).fillna("Inconnu").astype('category')
     df_enrichi["emballage"] = df_enrichi["emballage"].astype(object).fillna("AUTRE").astype('category')
-    df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").astype('float32').fillna(100.0)
+    df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").astype(float).fillna(100.0)
     df_enrichi.loc[df_enrichi["contenance_cl"] <= 0, "contenance_cl"] = 100.0
 
     masque_fut20 = df_enrichi["article"].str.contains(r'20L|20 L|FUT 20', case=False, na=False, regex=True)
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
-    df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0).astype('float32')
+    df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0).astype(float)
     df_enrichi["region"] = get_region_vectorized(df_enrichi["agence"]).astype('category')
     df_enrichi["occasion"] = df_enrichi["occasion"].astype(object).fillna("Non renseigné").astype('category')
     df_enrichi["positionnement"] = df_enrichi["positionnement"].astype(object).fillna("Non renseigné").astype('category')
@@ -334,11 +331,11 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     
     if not df_ruptures.empty:
         df_enrichi = df_enrichi.merge(df_ruptures, on=['annee', 'mois', 'agence', 'cle_article'], how='left', sort=False)
-        df_enrichi['rupture_hl'] = df_enrichi['rupture_hl'].astype('float32').fillna(0.0)
+        df_enrichi['rupture_hl'] = df_enrichi['rupture_hl'].astype(float).fillna(0.0)
     else:
         df_enrichi['rupture_hl'] = 0.0
 
-    df_enrichi["hl_potentiel"] = (df_enrichi["hl"] + df_enrichi["rupture_hl"]).astype('float32')
+    df_enrichi["hl_potentiel"] = (df_enrichi["hl"] + df_enrichi["rupture_hl"]).astype(float)
 
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "hl_potentiel", "rupture_hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl", "emballage"]]
 
@@ -374,12 +371,12 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
                       .merge(idx4, on=['segment', 'mois'], how='left', sort=False)
                       .merge(glob, on='mois', how='left', sort=False))
 
-    result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_marque']).fillna(result['Indice_seg']).fillna(result['Indice_glob']).fillna(1.0).astype('float32')
+    result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_marque']).fillna(result['Indice_seg']).fillna(result['Indice_glob']).fillna(1.0).astype(float)
     result['mois'] = result['mois'].astype(int)
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v157"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v158"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -401,7 +398,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         table_indices = pd.merge(df_ag_art, df_mois, on='key').drop('key', axis=1)
         table_indices['Indice'] = 1.0
 
-    df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl']).astype('float32')
+    df_realise['hl_positif'] = np.maximum(0.0, df_realise['hl']).astype(float)
     
     df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)[['hl', 'hl_positif', 'hl_potentiel', 'rupture_hl']].sum().reset_index()
     
@@ -417,8 +414,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left', sort=False)
     df_sarr_cont = df_sarr_cont.merge(table_indices, on=['agence', 'article', 'mois'], how='left', sort=False)
     
-    df_sarr_cont['Indice'] = df_sarr_cont['Indice'].astype('float32').fillna(1.0).clip(lower=0.1) 
-    df_sarr_cont['SARR_HL'] = (df_sarr_cont['hl'] / df_sarr_cont['Indice']).astype('float32')
+    df_sarr_cont['Indice'] = df_sarr_cont['Indice'].astype(float).fillna(1.0).clip(lower=0.1) 
+    df_sarr_cont['SARR_HL'] = (df_sarr_cont['hl'] / df_sarr_cont['Indice']).astype(float)
 
     df_sarr_cont = df_sarr_cont.sort_values(['agence', 'article', 'annee', 'mois']).reset_index(drop=True)
     g = df_sarr_cont.groupby(['agence', 'article'], observed=True)
@@ -427,16 +424,16 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_sarr_cont['SARR_M2'] = g['SARR_HL'].shift(2)
     df_sarr_cont['SARR_M3'] = g['SARR_HL'].shift(3)
 
-    df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1).astype('float32')
+    df_sarr_cont['SARR_MA3'] = df_sarr_cont[['SARR_M1', 'SARR_M2', 'SARR_M3']].mean(axis=1).astype(float)
     
-    df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL'].fillna(0.0).astype('float32')
+    df_sarr_cont['Base_EXCEL'] = df_sarr_cont['SARR_HL'].fillna(0.0).astype(float)
     mask_ma3 = df_sarr_cont['SARR_MA3'].notna()
     df_sarr_cont.loc[mask_ma3, 'Base_EXCEL'] = np.maximum(df_sarr_cont.loc[mask_ma3, 'SARR_HL'].fillna(0.0), df_sarr_cont.loc[mask_ma3, 'SARR_MA3'])
 
     df_sarr_cont['Ecart_1'] = df_sarr_cont['SARR_HL'].fillna(0.0) - df_sarr_cont['SARR_M1'].fillna(0.0)
     df_sarr_cont['Ecart_2'] = df_sarr_cont['SARR_M1'].fillna(0.0) - df_sarr_cont['SARR_M2'].fillna(0.0)
     df_sarr_cont['Ecart_3'] = df_sarr_cont['SARR_M2'].fillna(0.0) - df_sarr_cont['SARR_M3'].fillna(0.0)
-    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1).fillna(0.0).astype('float32')
+    df_sarr_cont['Momentum'] = df_sarr_cont[['Ecart_1', 'Ecart_2', 'Ecart_3']].mean(axis=1).fillna(0.0).astype(float)
 
     df_base_momentum = df_sarr_cont[(df_sarr_cont['annee'] == annee_cloture) & (df_sarr_cont['mois'] == mois_cutoff)][['agence', 'article', 'Base_EXCEL', 'Momentum']].copy()
 
@@ -449,7 +446,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     df_base = (df_perim_unique.merge(df_ytd, on=['agence', 'article'], how='left', sort=False)
                               .merge(df_premiere_annee, on=['agence', 'article'], how='left', sort=False))
-    df_base['YTD_HL'] = df_base['YTD_HL'].astype('float32').fillna(0.0)
+    df_base['YTD_HL'] = df_base['YTD_HL'].astype(float).fillna(0.0)
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture).astype(int)
     
     df_base['Annee_Base'] = np.maximum(np.maximum(annee_min_cagr, annee_rupture_tendance), df_base['Annee_Debut'])
@@ -458,7 +455,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     
     df_base = df_base.merge(df_base_vol[['agence', 'article', 'annee', 'hl']], left_on=['agence', 'article', 'Annee_Base'], right_on=['agence', 'article', 'annee'], how='left', sort=False)
     df_base = df_base.rename(columns={'hl': 'Base_Hist'}).drop(columns=['annee'])
-    df_base['Base_Hist'] = df_base['Base_Hist'].astype('float32').fillna(0.0)
+    df_base['Base_Hist'] = df_base['Base_Hist'].astype(float).fillna(0.0)
 
     df_mois_debut = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['hl'] > 0)]
                      .groupby(['agence', 'article'], observed=True)['mois'].min()
@@ -473,9 +470,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 .reset_index().rename(columns={'Indice': 'Cumul_Coef'}))
 
     df_base = df_base.drop(columns=['Mois_Debut']).merge(df_cumul, on=['agence', 'article'], how='left', sort=False)
-    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].astype('float32').fillna(mois_cutoff * 1.0).replace(0, 1.0)
-    df_base['Base_Mensuelle'] = (df_base['YTD_HL'] / df_base['Cumul_Coef']).astype('float32')
-    df_base['Projection_CurrentYear'] = (df_base['Base_Mensuelle'] * 12.0).astype('float32')
+    df_base['Cumul_Coef'] = df_base['Cumul_Coef'].astype(float).fillna(mois_cutoff * 1.0).replace(0, 1.0)
+    df_base['Base_Mensuelle'] = (df_base['YTD_HL'] / df_base['Cumul_Coef']).astype(float)
+    df_base['Projection_CurrentYear'] = (df_base['Base_Mensuelle'] * 12.0).astype(float)
     df_base['Nb_Annees'] = (annee_cloture - df_base['Annee_Base']).astype(int)
 
     annee_debut_effective = max(annee_min_cagr, annee_rupture_tendance)
@@ -489,16 +486,16 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         df_base = (df_base.merge(df_vol_debut, on=['agence', 'article'], how='left', sort=False)
                           .merge(df_vol_fin, on=['agence', 'article'], how='left', sort=False)
                           .merge(df_annees_hist, on=['agence', 'article'], how='left', sort=False))
-        df_base['Nb_Annees_Hist'] = (df_base['Annee_Fin_Hist'] - df_base['Annee_Debut_Hist']).clip(lower=0).astype('float32')
-        df_base['CAGR_Hist'] = np.where((df_base['Vol_Debut'] > 0) & (df_base['Vol_Fin'] > 0) & (df_base['Nb_Annees_Hist'] > 0), (df_base['Vol_Fin'] / df_base['Vol_Debut']) ** (1 / df_base['Nb_Annees_Hist']) - 1, 0.0).astype('float32')
+        df_base['Nb_Annees_Hist'] = (df_base['Annee_Fin_Hist'] - df_base['Annee_Debut_Hist']).clip(lower=0).astype(float)
+        df_base['CAGR_Hist'] = np.where((df_base['Vol_Debut'] > 0) & (df_base['Vol_Fin'] > 0) & (df_base['Nb_Annees_Hist'] > 0), (df_base['Vol_Fin'] / df_base['Vol_Debut']) ** (1 / df_base['Nb_Annees_Hist']) - 1, 0.0).astype(float)
     else:
         df_base['CAGR_Hist'] = 0.0
 
     df_base['CAGR_Hist'] = df_base['CAGR_Hist'].clip(lower=-0.20, upper=0.30)
 
     if methode_croissance == "CAGR Classique":
-        df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist']).astype('float32')
-        df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut']).astype('float32')
+        df_base['CAGR_brut'] = np.where((df_base['Base_Hist'] > 0) & (df_base['Projection_CurrentYear'] > 0) & (df_base['Nb_Annees'] > 0), (df_base['Projection_CurrentYear'] / df_base['Base_Hist']) ** (1 / df_base['Nb_Annees']) - 1, df_base['CAGR_Hist']).astype(float)
+        df_base['CAGR_val'] = np.where(df_base['Base_Hist'] < 100.0, df_base['CAGR_Hist'], df_base['CAGR_brut']).astype(float)
     
     elif methode_croissance == "Tendance Linéaire":
         if not df_hist_cagr.empty:
@@ -523,7 +520,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                 (agg['n'] >= 2) & (denom != 0) & (agg['sum_y'] > 0) & (agg['mean_y'] > 0),
                 num / denom / agg['mean_y'],
                 np.nan
-            ).astype('float32')
+            ).astype(float)
             
             slopes_df = agg[['agence', 'article', 'Slope_Rel']]
             df_base = df_base.merge(slopes_df, on=['agence', 'article'], how='left', sort=False)
@@ -537,39 +534,37 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
             growth_rates = df_pivot.pct_change(axis=1).iloc[:, -3:].mean(axis=1).reset_index(name='Avg_Growth')
             if not growth_rates.empty:
                 df_base = df_base.merge(growth_rates, on=['agence', 'article'], how='left', sort=False)
-                df_base['CAGR_val'] = df_base['Avg_Growth'].astype('float32').fillna(df_base['CAGR_Hist'])
+                df_base['CAGR_val'] = df_base['Avg_Growth'].astype(float).fillna(df_base['CAGR_Hist'])
             else:
                 df_base['CAGR_val'] = df_base['CAGR_Hist']
         except: df_base['CAGR_val'] = df_base['CAGR_Hist']
     else:
         df_base['CAGR_val'] = df_base['CAGR_Hist']
 
-    df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30).astype('float32')
+    df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30).astype(float)
     df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left', sort=False).fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
 
-    # OPTIMISATION MAJEURE : Remplacement de MultiIndex/iloc par un produit cartésien ultra-rapide (merge cross)
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
     df_dates_cross = pd.DataFrame({'annee': np.repeat(annees_cibles, 12), 'mois': np.tile(mois_cibles, len(annees_cibles))})
     df_cross = pd.merge(df_base, df_dates_cross, how='cross')
 
-    # Pré-calcul du budget key sur df_base (plus rapide que sur 1.2M lignes)
     df_base['key_article_budget'] = map_unique_apply(df_base['article'].astype(str), clean_text_for_budget_key)
 
     df_cross = df_cross.merge(table_indices, on=['agence', 'article', 'mois'], how='left', sort=False)
-    df_cross['Indice'] = df_cross['Indice'].astype('float32').fillna(1.0)
+    df_cross['Indice'] = df_cross['Indice'].astype(float).fillna(1.0)
     
     df_realise_grouped = df_realise_agg[['annee', 'mois', 'agence', 'article', 'hl']].rename(columns={'hl': 'hl_reel'})
     df_cross = df_cross.merge(df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left', sort=False)
 
     df_cross['is_realise'] = (df_cross['annee'] == annee_cloture) & (df_cross['mois'] <= mois_cutoff)
-    df_cross['multiplicateur_cagr'] = ((1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)).astype('float32')
+    df_cross['multiplicateur_cagr'] = ((1 + df_cross['CAGR_val']) ** (df_cross['annee'] - annee_cloture)).astype(float)
     
-    prev_2026 = (df_cross['Base_Mensuelle'] * df_cross['Indice']).astype('float32')
-    prev_futur = (df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']).astype('float32')
+    prev_2026 = (df_cross['Base_Mensuelle'] * df_cross['Indice']).astype(float)
+    prev_futur = (df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']).astype(float)
 
-    df_cross['Prevision_HL'] = np.where(df_cross['annee'] <= annee_cible, prev_2026, prev_futur).astype('float32')
-    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL']).astype('float32')
+    df_cross['Prevision_HL'] = np.where(df_cross['annee'] <= annee_cible, prev_2026, prev_futur).astype(float)
+    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL']).astype(float)
     
     if budget_bytes is not None:
         try:
@@ -600,13 +595,13 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     else:
                         df_budget['key_article_budget'] = map_unique_apply(df_budget[col_art].astype(str), clean_text_for_budget_key)
                         df_budget['mois'] = pd.to_numeric(df_budget[col_mois], errors='coerce').astype(int)
-                        df_budget['valeur_budget'] = pd.to_numeric(df_budget[col_val], errors='coerce').astype('float32').fillna(0.0)
+                        df_budget['valeur_budget'] = pd.to_numeric(df_budget[col_val], errors='coerce').astype(float).fillna(0.0)
                         df_budget = df_budget.dropna(subset=['mois'])
                         
                         df_temp_content = df_cross[['key_article_budget', 'contenance_cl']].drop_duplicates(subset=['key_article_budget'])
                         df_budget = df_budget.merge(df_temp_content, on='key_article_budget', how='left', sort=False)
-                        df_budget['contenance_cl'] = df_budget['contenance_cl'].astype('float32').fillna(33.0)
-                        df_budget['valeur_budget'] = (df_budget['valeur_budget'] * (df_budget['contenance_cl'] / 10000.0)).astype('float32')
+                        df_budget['contenance_cl'] = df_budget['contenance_cl'].astype(float).fillna(33.0)
+                        df_budget['valeur_budget'] = (df_budget['valeur_budget'] * (df_budget['contenance_cl'] / 10000.0)).astype(float)
                         
                         mask_budget_target = (df_cross['annee'] == annee_cible) & (~df_cross['is_realise'])
                         
@@ -619,7 +614,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                                 .groupby(['key_article_budget', 'mois'])['Prevision_HL']
                                 .transform('sum')
                                 .reindex(df_cross.index)
-                            ).astype('float32')
+                            ).astype(float)
                             
                             mask_apply = mask_budget_target & df_cross['valeur_budget'].notna()
                             mask_denom_pos = mask_apply & (df_cross['Forecast_Total_Article_Mois'] > 0)
@@ -653,16 +648,16 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         if c in df_cross.columns:
             df_cross = df_cross.drop(columns=[c])
 
-    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL']).astype('float32')
-    df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL']).astype('float32')
-    df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL']).astype('float32')
+    df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL']).astype(float)
+    df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL']).astype(float)
+    df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL']).astype(float)
     
-    contenance_safe = df_cross['contenance_cl'].replace(0, 100).fillna(100.0).astype('float32')
-    df_cross['Volume_Cols'] = (df_cross['Volume_HL'] * (10000.0 / contenance_safe)).astype('float32')
-    df_cross['Prevision_Cols'] = (df_cross['Prevision_HL'] * (10000.0 / contenance_safe)).astype('float32')
+    contenance_safe = df_cross['contenance_cl'].replace(0, 100).fillna(100.0).astype(float)
+    df_cross['Volume_Cols'] = (df_cross['Volume_HL'] * (10000.0 / contenance_safe)).astype(float)
+    df_cross['Prevision_Cols'] = (df_cross['Prevision_HL'] * (10000.0 / contenance_safe)).astype(float)
     
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
-    df_cross['CAGR (%)'] = (df_cross['CAGR_val'] * 100).astype('float32')
+    df_cross['CAGR (%)'] = (df_cross['CAGR_val'] * 100).astype(float)
 
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
@@ -842,7 +837,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v157"
+    budget_all_agencies, cache_bust="v158"
 )
 
 if budget_status == "ok":

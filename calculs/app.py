@@ -254,7 +254,7 @@ def charger_ruptures(rupture_bytes):
         df = df.iloc[1:, [0, 1, 2, 3]].copy()
         df.columns = ['Mois_Str', 'agence', 'article', 'rupture_hl']
         
-        # --- GESTION INTELLIGENTE DES DATES (MODIFICATION ICI) ---
+        # --- GESTION INTELLIGENTE DES DATES ---
         df['Mois_Str'] = df['Mois_Str'].astype(str).str.strip()
         
         # 1. On tente de lire le format Date classique (ex: "01/07/2026")
@@ -408,7 +408,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v147"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v148"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -883,7 +883,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v147"
+    budget_all_agencies, cache_bust="v148"
 )
 
 if budget_status == "ok":
@@ -1088,7 +1088,6 @@ with tab_placeholder.container():
                     st.dataframe(pivot_indices, use_container_width=True)
                 else: st.info("Pas d'historique complet.")
         
-        # CORRECTION ICI : Tri chronologique parfait et affichage côte à côte
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
@@ -1255,51 +1254,95 @@ with tab_placeholder.container():
 
     elif active_tab == "Ruptures":
         st.markdown("### Analyse de Rupture de Tendance")
-        st.markdown("Cette section affiche les volumes perdus à cause des ruptures de stock, tels qu'importés depuis votre fichier de référence.")
+        st.markdown("Cette section affiche les volumes perdus à cause des ruptures de stock, par SKU et par mois.")
         st.markdown("<br>", unsafe_allow_html=True)
         
         df_rupture_hist = df_perimetre[df_perimetre['rupture_hl'] > 0].copy()
         
         if not df_rupture_hist.empty:
-            kr1, kr2 = st.columns(2)
+            # --- KPI GLOBAUX ---
+            kr1, kr2, kr3 = st.columns(3)
             with kr1:
                 vol_perdu_total = df_rupture_hist['rupture_hl'].sum()
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Volume Total Perdu (Ruptures)</div><div class="kpi-value kpi-value-dark">{vol_perdu_total:,.0f} HL</div><div class="kpi-footer">Sur le périmètre filtré</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Volume Total Perdu</div><div class="kpi-value kpi-value-dark">{vol_perdu_total:,.0f} HL</div><div class="kpi-footer">Sur le périmètre filtré</div></div>""", unsafe_allow_html=True)
             with kr2:
                 nb_mois_ruptures = df_rupture_hist.groupby(['annee', 'mois']).ngroups
                 st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Mois impactés</div><div class="kpi-value kpi-value-dark">{nb_mois_ruptures}</div><div class="kpi-footer">Nombre de mois avec au moins une rupture</div></div>""", unsafe_allow_html=True)
+            with kr3:
+                nb_sku_impactes = df_rupture_hist['article'].nunique()
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">SKU Impactés</div><div class="kpi-value kpi-value-dark">{nb_sku_impactes}</div><div class="kpi-footer">Nombre d'articles différents</div></div>""", unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            df_rupture_mensuel = df_rupture_hist.groupby(['annee', 'mois'], observed=True)['rupture_hl'].sum().reset_index()
-            df_rupture_mensuel['Date'] = pd.to_datetime(df_rupture_mensuel['annee'].astype(str) + '-' + df_rupture_mensuel['mois'].astype(str) + '-01')
-            df_rupture_mensuel = df_rupture_mensuel.sort_values('Date')
+            # --- GRAPHIQUES DÉTAILLÉS ---
+            col_chart1, col_chart2 = st.columns(2)
             
-            fig_rupture = go.Figure()
-            fig_rupture.add_trace(go.Bar(
-                x=df_rupture_mensuel['Date'], y=df_rupture_mensuel['rupture_hl'],
-                name='Volume Perdu',
-                marker_color='#F59E0B',
-                hovertemplate="<b>%{x|%b-%y}</b><br>Perte: %{y:,.0f} HL<extra></extra>"
-            ))
-            
-            fig_rupture.update_layout(
-                plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], 
-                margin=dict(l=10, r=10, t=30, b=10),
-                xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1"),
-                yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, title="Volume Perdu (HL)"),
-                height=400, hovermode="x unified", showlegend=False
-            )
-            st.plotly_chart(fig_rupture, use_container_width=True, config={'displayModeBar': False})
-            
+            # 1. Top 15 des SKU impactés (Barres horizontales)
+            with col_chart1:
+                st.markdown("#### Top 15 des SKU les plus impactés")
+                df_rupture_sku = df_rupture_hist.groupby('article', observed=True)['rupture_hl'].sum().reset_index()
+                df_rupture_sku = df_rupture_sku.sort_values(by='rupture_hl', ascending=True).tail(15) # On prend les 15 plus gros et on trie pour l'affichage horizontal
+                
+                fig_sku = go.Figure(go.Bar(
+                    x=df_rupture_sku['rupture_hl'],
+                    y=df_rupture_sku['article'],
+                    orientation='h',
+                    marker_color='#F59E0B',
+                    text=df_rupture_sku['rupture_hl'].apply(lambda x: f"{x:,.0f}"),
+                    textposition='auto',
+                    hovertemplate="<b>%{y}</b><br>Perte: %{x:,.1f} HL<extra></extra>"
+                ))
+                fig_sku.update_layout(
+                    plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    xaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']),
+                    yaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                    height=450
+                )
+                st.plotly_chart(fig_sku, use_container_width=True, config={'displayModeBar': False})
+
+            # 2. Évolution mensuelle par SKU (Barres empilées)
+            with col_chart2:
+                st.markdown("#### Évolution mensuelle des pertes (par SKU)")
+                # On ne garde que les 5 plus gros SKU pour ne pas surcharger le graphique
+                top_5_skus = df_rupture_sku.tail(5)['article'].tolist()
+                df_top = df_rupture_hist[df_rupture_hist['article'].isin(top_5_skus)]
+                
+                df_rupture_mensuel = df_top.groupby(['annee', 'mois', 'article'], observed=True)['rupture_hl'].sum().reset_index()
+                df_rupture_mensuel['Date_Str'] = df_rupture_mensuel['annee'].astype(str) + '-' + df_rupture_mensuel['mois'].astype(str).str.zfill(2) + '-01'
+                df_rupture_mensuel['Date_Plot'] = pd.to_datetime(df_rupture_mensuel['Date_Str'])
+                df_rupture_mensuel = df_rupture_mensuel.sort_values('Date_Plot')
+                
+                fig_mois = px.bar(
+                    df_rupture_mensuel, x='Date_Plot', y='rupture_hl', color='article',
+                    labels={'rupture_hl': 'Volume Perdu (HL)', 'Date_Plot': 'Mois', 'article': 'Article'},
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                fig_mois.update_layout(
+                    plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    xaxis=dict(tickformat="%b-%y", dtick="M1"),
+                    yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE']),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                    height=450, barmode='stack'
+                )
+                st.plotly_chart(fig_mois, use_container_width=True, config={'displayModeBar': False})
+
+            # --- TABLEAU DÉTAILLÉ (Vue Excel) ---
             st.markdown("#### Détail des articles impactés")
             df_detail_rupture = df_rupture_hist.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)['rupture_hl'].sum().reset_index()
             df_detail_rupture = df_detail_rupture.sort_values(['annee', 'mois', 'rupture_hl'], ascending=[False, False, False])
             
+            # Ajout d'une colonne % du total
+            df_detail_rupture['Part (%)'] = (df_detail_rupture['rupture_hl'] / vol_perdu_total) * 100
+            
             st.dataframe(
                 df_detail_rupture.rename(columns={'annee': 'Année', 'mois': 'Mois', 'region': 'Région', 'agence': 'Agence', 'article': 'Article', 'rupture_hl': 'Volume Perdu (HL)'}),
                 use_container_width=True, hide_index=True,
-                column_config={'Volume Perdu (HL)': st.column_config.NumberColumn(format="%.1f")}
+                column_config={
+                    'Volume Perdu (HL)': st.column_config.NumberColumn(format="%.1f"),
+                    'Part (%)': st.column_config.ProgressColumn(format="%.1f %%", min_value=0, max_value=100)
+                }
             )
         else:
             st.info("Aucune rupture n'a été détectée sur le périmètre sélectionné.")

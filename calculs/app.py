@@ -63,13 +63,14 @@ def color_error(val, seuil_alerte=10, seuil_bon=5):
     except: return ''
 
 def get_region_vectorized(series):
-    a = series.astype(str).str.lower().str.replace(r'[-_ ]', '', regex=True)
+    # OPTIMISATION : remplacements de chaînes simples au lieu de regex (plus rapide)
+    a = series.astype(str).str.lower().str.replace("-", "").str.replace(" ", "").str.replace("_", "")
     result = np.select(
         [
-            a.str.contains('andranomahery|antsirabe', regex=True),
-            a.str.contains('tanjombato|tamatave', regex=True),
-            a.str.contains('diego|majunga|ambanja|sambava|nosybe', regex=True),
-            a.str.contains('tulear|fianarantsoa|ihosy|manakara|morondava|dauphin', regex=True),
+            a.str.contains('andranomahery|antsirabe'),
+            a.str.contains('tanjombato|tamatave'),
+            a.str.contains('diego|majunga|ambanja|sambava|nosybe'),
+            a.str.contains('tulear|fianarantsoa|ihosy|manakara|morondava|dauphin'),
         ],
         ['Centre', 'Est', 'Nord', 'Sud'],
         default='Autre'
@@ -151,16 +152,19 @@ REF_DEFAUT = [
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
 def normaliser_mois(serie: pd.Series) -> pd.Series:
+    # OPTIMISATION : Si déjà numérique, on retourne directement
+    if pd.api.types.is_numeric_dtype(serie):
+        return serie.fillna(1).astype(int)
+    
     series_clean = serie.astype(str).str.strip()
-    try:
-        numeric_series = pd.to_numeric(series_clean, errors='coerce')
-        if numeric_series.notna().all():
-            if numeric_series.between(1, 12).all():
-                return numeric_series.astype(int)
-            dates = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
-            if dates.notna().all():
-                return dates.dt.month
-    except: pass
+    numeric_series = pd.to_numeric(series_clean, errors='coerce')
+    if numeric_series.notna().all():
+        if numeric_series.between(1, 12).all():
+            return numeric_series.astype(int)
+        dates = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
+        if dates.notna().all():
+            return dates.dt.month
+            
     mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
     texte_series = series_clean.str.normalize('NFD').str.encode('ascii', 'ignore').str.decode('utf-8').str.lower()
     return texte_series.map(mois_map).fillna(1).astype(int)
@@ -212,11 +216,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     is_single_file = (ventes_bytes == ref_bytes == rupture_bytes)
     
     if is_single_file:
-        # OPTIMISATION MAJEURE : On lit le fichier global une seule fois
         xls = pd.ExcelFile(io.BytesIO(ventes_bytes))
         sheet_names = xls.sheet_names
         
-        # 1. Lecture Référentiel
         sheet_ref = next((name for name in sheet_names if name.lower() in ["ref actif", "classeur.2", "classeur2", "referentiel", "référentiel"]), None)
         if sheet_ref is None and len(sheet_names) > 1: sheet_ref = sheet_names[1]
         
@@ -226,10 +228,8 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
             df_ref = pd.DataFrame(REF_DEFAUT).rename(columns={"Article": "article_original", "Contenance (Cl)": "contenance_cl", "Positionnement": "positionnement"})
             df_ref["occasion"] = "Non renseigné"
             
-        # 2. Lecture Ventes
         df_raw = pd.read_excel(xls, sheet_name=0, header=None)
         
-        # 3. Lecture Ruptures
         sheet_rupture = next((name for name in sheet_names if name.lower() in ["rupture", "ruptures"]), None)
         if sheet_rupture:
             df_rupt = pd.read_excel(xls, sheet_name=sheet_rupture, header=None)
@@ -256,7 +256,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
             df_ruptures = pd.DataFrame()
             
     else:
-        # ANCIEN MODE : Fichiers séparés
         if ref_bytes is not None:
             xls_ref = pd.ExcelFile(io.BytesIO(ref_bytes))
             sheet_ref = next((name for name in xls_ref.sheet_names if name.lower() in ["ref actif", "classeur.2", "classeur2", "referentiel", "référentiel"]), None)
@@ -269,7 +268,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
         df_raw = pd.read_excel(io.BytesIO(ventes_bytes), sheet_name=0, header=None)
         df_ruptures = charger_ruptures(rupture_bytes)
 
-    # --- SUITE DU TRAITEMENT COMMUN ---
     df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (Cl)": "contenance_cl"}, errors="ignore")
     for col in ["positionnement", "occasion", "contenance_cl"]:
         if col not in df_ref.columns: df_ref[col] = "Non renseigné" if col != "contenance_cl" else 100.0
@@ -296,8 +294,12 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").astype('float32').fillna(0.0)
     
-    s_total = df['segment'].astype(str) + df['produit'].astype(str) + df['agence'].astype(str) + df['nature'].astype(str)
-    masque_total = s_total.str.contains("total", case=False, na=False) | df['nature'].isna()
+    # OPTIMISATION : Vérification des "total" colonne par colonne (plus rapide que la concaténation)
+    masque_total = (df['segment'].astype(str).str.contains("total", case=False, na=False) | 
+                    df['produit'].astype(str).str.contains("total", case=False, na=False) | 
+                    df['agence'].astype(str).str.contains("total", case=False, na=False) | 
+                    df['nature'].astype(str).str.contains("total", case=False, na=False) |
+                    df['nature'].isna())
     df = df[~masque_total].copy()
     
     df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
@@ -377,7 +379,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v156"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v157"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -545,13 +547,14 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30).astype('float32')
     df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left', sort=False).fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
 
+    # OPTIMISATION MAJEURE : Remplacement de MultiIndex/iloc par un produit cartésien ultra-rapide (merge cross)
     annees_cibles = list(range(annee_cloture, annee_cible + 1))
     mois_cibles = list(range(1, 13))
-    n_base = len(df_base)
-    idx = pd.MultiIndex.from_product([range(n_base), annees_cibles, mois_cibles], names=['_i', 'annee', 'mois'])
-    df_cross = df_base.reset_index(drop=True).iloc[idx.get_level_values('_i').to_numpy()].reset_index(drop=True)
-    df_cross['annee'] = idx.get_level_values('annee').to_numpy()
-    df_cross['mois'] = idx.get_level_values('mois').to_numpy()
+    df_dates_cross = pd.DataFrame({'annee': np.repeat(annees_cibles, 12), 'mois': np.tile(mois_cibles, len(annees_cibles))})
+    df_cross = pd.merge(df_base, df_dates_cross, how='cross')
+
+    # Pré-calcul du budget key sur df_base (plus rapide que sur 1.2M lignes)
+    df_base['key_article_budget'] = map_unique_apply(df_base['article'].astype(str), clean_text_for_budget_key)
 
     df_cross = df_cross.merge(table_indices, on=['agence', 'article', 'mois'], how='left', sort=False)
     df_cross['Indice'] = df_cross['Indice'].astype('float32').fillna(1.0)
@@ -567,8 +570,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     df_cross['Prevision_HL'] = np.where(df_cross['annee'] <= annee_cible, prev_2026, prev_futur).astype('float32')
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL']).astype('float32')
-    
-    df_cross['key_article_budget'] = map_unique_apply(df_cross['article'].astype(str), clean_text_for_budget_key)
     
     if budget_bytes is not None:
         try:
@@ -680,7 +681,7 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# INTERFACE UTILISATEUR (OPTIMISÉE)
+# INTERFACE UTILISATEUR
 # ==============================================================================
 with st.sidebar:
     BASE_DIR = Path(__file__).parent if "__file__" in locals() else Path.cwd()
@@ -841,7 +842,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v156"
+    budget_all_agencies, cache_bust="v157"
 )
 
 if budget_status == "ok":
@@ -956,7 +957,7 @@ tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
 active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
-N_MAX_DISPLAY = 2000 # RÉDUIT POUR LA PERFORMANCE
+N_MAX_DISPLAY = 2000
 tab_placeholder = st.empty()
 
 with tab_placeholder.container():

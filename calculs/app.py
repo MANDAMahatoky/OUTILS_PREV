@@ -162,12 +162,11 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
                 return dates.dt.month
     except: pass
     mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
-    # VECTORISATION AU LIEU DE APPLY
     texte_series = series_clean.str.normalize('NFD').str.encode('ascii', 'ignore').str.decode('utf-8').str.lower()
     return texte_series.map(mois_map).fillna(1).astype(int)
 
 # ==============================================================================
-# LOGIQUE DE CALCUL
+# LOGIQUE DE CALCUL (OPTIMISÉE)
 # ==============================================================================
 @st.cache_data(show_spinner=False)
 def charger_ruptures(rupture_bytes):
@@ -210,18 +209,70 @@ def charger_ruptures(rupture_bytes):
 
 @st.cache_data(show_spinner="Chargement et enrichissement des données...")
 def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: bytes) -> pd.DataFrame:
-    if ref_bytes is not None:
-        xls_ref = pd.ExcelFile(io.BytesIO(ref_bytes))
-        sheet_ref = next((name for name in xls_ref.sheet_names if name.lower() in ["ref actif", "classeur.2", "classeur2", "referentiel", "référentiel"]), None)
-        if sheet_ref is None: sheet_ref = 1 if len(xls_ref.sheet_names) > 1 else 0
-        df_ref = pd.read_excel(xls_ref, sheet_name=sheet_ref)
-        df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (Cl)": "contenance_cl"}, errors="ignore")
-        for col in ["positionnement", "occasion", "contenance_cl"]:
-            if col not in df_ref.columns: df_ref[col] = "Non renseigné" if col != "contenance_cl" else 100.0
-        df_ref = df_ref[["article_original", "positionnement", "occasion", "contenance_cl"]].copy()
+    is_single_file = (ventes_bytes == ref_bytes == rupture_bytes)
+    
+    if is_single_file:
+        # OPTIMISATION MAJEURE : On lit le fichier global une seule fois
+        xls = pd.ExcelFile(io.BytesIO(ventes_bytes))
+        sheet_names = xls.sheet_names
+        
+        # 1. Lecture Référentiel
+        sheet_ref = next((name for name in sheet_names if name.lower() in ["ref actif", "classeur.2", "classeur2", "referentiel", "référentiel"]), None)
+        if sheet_ref is None and len(sheet_names) > 1: sheet_ref = sheet_names[1]
+        
+        if sheet_ref:
+            df_ref = pd.read_excel(xls, sheet_name=sheet_ref)
+        else:
+            df_ref = pd.DataFrame(REF_DEFAUT).rename(columns={"Article": "article_original", "Contenance (Cl)": "contenance_cl", "Positionnement": "positionnement"})
+            df_ref["occasion"] = "Non renseigné"
+            
+        # 2. Lecture Ventes
+        df_raw = pd.read_excel(xls, sheet_name=0, header=None)
+        
+        # 3. Lecture Ruptures
+        sheet_rupture = next((name for name in sheet_names if name.lower() in ["rupture", "ruptures"]), None)
+        if sheet_rupture:
+            df_rupt = pd.read_excel(xls, sheet_name=sheet_rupture, header=None)
+            df_rupt = df_rupt.iloc[1:, [0, 1, 2, 3]].copy()
+            df_rupt.columns = ['Mois_Str', 'agence', 'article', 'rupture_hl']
+            df_rupt['Mois_Str'] = df_rupt['Mois_Str'].astype(str).str.strip()
+            dates = pd.to_datetime(df_rupt['Mois_Str'], errors='coerce', dayfirst=True)
+            df_rupt['mois'] = dates.dt.month
+            df_rupt['annee'] = dates.dt.year
+            mask_nan = df_rupt['mois'].isna()
+            if mask_nan.any():
+                df_rupt.loc[mask_nan, 'mois'] = pd.to_numeric(df_rupt.loc[mask_nan, 'Mois_Str'].str.split(' ').str[0], errors='coerce')
+                df_rupt.loc[mask_nan, 'annee'] = pd.to_numeric(df_rupt.loc[mask_nan, 'Mois_Str'].str.split(' ').str[1], errors='coerce')
+            df_rupt = df_rupt.dropna(subset=['mois', 'annee', 'agence', 'article'])
+            df_rupt['annee'] = df_rupt['annee'].astype(int)
+            df_rupt['mois'] = df_rupt['mois'].astype(int)
+            df_rupt['rupture_hl'] = pd.to_numeric(df_rupt['rupture_hl'], errors='coerce').astype('float32').fillna(0.0)
+            df_rupt['agence'] = df_rupt['agence'].astype(str).str.strip()
+            df_rupt['cle_article'] = map_unique_apply(df_rupt['article'].astype(str), clean_text_for_key)
+            df_ruptures = df_rupt.groupby(['annee', 'mois', 'agence', 'cle_article'], as_index=False)['rupture_hl'].sum()
+            df_ruptures['agence'] = df_ruptures['agence'].astype('category')
+            df_ruptures['cle_article'] = df_ruptures['cle_article'].astype('category')
+        else:
+            df_ruptures = pd.DataFrame()
+            
     else:
-        df_ref = pd.DataFrame(REF_DEFAUT).rename(columns={"Article": "article_original", "Contenance (Cl)": "contenance_cl", "Positionnement": "positionnement"})
-        df_ref["occasion"] = "Non renseigné"
+        # ANCIEN MODE : Fichiers séparés
+        if ref_bytes is not None:
+            xls_ref = pd.ExcelFile(io.BytesIO(ref_bytes))
+            sheet_ref = next((name for name in xls_ref.sheet_names if name.lower() in ["ref actif", "classeur.2", "classeur2", "referentiel", "référentiel"]), None)
+            if sheet_ref is None: sheet_ref = 1 if len(xls_ref.sheet_names) > 1 else 0
+            df_ref = pd.read_excel(xls_ref, sheet_name=sheet_ref)
+        else:
+            df_ref = pd.DataFrame(REF_DEFAUT).rename(columns={"Article": "article_original", "Contenance (Cl)": "contenance_cl", "Positionnement": "positionnement"})
+            df_ref["occasion"] = "Non renseigné"
+            
+        df_raw = pd.read_excel(io.BytesIO(ventes_bytes), sheet_name=0, header=None)
+        df_ruptures = charger_ruptures(rupture_bytes)
+
+    # --- SUITE DU TRAITEMENT COMMUN ---
+    df_ref = df_ref.rename(columns={"Article": "article_original", "Positionnement": "positionnement", "Occasion": "occasion", "Contenance (Cl)": "contenance_cl"}, errors="ignore")
+    for col in ["positionnement", "occasion", "contenance_cl"]:
+        if col not in df_ref.columns: df_ref[col] = "Non renseigné" if col != "contenance_cl" else 100.0
     
     df_ref["article_original"] = df_ref["article_original"].astype(str).str.strip()
     df_ref["marque"] = map_unique_apply(df_ref["article_original"], extraire_marque).astype('category')
@@ -229,8 +280,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df_ref["cle_article"] = map_unique_apply(df_ref["article_original"], clean_text_for_key)
     df_ref = df_ref.drop_duplicates(subset=["cle_article"]).reset_index(drop=True)
 
-    df_raw = pd.read_excel(io.BytesIO(ventes_bytes), sheet_name=0, header=None)
-    
     annee0 = pd.to_numeric(df_raw.iloc[:, 0], errors="coerce")
     masque_annee0 = annee0.between(1990, 2100)
     
@@ -247,7 +296,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").astype('float32').fillna(0.0)
     
-    # VECTORISATION DU FILTRE TOTAL (10x plus rapide)
     s_total = df['segment'].astype(str) + df['produit'].astype(str) + df['agence'].astype(str) + df['nature'].astype(str)
     masque_total = s_total.str.contains("total", case=False, na=False) | df['nature'].isna()
     df = df[~masque_total].copy()
@@ -258,10 +306,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     
     df["cle_article"] = map_unique_apply(df["article_original"], clean_text_for_key)
 
-    if ref_bytes is not None:
-        df_enrichi = pd.merge(df_ref, df, on="cle_article", how="inner", sort=False)
-    else:
-        df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer", sort=False)
+    df_enrichi = pd.merge(df_ref, df, on="cle_article", how="inner" if ref_bytes is not None else "outer", sort=False)
         
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)
@@ -285,7 +330,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     choices = ["5-ALCOMIX", "2-BG", "1-BIERES", "4-EAUX", "3-ENERGY", "4-JUS", "7-VIN", "6-NEGOCE"]
     df_enrichi["segment"] = pd.Categorical(np.select(conditions, choices, default="AUTRE / INCONNU"))
     
-    df_ruptures = charger_ruptures(rupture_bytes)
     if not df_ruptures.empty:
         df_enrichi = df_enrichi.merge(df_ruptures, on=['annee', 'mois', 'agence', 'cle_article'], how='left', sort=False)
         df_enrichi['rupture_hl'] = df_enrichi['rupture_hl'].astype('float32').fillna(0.0)
@@ -333,7 +377,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v155"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v156"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -797,7 +841,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v155"
+    budget_all_agencies, cache_bust="v156"
 )
 
 if budget_status == "ok":
@@ -953,7 +997,6 @@ with tab_placeholder.container():
                 df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
                 df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
                 
-                # VECTORISATION MOIS M
                 _mois_arr = np.array(MOIS_NOMS, dtype=object)
                 df_sarr_calc["Mois M"] = _mois_arr[df_sarr_calc['mois'].to_numpy() - 1] + "-" + df_sarr_calc['annee'].astype(str).to_numpy()
                 
@@ -988,7 +1031,6 @@ with tab_placeholder.container():
             pivot_mensuel = pivot_mensuel[pivot_mensuel[nom_total] > 0]
             pivot_mensuel_export = pivot_mensuel.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
             
-            # VECTORISATION EXPORT CSV
             for col in pivot_mensuel_export.columns:
                 if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
                     pivot_mensuel_export[col] = pivot_mensuel_export[col].astype(str).str.normalize('NFKD').str.encode('ascii', 'ignore').str.decode('utf-8')
@@ -1061,7 +1103,6 @@ with tab_placeholder.container():
                 df_error_monthly['Ecart'] = df_error_monthly[col_prev_aff] - df_error_monthly[col_prev_pure]
                 df_error_monthly['Erreur_Absolue'] = df_error_monthly['Ecart'].abs()
                 df_error_monthly['Erreur_Pct (%)'] = np.where(df_error_monthly[col_prev_aff] > 0, (df_error_monthly['Erreur_Absolue'] / df_error_monthly[col_prev_aff]) * 100, 0)
-                # VECTORISATION MOIS LABEL
                 _mois_arr = np.array(MOIS_NOMS, dtype=object)
                 df_error_monthly['Mois_Label'] = _mois_arr[df_error_monthly['mois'].to_numpy() - 1]
                 df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]

@@ -55,6 +55,15 @@ st.markdown(f"""
 # ==============================================================================
 # FONCTIONS UTILITAIRES
 # ==============================================================================
+def format_fr(val, decimals=0, signed=False):
+    """Formate un nombre au format français (espace pour les milliers, virgule pour les décimales)."""
+    if pd.isna(val): return "0"
+    sign = "+" if signed and val > 0 else ""
+    if decimals == 0:
+        return sign + f"{val:,.0f}".replace(",", " ")
+    else:
+        return sign + f"{val:,.{decimals}f}".replace(",", " ").replace(".", ",")
+
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
         val = float(val)
@@ -629,19 +638,19 @@ def analyser_comportement_sku(df_sarr, df_perimetre):
         else: profil, emoji = "En transition", "🔄"
         
         phrases = []
-        if profil == "Star": phrases.append(f"**{article}** ({agence}) est en forte croissance avec un CAGR de **{cagr:+.1f}%**.")
-        elif profil == "En déclin": phrases.append(f"**{article}** ({agence}) est en déclin structurel avec un CAGR de **{cagr:+.1f}%**.")
-        elif profil == "Décélération": phrases.append(f"**{article}** ({agence}) a connu une croissance passée ({cagr:+.1f}% CAGR) mais montre des signes de ralentissement.")
-        elif profil == "Saisonnier": phrases.append(f"**{article}** ({agence}) présente une forte saisonnalité avec un pic en **{peak_nom}** (indice {peak_ratio:.2f}x).")
-        elif profil == "Volatile": phrases.append(f"**{article}** ({agence}) est très volatile (CV = {volatilite:.0%}), la prévision est peu fiable.")
-        else: phrases.append(f"**{article}** ({agence}) est stable avec un CAGR de {cagr:+.1f}%.")
+        if profil == "Star": phrases.append(f"**{article}** ({agence}) est en forte croissance avec un CAGR de **{format_fr(cagr, 1, signed=True)}%**.")
+        elif profil == "En déclin": phrases.append(f"**{article}** ({agence}) est en déclin structurel avec un CAGR de **{format_fr(cagr, 1, signed=True)}%**.")
+        elif profil == "Décélération": phrases.append(f"**{article}** ({agence}) a connu une croissance passée ({format_fr(cagr, 1, signed=True)}% CAGR) mais montre des signes de ralentissement.")
+        elif profil == "Saisonnier": phrases.append(f"**{article}** ({agence}) présente une forte saisonnalité avec un pic en **{peak_nom}** (indice {format_fr(peak_ratio, 2)}x).")
+        elif profil == "Volatile": phrases.append(f"**{article}** ({agence}) est très volatile (CV = {format_fr(volatilite*100)}%), la prévision est peu fiable.")
+        else: phrases.append(f"**{article}** ({agence}) est stable avec un CAGR de {format_fr(cagr, 1, signed=True)}%.")
         
         seuil_momentum = 0.10 * sarr_moyen
-        if momentum_actuel > seuil_momentum: phrases.append(f"Le SARR récent ({sarr_recent:.0f} HL/mois) est soutenu par un Momentum **positif** ({momentum_actuel:+.0f} HL), signal d'accélération.")
-        elif momentum_actuel < -seuil_momentum: phrases.append(f"Le SARR récent ({sarr_recent:.0f} HL/mois) est plombé par un Momentum **négatif** ({momentum_actuel:+.0f} HL), signal d'essoufflement.")
-        else: phrases.append(f"Le SARR est stable autour de **{sarr_moyen:.0f} HL/mois** avec un Momentum neutre.")
+        if momentum_actuel > seuil_momentum: phrases.append(f"Le SARR récent ({format_fr(sarr_recent)} HL/mois) est soutenu par un Momentum **positif** ({format_fr(momentum_actuel, signed=True)} HL), signal d'accélération.")
+        elif momentum_actuel < -seuil_momentum: phrases.append(f"Le SARR récent ({format_fr(sarr_recent)} HL/mois) est plombé par un Momentum **négatif** ({format_fr(momentum_actuel, signed=True)} HL), signal d'essoufflement.")
+        else: phrases.append(f"Le SARR est stable autour de **{format_fr(sarr_moyen)} HL/mois** avec un Momentum neutre.")
         
-        if peak_ratio > 1.5 and profil != "Saisonnier": phrases.append(f"Pic saisonnier marqué en **{peak_nom}** (indice {peak_ratio:.2f}x).")
+        if peak_ratio > 1.5 and profil != "Saisonnier": phrases.append(f"Pic saisonnier marqué en **{peak_nom}** (indice {format_fr(peak_ratio, 2)}x).")
         elif peak_ratio > 1.2: phrases.append(f"Saisonnalité modérée, pic en **{peak_nom}**.")
         elif peak_ratio <= 1.2 and profil != "Volatile": phrases.append(f"Consommation régulière toute l'année.")
         
@@ -656,7 +665,7 @@ def analyser_comportement_sku(df_sarr, df_perimetre):
             'Agence': agence, 'Article': article, 'Profil': f"{emoji} {profil}",
             'Commentaire': " ".join(phrases), 'Recommandation': reco,
             'SARR moyen (HL/mois)': round(sarr_moyen, 1), 'Momentum (HL)': round(momentum_actuel, 1),
-            'CAGR (%)': round(cagr, 1), 'Volatilité': f"{volatilite:.0%}", 'Mois Pic': peak_nom,
+            'CAGR (%)': round(cagr, 1), 'Volatilité': f"{format_fr(volatilite*100)}%", 'Mois Pic': peak_nom,
         })
     return pd.DataFrame(resultats)
 
@@ -834,18 +843,18 @@ progression = min(max(progression, 0), 100)
 
 k1, k2, k3, k4 = st.columns(4, gap="large")
 with k1:
-    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atterrissage {annee_cible}</div><div class="kpi-value">{atterrissage_cible:,.0f}</div><div class="kpi-delta {delta_class}">{delta_icon} {abs(delta_n1_pct):.1f}% vs N-1</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atterrissage {annee_cible}</div><div class="kpi-value">{format_fr(atterrissage_cible)}</div><div class="kpi-delta {delta_class}">{delta_icon} {format_fr(abs(delta_n1_pct), 1)}% vs N-1</div></div>""", unsafe_allow_html=True)
 with k2:
-    st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">Objectif Annuel ({unite_affichage})</div><div class="kpi-value">{objectif_final:,.0f}</div><div class="progress-container"><div class="progress-bar" style="width: {progression}%;"></div></div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem;">{progression:.1f}% couvert</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">Objectif Annuel ({unite_affichage})</div><div class="kpi-value">{format_fr(objectif_final)}</div><div class="progress-container"><div class="progress-bar" style="width: {progression}%;"></div></div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem;">{format_fr(progression, 1)}% couvert</div></div>""", unsafe_allow_html=True)
 with k3:
     gap_color = COLORS["VERT"] if gap <= 0 else COLORS["ROUGE"]
     gap_icon = "✔" if gap <= 0 else "⚠"
     gap_pct = (gap / objectif_final * 100) if objectif_final > 0 else 0
-    st.markdown(f"""<div class="kpi-card" style="border-left-color: {gap_color};"><div class="kpi-label">GAP</div><div class="kpi-value" style="color: {gap_color};">{gap:+,.0f}</div><div class="kpi-delta" style="color: {gap_color};">{gap_icon} {abs(gap_pct):.1f}% de l'objectif</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="kpi-card" style="border-left-color: {gap_color};"><div class="kpi-label">GAP</div><div class="kpi-value" style="color: {gap_color};">{format_fr(gap, signed=True)}</div><div class="kpi-delta" style="color: {gap_color};">{gap_icon} {format_fr(abs(gap_pct), 1)}% de l'objectif</div></div>""", unsafe_allow_html=True)
 with k4:
     wmape_icon = "✔" if wmape < 5 else ("⚠" if wmape <= 10 else "✖")
     wmape_color = COLORS["VERT"] if wmape < 5 else (COLORS["ROUGE"] if wmape > 10 else COLORS["TEXTE_SECONDAIRE"])
-    st.markdown(f"""<div class="kpi-card" style="border-left-color: {wmape_color};"><div class="kpi-label">Fiabilité (WMAPE)</div><div class="kpi-value" style="color: {wmape_color};">{wmape:.1f}%</div><div class="kpi-delta" style="color: {wmape_color};">{wmape_icon} Erreur moyenne</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="kpi-card" style="border-left-color: {wmape_color};"><div class="kpi-label">Fiabilité (WMAPE)</div><div class="kpi-value" style="color: {wmape_color};">{format_fr(wmape, 1)}%</div><div class="kpi-delta" style="color: {wmape_color};">{wmape_icon} Erreur moyenne</div></div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -874,7 +883,7 @@ with st.container(border=True):
             x_val = pd.to_datetime(f"{annee_rupture_tendance}-01-01")
             fig1.add_vline(x=x_val, line_width=2, line_dash="dash", line_color=COLORS['GRIS'], annotation_text="Rupture", annotation_position="top left")
         except: pass
-    fig1.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), height=500, hovermode="x unified")
+    fig1.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), height=500, hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
@@ -898,7 +907,7 @@ with tab_placeholder.container():
             df_to_show = df_enrichi[cols_to_show].copy()
             df_to_show.columns = ["Année", "Mois", "Région", "Agence", "Article", "Ventes Réelles (HL)", "Pertes Ruptures (HL)", "Volume Potentiel (HL)"]
             if len(df_to_show) > N_MAX_DISPLAY:
-                st.caption(f"⚠️ Affichage limité à {N_MAX_DISPLAY:,} lignes sur {len(df_to_show):,}.")
+                st.caption(f"⚠️ Affichage limité à {format_fr(N_MAX_DISPLAY)} lignes sur {format_fr(len(df_to_show))}.")
                 st.dataframe(df_to_show.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
             else: st.dataframe(df_to_show, use_container_width=True, hide_index=True)
 
@@ -1006,7 +1015,7 @@ with tab_placeholder.container():
             fig2.add_trace(go.Scatter(x=df_pareto_graph['Index'], y=df_pareto_graph['Cumul_Pct'], name='% Cumulé', mode='lines+markers', line=dict(color=COLORS['TEXTE'], width=2), marker=dict(size=6, color=COLORS['TEXTE']), yaxis='y2', customdata=df_pareto_graph['article'], hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"))
             for seuil, color in [(80, COLORS['ROUGE']), (95, '#F59E0B')]:
                 fig2.add_shape(type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil, line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2')
-            fig2.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=12, weight="bold")), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%", tickfont=dict(family="Inter", size=12, weight="bold")), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=11, family="Inter", weight="bold")), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
+            fig2.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=12, weight="bold")), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%", tickfont=dict(family="Inter", size=12, weight="bold")), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=11, family="Inter", weight="bold")), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             with st.expander("📋 Voir le détail par article", expanded=True):
                 df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
@@ -1040,20 +1049,20 @@ with tab_placeholder.container():
             k1, k2, k3, k4 = st.columns(4)
             with k1:
                 nb_star = (df_analyse['Profil'].str.contains("Star")).sum()
-                st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🌟 SKU Stars</div><div class="kpi-value">{nb_star}</div><div class="kpi-delta up">Priorité réappro</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🌟 SKU Stars</div><div class="kpi-value">{format_fr(nb_star)}</div><div class="kpi-delta up">Priorité réappro</div></div>""", unsafe_allow_html=True)
             with k2:
                 nb_declin = (df_analyse['Profil'].str.contains("déclin")).sum()
-                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['ROUGE']};"><div class="kpi-label">📉 SKU En Déclin</div><div class="kpi-value" style="color: {COLORS['ROUGE']};">{nb_declin}</div><div class="kpi-delta down">À arbitrer</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['ROUGE']};"><div class="kpi-label">📉 SKU En Déclin</div><div class="kpi-value" style="color: {COLORS['ROUGE']};">{format_fr(nb_declin)}</div><div class="kpi-delta down">À arbitrer</div></div>""", unsafe_allow_html=True)
             with k3:
                 nb_saison = (df_analyse['Profil'].str.contains("Saisonnier")).sum()
-                st.markdown(f"""<div class="kpi-card" style="border-left-color: #F59E0B;"><div class="kpi-label">🏔️ SKU Saisonniers</div><div class="kpi-value" style="color: #F59E0B;">{nb_saison}</div><div class="kpi-delta">Stock anticipé</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-card" style="border-left-color: #F59E0B;"><div class="kpi-label">🏔️ SKU Saisonniers</div><div class="kpi-value" style="color: #F59E0B;">{format_fr(nb_saison)}</div><div class="kpi-delta">Stock anticipé</div></div>""", unsafe_allow_html=True)
             with k4:
                 nb_total = len(df_analyse)
-                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">📊 SKU Analysés</div><div class="kpi-value">{nb_total}</div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']};">Total</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">📊 SKU Analysés</div><div class="kpi-value">{format_fr(nb_total)}</div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']};">Total</div></div>""", unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
 
-            with st.expander(f"📋 Diagnostic détaillé ({len(df_display)} SKU)", expanded=True):
+            with st.expander(f"📋 Diagnostic détaillé ({format_fr(len(df_display))} SKU)", expanded=True):
                 for _, row in df_display.iterrows():
                     with st.container(border=True):
                         c1, c2 = st.columns([1, 4])
@@ -1065,9 +1074,9 @@ with tab_placeholder.container():
                             st.markdown(row['Commentaire'])
                             st.info(f"**Recommandation :** {row['Recommandation']}")
                             mc1, mc2, mc3, mc4 = st.columns(4)
-                            mc1.metric("SARR moyen", f"{row['SARR moyen (HL/mois)']:.0f} HL")
-                            mc2.metric("Momentum", f"{row['Momentum (HL)']:+.0f} HL")
-                            mc3.metric("CAGR", f"{row['CAGR (%)']:+.1f}%")
+                            mc1.metric("SARR moyen", f"{format_fr(row['SARR moyen (HL/mois)'])} HL")
+                            mc2.metric("Momentum", f"{format_fr(row['Momentum (HL)'], signed=True)} HL")
+                            mc3.metric("CAGR", f"{format_fr(row['CAGR (%)'], 1, signed=True)}%")
                             mc4.metric("Pic", row['Mois Pic'])
 
     elif active_tab == "Fiabilité":
@@ -1075,9 +1084,9 @@ with tab_placeholder.container():
         st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
         st.markdown("<br>", unsafe_allow_html=True)
         m1, m2, m3 = st.columns(3)
-        with m1: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{mae:,.0f}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
-        with m2: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{wmape:,.2f}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
-        with m3: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{smape:,.2f}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
+        with m1: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(mae)}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
+        with m2: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(wmape, 2)}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
+        with m3: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(smape, 2)}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("📊 Afficher le détail mensuel (Prévision vs Réalisé)", expanded=True):
             st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu. Les cellules rouges indiquent une erreur critique (>10%).")
@@ -1102,13 +1111,13 @@ with tab_placeholder.container():
             kr1, kr2, kr3 = st.columns(3)
             with kr1:
                 vol_perdu_total = df_rupture_hist['rupture_hl'].sum()
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Volume Total Perdu</div><div class="kpi-value kpi-value-dark">{vol_perdu_total:,.0f} HL</div><div class="kpi-footer">Sur le périmètre filtré</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Volume Total Perdu</div><div class="kpi-value kpi-value-dark">{format_fr(vol_perdu_total)} HL</div><div class="kpi-footer">Sur le périmètre filtré</div></div>""", unsafe_allow_html=True)
             with kr2:
                 nb_mois_ruptures = df_rupture_hist.groupby(['annee', 'mois']).ngroups
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Mois impactés</div><div class="kpi-value kpi-value-dark">{nb_mois_ruptures}</div><div class="kpi-footer">Nombre de mois avec au moins une rupture</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">Mois impactés</div><div class="kpi-value kpi-value-dark">{format_fr(nb_mois_ruptures)}</div><div class="kpi-footer">Nombre de mois avec au moins une rupture</div></div>""", unsafe_allow_html=True)
             with kr3:
                 nb_sku_impactes = df_rupture_hist['article'].nunique()
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">SKU Impactés</div><div class="kpi-value kpi-value-dark">{nb_sku_impactes}</div><div class="kpi-footer">Nombre d'articles différents</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">SKU Impactés</div><div class="kpi-value kpi-value-dark">{format_fr(nb_sku_impactes)}</div><div class="kpi-footer">Nombre d'articles différents</div></div>""", unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
             col_chart1, col_chart2 = st.columns(2)
@@ -1116,8 +1125,8 @@ with tab_placeholder.container():
                 st.markdown("#### Top 15 des SKU les plus impactés")
                 df_rupture_sku = df_rupture_hist.groupby('article', observed=True)['rupture_hl'].sum().reset_index()
                 df_rupture_sku = df_rupture_sku.sort_values(by='rupture_hl', ascending=True).tail(15)
-                fig_sku = go.Figure(go.Bar(x=df_rupture_sku['rupture_hl'], y=df_rupture_sku['article'], orientation='h', marker_color='#F59E0B', text=df_rupture_sku['rupture_hl'].apply(lambda x: f"{x:,.0f}"), textposition='auto', hovertemplate="<b>%{y}</b><br>Perte: %{x:,.1f} HL<extra></extra>"))
-                fig_sku.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), yaxis=dict(showgrid=False, tickfont=dict(size=11)), height=450)
+                fig_sku = go.Figure(go.Bar(x=df_rupture_sku['rupture_hl'], y=df_rupture_sku['article'], orientation='h', marker_color='#F59E0B', text=df_rupture_sku['rupture_hl'].apply(lambda x: format_fr(x)), textposition='auto', hovertemplate="<b>%{y}</b><br>Perte: %{x:,.1f} HL<extra></extra>"))
+                fig_sku.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), yaxis=dict(showgrid=False, tickfont=dict(size=11)), height=450)
                 st.plotly_chart(fig_sku, use_container_width=True, config={'displayModeBar': False})
             with col_chart2:
                 st.markdown("#### Évolution mensuelle des pertes (Top 5 SKU)")
@@ -1131,7 +1140,7 @@ with tab_placeholder.container():
                 for i, sku in enumerate(top_5_skus):
                     df_sku = df_top_agg[df_top_agg['article'] == sku].sort_values('Date_Plot')
                     fig_trend.add_trace(go.Scatter(x=df_sku['Date_Plot'], y=df_sku['rupture_hl'], mode='lines+markers', name=str(sku)[:25], line=dict(color=palette[i % len(palette)], width=2), marker=dict(size=7), hovertemplate=f"<b>{sku}</b><br>%{{x|%b-%y}}: %{{y:,.1f}} HL<extra></extra>"))
-                fig_trend.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y"), yaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(size=10)), height=450, hovermode="x unified")
+                fig_trend.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y"), yaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(size=10)), height=450, hovermode="x unified")
                 st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': False})
 
             st.markdown("<br>", unsafe_allow_html=True)

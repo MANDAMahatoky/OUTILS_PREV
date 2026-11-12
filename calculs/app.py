@@ -684,8 +684,8 @@ with st.sidebar:
         fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget")
         fichier_rupture = st.file_uploader("Ruptures (Optionnel)", type=["xlsx"], key="uploader_rupture")
     
-    if fichier_budget is not None: budget_all_agencies = st.checkbox("Appliquer le Budget à toutes les agences", value=True)
-    else: budget_all_agencies = True
+    # Forcé à True pour toujours appliquer à toutes les agences
+    budget_all_agencies = True 
 
     if fichier_ventes is not None:
         st.markdown("---")
@@ -699,7 +699,8 @@ with st.sidebar:
         if use_objectif_manuel:
             objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4400743.0, key="param_objectif_manuel")
         
-        methode_croissance = st.selectbox("Méthode de prévision", options=["Tendance Linéaire", "CAGR Classique", "Moyenne 3 ans"], index=0, key="param_methode")
+        # Méthode forcée à "Tendance Linéaire" (suppression du selectbox)
+        methode_croissance = "Tendance Linéaire" 
         
         with st.expander("⚙️ Paramètres avancés"):
             p1, p2 = st.columns(2)
@@ -724,7 +725,6 @@ with st.sidebar:
             show_analyse_comp = st.checkbox("Afficher l'onglet Analyse Comportementale", value=False, key="param_show_analyse")
 
 if fichier_ventes is None:
-    # Le texte ici a été supprimé
     st.markdown(f"""<div class="hero-header"><div><h1>PREVISIONS STAR MADAGASCAR</h1></div><div class="badge-demo">⭐ Données Officielles STAR</div></div>""", unsafe_allow_html=True)
     st.info("👋 **Bienvenue !** Pour démarrer :\n\n1. Choisissez votre mode d'importation dans la barre latérale.\n2. Importez vos données.\n3. Ajustez les filtres et paramètres.")
     st.stop()
@@ -734,7 +734,6 @@ if df_enrichi.empty or "annee" not in df_enrichi.columns:
     st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide.")
     st.stop()
 
-# Le texte ici a été supprimé
 st.markdown(f"""<div class="hero-header"><div><h1>PREVISIONS STAR MADAGASCAR</h1></div><div class="badge-demo">⭐ Données Officielles STAR</div></div>""", unsafe_allow_html=True)
 
 with st.expander("🎯 Filtres de périmètre", expanded=False):
@@ -950,7 +949,6 @@ with tab_placeholder.container():
         with col_search:
             search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
         with col_export:
-            # L'exportation CSV a été supprimée ici
             pass
 
         with st.expander("📊 Afficher le tableau des prévisions détaillées (Format Excel)", expanded=True):

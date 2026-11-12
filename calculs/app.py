@@ -254,9 +254,20 @@ def charger_ruptures(rupture_bytes):
         df = df.iloc[1:, [0, 1, 2, 3]].copy()
         df.columns = ['Mois_Str', 'agence', 'article', 'rupture_hl']
         
+        # --- GESTION INTELLIGENTE DES DATES (MODIFICATION ICI) ---
         df['Mois_Str'] = df['Mois_Str'].astype(str).str.strip()
-        df['mois'] = pd.to_numeric(df['Mois_Str'].str.split(' ').str[0], errors='coerce')
-        df['annee'] = pd.to_numeric(df['Mois_Str'].str.split(' ').str[1], errors='coerce')
+        
+        # 1. On tente de lire le format Date classique (ex: "01/07/2026")
+        dates = pd.to_datetime(df['Mois_Str'], errors='coerce', dayfirst=True)
+        df['mois'] = dates.dt.month
+        df['annee'] = dates.dt.year
+        
+        # 2. Si c'est un format texte (ex: "7 2026"), on applique l'ancienne méthode
+        mask_nan = df['mois'].isna()
+        if mask_nan.any():
+            df.loc[mask_nan, 'mois'] = pd.to_numeric(df.loc[mask_nan, 'Mois_Str'].str.split(' ').str[0], errors='coerce')
+            df.loc[mask_nan, 'annee'] = pd.to_numeric(df.loc[mask_nan, 'Mois_Str'].str.split(' ').str[1], errors='coerce')
+        # ---------------------------------------------------------
         
         df = df.dropna(subset=['mois', 'annee', 'agence', 'article'])
         df['annee'] = df['annee'].astype(int)
@@ -397,7 +408,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v146"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v147"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -872,7 +883,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v146"
+    budget_all_agencies, cache_bust="v147"
 )
 
 if budget_status == "ok":

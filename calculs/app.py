@@ -231,9 +231,10 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df["annee"] = df["annee"].fillna(2026).astype(int)
     df["cle_article"] = df["article_original"].apply(clean_text_for_key)
 
-    # CORRECTION ICI : On utilise TOUJOURS un merge "outer" pour ne jamais perdre de ventes
-    # même si l'article n'est pas renseigné dans le référentiel.
-    df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer", sort=False)
+    if ref_bytes is not None:
+        df_enrichi = pd.merge(df_ref, df, on="cle_article", how="inner", sort=False)
+    else:
+        df_enrichi = pd.merge(df_ref, df, on="cle_article", how="outer", sort=False)
         
     df_enrichi["article"] = df_enrichi["article_original_x"].fillna(df_enrichi["article_original_y"]).fillna("Inconnu").astype(str)
     df_enrichi["annee"] = df_enrichi["annee"].fillna(2026).astype(int)

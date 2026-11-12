@@ -308,7 +308,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v164"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v166"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -597,7 +597,7 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# MODULES SUPPLÉMENTAIRES (COMPORTEMENT & EXPORT SANS CACHE)
+# MODULES SUPPLÉMENTAIRES (COMPORTEMENT & EXPORT)
 # ==============================================================================
 def analyser_comportement_sku(df_sarr, df_perimetre):
     if df_sarr is None or df_sarr.empty: return pd.DataFrame()
@@ -714,10 +714,18 @@ def generer_rapport_excel(df_previsions, df_perimetre, kpis, unite_affichage, fi
         
         ws_synth.column_dimensions['A'].width = 30; ws_synth.column_dimensions['B'].width = 20; ws_synth.column_dimensions['C'].width = 15
 
-        # ONGLET 2 : PRÉVISIONS (UTILISE df_previsions FILTRÉ)
+        # ONGLET 2 : PRÉVISIONS
+        df_prev_cible = df_previsions[df_previsions['annee'] == kpis['annee_cible']].copy()
         df_seg = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
-        df_prev_seg = df_previsions.merge(df_seg, on='article', how='left')
-        pivot = df_prev_seg.pivot_table(index=['article', 'segment'], columns='mois', values='Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols', aggfunc='sum').fillna(0)
+        df_prev_seg = df_prev_cible.merge(df_seg, on='article', how='left')
+        
+        pivot = df_prev_seg.pivot_table(
+            index=['article', 'segment'], 
+            columns='mois', 
+            values='Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols', 
+            aggfunc='sum'
+        )
+        pivot = pivot.reindex(columns=range(1, 13), fill_value=0)
         pivot.columns = [MOIS_NOMS[int(c) - 1] for c in pivot.columns]
         pivot['Total Année'] = pivot.sum(axis=1)
         pivot = pivot.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
@@ -731,7 +739,8 @@ def generer_rapport_excel(df_previsions, df_perimetre, kpis, unite_affichage, fi
         for col in range(3, 16): ws_prev.column_dimensions[chr(64 + col)].width = 10
 
         # ONGLET 3 : TOP 20 ARTICLES
-        df_alert = df_previsions.groupby('article', observed=True).agg({'Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols': 'sum', 'Momentum': 'mean', 'CAGR (%)': 'mean'}).reset_index()
+        df_alert_cible = df_previsions[df_previsions['annee'] == kpis['annee_cible']]
+        df_alert = df_alert_cible.groupby('article', observed=True).agg({'Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols': 'sum', 'Momentum': 'mean', 'CAGR (%)': 'mean'}).reset_index()
         df_alert = df_alert.sort_values(by='Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols', ascending=False).head(20)
         df_alert.columns = ['Article', f'Volume Total ({unite_affichage})', 'Momentum Moyen', 'CAGR Moyen (%)']
         
@@ -811,7 +820,11 @@ with st.sidebar:
         if st.button("🔄 Vider le cache & Recalculer"):
             st.cache_data.clear()
             st.rerun()
-        show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, key="param_show_raw")
+
+        # ⭐ NOUVEAU : Regroupement des onglets avancés pour alléger la sidebar
+        with st.expander("👁️ Affichage des onglets avancés"):
+            show_raw_data = st.checkbox("Afficher l'onglet Données Brutes", value=False, key="param_show_raw")
+            show_analyse_comp = st.checkbox("Afficher l'onglet Analyse Comportementale", value=False, key="param_show_analyse")
 
 if fichier_ventes is None:
     st.markdown(f"""<div class="hero-header"><div><h1>PREVISIONS STAR MADAGASCAR</h1><p>Moteur de prévision hybride (Run-Rate, Heuristique & Indices)</p></div><div class="badge-demo">⭐ Données Officielles STAR</div></div>""", unsafe_allow_html=True)
@@ -864,7 +877,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v164"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v166"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -957,7 +970,7 @@ with st.container(border=True):
     if not df_prev_plot.empty:
         fig1.add_trace(go.Scatter(x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], mode='lines+markers', name='Prévision', line=dict(color=COLORS['ROUGE'], width=3, dash='dot', shape='spline', smoothing=1.3), marker=dict(size=7, color=COLORS['ROUGE'], line=dict(color='white', width=2)), hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"))
     if not df_real_plot.empty:
-        fig1.add_trace(go.Scatter(x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], mode='lines+markers', name='Réalisé', line=dict(color=COLORS['ROUGE_FONCE'], width=4, shape='spline', smoothing=1.3), marker=dict(size=9, color=COLORS['ROUGE_FONCE'], line=dict(color='white', width=2)), hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"))
+        fig1.add_trace(go.Scatter(x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], mode='lines+markers', name='Réalisé', line=dict(color=COLORS['ROUGE_FONCE'], width=4, shape='spline', smoothing=1.3), marker=dict(size=9, color=COLORS['ROUGE_FONCE'], line=dict(color='white', width=2)), hovertemplate="<b>Réalisé</b>: {y:,.0f}<extra></extra>".replace("{y", "%{y")))
     if annee_rupture_tendance > annee_min_cagr:
         try:
             x_val = pd.to_datetime(f"{annee_rupture_tendance}-01-01")
@@ -966,7 +979,7 @@ with st.container(border=True):
     fig1.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), height=500, hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
-# EXPORT EXCEL SIDEBAR (SANS CACHE - RESPECTE LES FILTRES)
+# EXPORT EXCEL SIDEBAR
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📤 Export Direction")
 
@@ -1020,7 +1033,11 @@ st.sidebar.download_button(
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
-tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)", "Analyse Comportementale", "Fiabilité", "Ruptures"]
+# ==============================================================================
+# CONSTRUCTION DYNAMIQUE DES ONGLETS (modifié : Analyse Comportementale conditionnelle)
+# ==============================================================================
+tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)", "Fiabilité", "Ruptures"]
+if show_analyse_comp: tab_names.insert(4, "Analyse Comportementale")  # juste après Pareto
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
 active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
@@ -1087,13 +1104,20 @@ with tab_placeholder.container():
             search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
         with col_export:
             df_seg = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
-            df_prev_seg = df_previsions_filtre.merge(df_seg, on='article', how='left')
-            pivot_mensuel = df_prev_seg.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
+            
+            df_prev_cible = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+            df_prev_seg = df_prev_cible.merge(df_seg, on='article', how='left')
+            
+            pivot_mensuel = df_prev_seg.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum')
+            pivot_mensuel = pivot_mensuel.reindex(columns=range(1, 13), fill_value=0)
             pivot_mensuel.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_mensuel.columns]
+            
             if not mois_cibles_selection or len(mois_cibles_selection) == 12: nom_total = "Total Année"
             else: nom_total = "Total Période"
+            
             pivot_mensuel[nom_total] = pivot_mensuel.sum(axis=1)
             pivot_mensuel = pivot_mensuel[pivot_mensuel[nom_total] > 0]
+            
             pivot_mensuel_export = pivot_mensuel.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
             for col in pivot_mensuel_export.columns:
                 if pivot_mensuel_export[col].dtype.name in ['object', 'category', 'string']:
@@ -1249,6 +1273,7 @@ with tab_placeholder.container():
                 nb_sku_impactes = df_rupture_hist['article'].nunique()
                 st.markdown(f"""<div class="white-card" style="border-top: 4px solid #F59E0B;"><div class="kpi-label">SKU Impactés</div><div class="kpi-value kpi-value-dark">{nb_sku_impactes}</div><div class="kpi-footer">Nombre d'articles différents</div></div>""", unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
+
             col_chart1, col_chart2 = st.columns(2)
             with col_chart1:
                 st.markdown("#### Top 15 des SKU les plus impactés")
@@ -1258,20 +1283,27 @@ with tab_placeholder.container():
                 fig_sku.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), yaxis=dict(showgrid=False, tickfont=dict(size=11)), height=450)
                 st.plotly_chart(fig_sku, use_container_width=True, config={'displayModeBar': False})
             with col_chart2:
-                st.markdown("#### Évolution mensuelle des pertes (par SKU)")
+                st.markdown("#### Évolution mensuelle des pertes (Top 5 SKU)")
                 top_5_skus = df_rupture_sku.tail(5)['article'].tolist()
-                df_top = df_rupture_hist[df_rupture_hist['article'].isin(top_5_skus)]
-                df_rupture_mensuel = df_top.groupby(['annee', 'mois', 'article'], observed=True)['rupture_hl'].sum().reset_index()
-                df_rupture_mensuel['Date_Str'] = df_rupture_mensuel['annee'].astype(str) + '-' + df_rupture_mensuel['mois'].astype(str).str.zfill(2) + '-01'
-                df_rupture_mensuel['Date_Plot'] = pd.to_datetime(df_rupture_mensuel['Date_Str'])
-                df_rupture_mensuel = df_rupture_mensuel.sort_values('Date_Plot')
-                fig_mois = px.bar(df_rupture_mensuel, x='Date_Plot', y='rupture_hl', color='article', labels={'rupture_hl': 'Volume Perdu (HL)', 'Date_Plot': 'Mois', 'article': 'Article'}, color_discrete_sequence=px.colors.qualitative.Set3)
-                fig_mois.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(tickformat="%b-%y", dtick="M1"), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE']), legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5), height=450, barmode='stack')
-                st.plotly_chart(fig_mois, use_container_width=True, config={'displayModeBar': False})
-            st.markdown("#### Détail des articles impactés")
-            df_detail_rupture = df_rupture_hist.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)['rupture_hl'].sum().reset_index()
-            df_detail_rupture = df_detail_rupture.sort_values(['annee', 'mois', 'rupture_hl'], ascending=[False, False, False])
-            df_detail_rupture['Part (%)'] = (df_detail_rupture['rupture_hl'] / vol_perdu_total) * 100
-            st.dataframe(df_detail_rupture.rename(columns={'annee': 'Année', 'mois': 'Mois', 'region': 'Région', 'agence': 'Agence', 'article': 'Article', 'rupture_hl': 'Volume Perdu (HL)'}), use_container_width=True, hide_index=True, column_config={'Volume Perdu (HL)': st.column_config.NumberColumn(format="%.1f"), 'Part (%)': st.column_config.ProgressColumn(format="%.1f %%", min_value=0, max_value=100)})
+                df_top = df_rupture_hist[df_rupture_hist['article'].isin(top_5_skus)].copy()
+                df_top['Date_Str'] = df_top['annee'].astype(str) + '-' + df_top['mois'].astype(str).str.zfill(2) + '-01'
+                df_top['Date_Plot'] = pd.to_datetime(df_top['Date_Str'])
+                df_top_agg = df_top.groupby(['Date_Plot', 'article'], observed=True)['rupture_hl'].sum().reset_index()
+                fig_trend = go.Figure()
+                palette = [COLORS['ROUGE'], '#F59E0B', COLORS['TEXTE'], COLORS['VERT'], COLORS['GRIS']]
+                for i, sku in enumerate(top_5_skus):
+                    df_sku = df_top_agg[df_top_agg['article'] == sku].sort_values('Date_Plot')
+                    fig_trend.add_trace(go.Scatter(x=df_sku['Date_Plot'], y=df_sku['rupture_hl'], mode='lines+markers', name=str(sku)[:25], line=dict(color=palette[i % len(palette)], width=2), marker=dict(size=7), hovertemplate=f"<b>{sku}</b><br>%{{x|%b-%y}}: %{{y:,.1f}} HL<extra></extra>"))
+                fig_trend.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y"), yaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(size=10)), height=450, hovermode="x unified")
+                st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': False})
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("📋 Tableau détaillé des ruptures", expanded=False):
+                df_rupture_detail = df_rupture_hist.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['rupture_hl'].sum().reset_index()
+                df_rupture_detail['Mois_Label'] = df_rupture_detail['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
+                df_rupture_detail = df_rupture_detail[['annee', 'Mois_Label', 'agence', 'article', 'rupture_hl']]
+                df_rupture_detail.columns = ['Année', 'Mois', 'Agence', 'Article', 'Volume Perdu (HL)']
+                df_rupture_detail = df_rupture_detail.sort_values('Volume Perdu (HL)', ascending=False)
+                st.dataframe(df_rupture_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, column_config={'Volume Perdu (HL)': st.column_config.NumberColumn(format="%.2f")})
         else:
-            st.info("Aucune rupture n'a été détectée sur le périmètre sélectionné.")
+            st.info("Aucune rupture enregistrée sur le périmètre sélectionné.")

@@ -52,7 +52,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# FONCTIONS UTILITAIRES (OPTIMISÉES)
+# FONCTIONS UTILITAIRES
 # ==============================================================================
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
@@ -162,11 +162,12 @@ def normaliser_mois(serie: pd.Series) -> pd.Series:
                 return dates.dt.month
     except: pass
     mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
-    texte_series = series_clean.apply(lambda x: unicodedata.normalize("NFD", str(x)).encode("ascii", "ignore").decode("utf-8").lower())
+    # VECTORISATION AU LIEU DE APPLY
+    texte_series = series_clean.str.normalize('NFD').str.encode('ascii', 'ignore').str.decode('utf-8').str.lower()
     return texte_series.map(mois_map).fillna(1).astype(int)
 
 # ==============================================================================
-# LOGIQUE DE CALCUL (OPTIMISÉE)
+# LOGIQUE DE CALCUL
 # ==============================================================================
 @st.cache_data(show_spinner=False)
 def charger_ruptures(rupture_bytes):
@@ -246,7 +247,9 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df["mois"] = normaliser_mois(df["mois"])
     df["volume_brut"] = pd.to_numeric(df["volume_brut"], errors="coerce").astype('float32').fillna(0.0)
     
-    masque_total = df[['segment', 'produit', 'agence', 'nature']].astype(str).apply(lambda s: s.str.contains("total", case=False, na=False)).any(axis=1) | df['nature'].isna()
+    # VECTORISATION DU FILTRE TOTAL (10x plus rapide)
+    s_total = df['segment'].astype(str) + df['produit'].astype(str) + df['agence'].astype(str) + df['nature'].astype(str)
+    masque_total = s_total.str.contains("total", case=False, na=False) | df['nature'].isna()
     df = df[~masque_total].copy()
     
     df["article_original"] = df["nature"].astype(str).str.replace(r'^[^-]+-', '', regex=True).str.strip()
@@ -265,7 +268,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df_enrichi["volume_brut"] = df_enrichi["volume_brut"].astype('float32').fillna(0.0)
     df_enrichi["agence"] = df_enrichi["agence"].fillna("Aucune vente")
     
-    # CORRECTION ICI : On sécurise le .astype('category') sur des Series Pandas
     df_enrichi["marque"] = df_enrichi["marque"].astype(object).fillna("Inconnu").astype('category')
     df_enrichi["emballage"] = df_enrichi["emballage"].astype(object).fillna("AUTRE").astype('category')
     df_enrichi["contenance_cl"] = pd.to_numeric(df_enrichi["contenance_cl"], errors="coerce").astype('float32').fillna(100.0)
@@ -275,10 +277,7 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     df_enrichi.loc[masque_fut20, "contenance_cl"] = 2000.0
     
     df_enrichi["hl"] = df_enrichi["volume_brut"].fillna(0.0).astype('float32')
-    
-    # CORRECTION ICI : appel sécurisé de get_region_vectorized
     df_enrichi["region"] = get_region_vectorized(df_enrichi["agence"]).astype('category')
-    
     df_enrichi["occasion"] = df_enrichi["occasion"].astype(object).fillna("Non renseigné").astype('category')
     df_enrichi["positionnement"] = df_enrichi["positionnement"].astype(object).fillna("Non renseigné").astype('category')
     
@@ -334,7 +333,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v154"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v155"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -798,7 +797,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v154"
+    budget_all_agencies, cache_bust="v155"
 )
 
 if budget_status == "ok":

@@ -397,7 +397,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v136"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v145"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -463,7 +463,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = (df_perim_unique.merge(df_ytd, on=['agence', 'article'], how='left').merge(df_premiere_annee, on=['agence', 'article'], how='left'))
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
-    df_base['Annee_Base'] = np.maximum(annee_min_cagr, df_base['Annee_Debut'])
+    
+    df_base['Annee_Base'] = np.maximum(np.maximum(annee_min_cagr, annee_rupture_tendance), df_base['Annee_Debut'])
 
     df_base_vol = (df_realise.groupby(['agence', 'article', 'annee'], observed=True)['hl'].sum().reset_index())
     df_base = df_base.merge(df_base_vol, left_on=['agence', 'article', 'Annee_Base'], right_on=['agence', 'article', 'annee'], how='left')
@@ -488,10 +489,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
-    # --- INTÉGRATION DE LA RUPTURE DE TENDANCE ICI ---
     annee_debut_effective = max(annee_min_cagr, annee_rupture_tendance)
-    
     df_hist_cagr = df_realise[(df_realise['annee'] >= annee_debut_effective) & (df_realise['annee'] <= annee_max_cagr)].groupby(['agence', 'article', 'annee'], observed=True)['hl_potentiel'].sum().reset_index()
+    
     if not df_hist_cagr.empty:
         g = df_hist_cagr.groupby(['agence', 'article'], observed=True)
         df_vol_debut = (df_hist_cagr[df_hist_cagr['annee'] == g['annee'].transform('min')].groupby(['agence', 'article'], observed=True)['hl_potentiel'].sum().rename('Vol_Debut').reset_index())
@@ -523,9 +523,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     mean_y = np.mean(y)
                     slope_rel = float(slope / mean_y) if mean_y > 0 else 0.0
                 else:
-                    slope_rel = 0.0
+                    slope_rel = np.nan
             except Exception:
-                slope_rel = 0.0
+                slope_rel = np.nan
             slopes_data.append({'agence': agence, 'article': article, 'Slope_Rel': slope_rel})
             
         slopes = pd.DataFrame(slopes_data, columns=['agence', 'article', 'Slope_Rel'])
@@ -703,7 +703,6 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📁 Importation")
     
-    # Bouton pour choisir le mode d'importation
     mode_import = st.radio(
         "Mode d'importation", 
         options=["Fichier unique (Multi-onglets)", "Fichiers séparés"], 
@@ -721,7 +720,6 @@ with st.sidebar:
         else:
             fichier_ventes = fichier_ref = fichier_budget = fichier_rupture = None
     else:
-        # Option classique conservée
         fichier_ventes = st.file_uploader("Ventes (DATA_BRUT.xlsx)", type=["xlsx"], key="uploader_ventes")
         fichier_ref = st.file_uploader("Référentiel (Classeur2.xlsx)", type=["xlsx"], key="uploader_ref")
         fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget")
@@ -766,14 +764,12 @@ with st.sidebar:
             with p5: annee_cloture = st.number_input("Année Clôture", min_value=2020, max_value=2030, value=2026, key="param_annee_cloture")
             with p6: mois_cutoff = st.selectbox("Mois Cutoff", options=list(range(1, 13)), index=8, format_func=lambda m: f"{MOIS_NOMS[m-1]}", key="param_mois_cutoff")
             
-            # --- NOUVEAU : Paramètre de rupture de tendance ---
             annee_rupture_tendance = st.number_input(
                 "Année de rupture de tendance (Ignorer avant)", 
                 min_value=2010, max_value=2030, value=2017, 
-                help="Si le marché a changé en 2024 (nouveau produit, crise), mettez 2024. Le modèle ignorera l'historique antérieur pour le calcul du CAGR/Tendance.",
+                help="Si le marché a changé en 2024, mettez 2024. Le modèle ignorera l'historique avant cette année pour le calcul du CAGR.",
                 key="param_rupture_tendance"
             )
-            # --------------------------------------------------
             
             mois_cibles_selection = st.multiselect("Mois cible (Filtre tableau)", options=MOIS_NOMS, default=[], key="param_mois_cible", help="Filtre uniquement le tableau des prévisions, pas le KPI global.")
 
@@ -797,13 +793,12 @@ if fichier_ventes is None:
     
     st.info(
         "👋 **Bienvenue !** Pour démarrer :\n\n"
-        "1. Choisissez votre mode d'importation dans la barre latérale (Fichier global ou fichiers séparés).\n"
+        "1. Choisissez votre mode d'importation dans la barre latérale.\n"
         "2. Importez vos données.\n"
-        "3. Ajustez les filtres et paramètres, puis explorez les onglets."
+        "3. Ajustez les filtres et paramètres."
     )
     st.stop()
 
-# Chargement des données
 df_enrichi = charger_et_enrichir(
     fichier_ventes.getvalue(), 
     fichier_ref.getvalue() if fichier_ref is not None else None,
@@ -811,10 +806,9 @@ df_enrichi = charger_et_enrichir(
 )
 
 if df_enrichi.empty or "annee" not in df_enrichi.columns:
-    st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide. Veuillez vérifier qu'il contient les colonnes requises.")
+    st.error("⚠️ Le fichier de ventes n'est pas au bon format ou est vide.")
     st.stop()
 
-# Affichage Header
 st.markdown(f"""
 <div class="hero-header">
     <div>
@@ -825,7 +819,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- ZONE DE FILTRES DANS LA ZONE PRINCIPALE (Déroulante) ---
 with st.expander("🎯 Filtres de périmètre", expanded=False):
     f1, f2, f3, f4 = st.columns(4)
     
@@ -863,7 +856,6 @@ with st.expander("🎯 Filtres de périmètre", expanded=False):
         df_temp = df_temp[df_temp["occasion"].isin(sel_occasions)] if sel_occasions else df_temp
 
 
-# Application des filtres pour le calcul
 df_perimetre = df_enrichi.copy()
 if sel_regions: df_perimetre = df_perimetre[df_perimetre["region"].isin(sel_regions)]
 if sel_agences: df_perimetre = df_perimetre[df_perimetre["agence"].isin(sel_agences)]
@@ -875,13 +867,12 @@ if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_ar
 if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
-# Calcul (Ajout de annee_rupture_tendance dans l'appel)
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, 
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v136"
+    budget_all_agencies, cache_bust="v145"
 )
 
 if budget_status == "ok":
@@ -899,7 +890,7 @@ col_prev_aff = "Volume_Cols" if unite_affichage == "Cols" else "Volume_HL"
 col_prev_pure = "Prevision_Cols" if unite_affichage == "Cols" else "Prevision_HL"
 
 df_cible_annuel = df_previsions[df_previsions['annee'] == annee_cible]
-atterrissage_cible = df_cible_annuel[col_prev_aff].sum()
+atterrissage_cible = df_cible_annuel[col_prev_aff].fillna(0).sum()
 
 if not mois_cibles_selection:
     df_previsions_filtre = df_previsions
@@ -912,7 +903,7 @@ else:
 df_n1 = df_perimetre[df_perimetre['annee'] == (annee_cible - 1)].copy()
 if not df_n1.empty:
     contenance_safe_n1 = df_n1['contenance_cl'].replace(0, 100).fillna(100.0)
-    hist_n1_val = (df_n1['hl'] * (10000.0 / contenance_safe_n1)).sum() if unite_affichage == "Cols" else df_n1['hl'].sum()
+    hist_n1_val = (df_n1['hl'] * (10000.0 / contenance_safe_n1)).fillna(0).sum() if unite_affichage == "Cols" else df_n1['hl'].fillna(0).sum()
 else:
     hist_n1_val = 0.0
     
@@ -941,16 +932,13 @@ if not df_eval_agg.empty and df_eval_agg[col_prev_aff].sum() > 0:
 else:
     mae, wmape, smape = 0.0, 0.0, 0.0
 
-# Delta N-1
 delta_n1_pct = ((atterrissage_cible - hist_n1_val) / hist_n1_val * 100) if hist_n1_val > 0 else 0
 delta_class = "up" if delta_n1_pct >= 0 else "down"
 delta_icon = "▲" if delta_n1_pct >= 0 else "▼"
 
-# Progression Objectif
 progression = (atterrissage_cible / objectif_final * 100) if objectif_final > 0 else 0
 progression = min(max(progression, 0), 100)
 
-# Affichage des 4 KPI
 k1, k2, k3, k4 = st.columns(4, gap="large")
 with k1:
     st.markdown(f"""
@@ -994,9 +982,6 @@ with k4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ==============================================================================
-# GRAPHIQUE PRINCIPAL
-# ==============================================================================
 with st.container(border=True):
     st.markdown(f"#### Superposition Réalisé vs Prévision ({annee_cible})")
 
@@ -1034,14 +1019,12 @@ with st.container(border=True):
             hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
         ))
 
-    # --- NOUVEAU : Ligne verticale pour indiquer la rupture de tendance ---
     if annee_rupture_tendance > annee_min_cagr:
         try:
             x_val = pd.to_datetime(f"{annee_rupture_tendance}-01-01")
             fig1.add_vline(x=x_val, line_width=2, line_dash="dash", line_color=COLORS['GRIS'], annotation_text="Rupture", annotation_position="top left")
         except Exception:
             pass
-    # -------------------------------------------------------------------
 
     fig1.update_layout(
         plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], 
@@ -1055,9 +1038,6 @@ with st.container(border=True):
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
-# ==============================================================================
-# NAVIGATION PAR ONGLETS
-# ==============================================================================
 tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)", "Fiabilité", "Ruptures"]
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
@@ -1101,31 +1081,36 @@ with tab_placeholder.container():
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
                 df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
                 
+                # Conversion en unité d'affichage (HL ou Cols)
                 df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
                 df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
                 
                 df_sarr_calc["Mois M"] = df_sarr_calc.apply(lambda r: f"{MOIS_NOMS[int(r['mois'])-1]}-{int(r['annee'])}", axis=1)
                 df_sarr_calc["Mois M-1"] = df_sarr_calc.groupby(['agence', 'article'])["Mois M"].shift(1)
                 
-                df_sarr_calc["Momentum_M (%)"] = ((df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]) / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
+                # Le Momentum basé STRICTEMENT sur les deux SARR affichés (M et M-1)
+                df_sarr_calc["Momentum_Abs"] = df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]
+                df_sarr_calc["Momentum_Pct"] = (df_sarr_calc["Momentum_Abs"] / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
                 
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
                 
                 st.dataframe(
-                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum", "Momentum_M (%)"]]
+                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum_Abs", "Momentum_Pct"]]
                     .rename(columns={
-                        "SARR_Aff": "Volume M", 
-                        "SARR_M1_Aff": "Volume M-1", 
-                        "Momentum": "Momentum (Vol Absolu)", 
-                        "Momentum_M (%)": "Momentum M vs M-1 (%)"
+                        "agence": "Agence",
+                        "article": "Article",
+                        "SARR_M1_Aff": "SARR M-1", 
+                        "SARR_Aff": "SARR M", 
+                        "Momentum_Abs": "Momentum (SARR M - SARR M-1)", 
+                        "Momentum_Pct": "Momentum (%)"
                     })
-                    .sort_values(["agence", "article", "Mois M"]),
+                    .sort_values(["Agence", "Article", "Mois M"]),
                     use_container_width=True, hide_index=True,
                     column_config={
-                        "Volume M": st.column_config.NumberColumn(format="%.0f"), 
-                        "Volume M-1": st.column_config.NumberColumn(format="%.0f"), 
-                        "Momentum (Vol Absolu)": st.column_config.NumberColumn(format="%.1f"),
-                        "Momentum M vs M-1 (%)": st.column_config.NumberColumn(format="%.2f %%")
+                        "SARR M": st.column_config.NumberColumn(format="%.0f"), 
+                        "SARR M-1": st.column_config.NumberColumn(format="%.0f"), 
+                        "Momentum (SARR M - SARR M-1)": st.column_config.NumberColumn(format="%.1f"),
+                        "Momentum (%)": st.column_config.NumberColumn(format="%.2f %%")
                     }
                 )
 

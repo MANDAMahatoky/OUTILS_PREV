@@ -397,7 +397,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v145"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v146"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -872,7 +872,7 @@ table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_e
     annee_cloture, mois_cutoff, annee_cible, methode_croissance, 
     annee_rupture_tendance, 
     fichier_budget.getvalue() if fichier_budget is not None else None, 
-    budget_all_agencies, cache_bust="v145"
+    budget_all_agencies, cache_bust="v146"
 )
 
 if budget_status == "ok":
@@ -1076,26 +1076,26 @@ with tab_placeholder.container():
                     pivot_indices = _pivot_indices_cached(table_indices)
                     st.dataframe(pivot_indices, use_container_width=True)
                 else: st.info("Pas d'historique complet.")
+        
+        # CORRECTION ICI : Tri chronologique parfait et affichage côte à côte
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
                 df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
                 
-                # Conversion en unité d'affichage (HL ou Cols)
                 df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
                 df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
                 
                 df_sarr_calc["Mois M"] = df_sarr_calc.apply(lambda r: f"{MOIS_NOMS[int(r['mois'])-1]}-{int(r['annee'])}", axis=1)
                 df_sarr_calc["Mois M-1"] = df_sarr_calc.groupby(['agence', 'article'])["Mois M"].shift(1)
                 
-                # Le Momentum basé STRICTEMENT sur les deux SARR affichés (M et M-1)
                 df_sarr_calc["Momentum_Abs"] = df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]
                 df_sarr_calc["Momentum_Pct"] = (df_sarr_calc["Momentum_Abs"] / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
                 
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
                 
                 st.dataframe(
-                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum_Abs", "Momentum_Pct"]]
+                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum_Abs", "Momentum_Pct", "annee", "mois"]]
                     .rename(columns={
                         "agence": "Agence",
                         "article": "Article",
@@ -1104,9 +1104,12 @@ with tab_placeholder.container():
                         "Momentum_Abs": "Momentum (SARR M - SARR M-1)", 
                         "Momentum_Pct": "Momentum (%)"
                     })
-                    .sort_values(["Agence", "Article", "Mois M"]),
-                    use_container_width=True, hide_index=True,
+                    .sort_values(["Agence", "Article", "annee", "mois"]), # Tri magique
+                    use_container_width=True, 
+                    hide_index=True,
                     column_config={
+                        "annee": None,
+                        "mois": None,
                         "SARR M": st.column_config.NumberColumn(format="%.0f"), 
                         "SARR M-1": st.column_config.NumberColumn(format="%.0f"), 
                         "Momentum (SARR M - SARR M-1)": st.column_config.NumberColumn(format="%.1f"),

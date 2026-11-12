@@ -8,6 +8,7 @@ import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
+from openpyxl.styles import Font, PatternFill, Alignment
 
 # ==============================================================================
 # CONFIGURATION ET DESIGN
@@ -65,14 +66,8 @@ def color_error(val, seuil_alerte=10, seuil_bon=5):
 def get_region_vectorized(series):
     a = series.astype(str).str.lower().str.replace("-", "").str.replace(" ", "").str.replace("_", "")
     result = np.select(
-        [
-            a.str.contains('andranomahery|antsirabe'),
-            a.str.contains('tanjombato|tamatave'),
-            a.str.contains('diego|majunga|ambanja|sambava|nosybe'),
-            a.str.contains('tulear|fianarantsoa|ihosy|manakara|morondava|dauphin'),
-        ],
-        ['Centre', 'Est', 'Nord', 'Sud'],
-        default='Autre'
+        [a.str.contains('andranomahery|antsirabe'), a.str.contains('tanjombato|tamatave'), a.str.contains('diego|majunga|ambanja|sambava|nosybe'), a.str.contains('tulear|fianarantsoa|ihosy|manakara|morondava|dauphin')],
+        ['Centre', 'Est', 'Nord', 'Sud'], default='Autre'
     )
     return pd.Series(result, index=series.index)
 
@@ -151,16 +146,13 @@ REF_DEFAUT = [
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
 def normaliser_mois(serie: pd.Series) -> pd.Series:
-    if pd.api.types.is_numeric_dtype(serie):
-        return serie.fillna(1).astype(int)
+    if pd.api.types.is_numeric_dtype(serie): return serie.fillna(1).astype(int)
     series_clean = serie.astype(str).str.strip()
     numeric_series = pd.to_numeric(series_clean, errors='coerce')
     if numeric_series.notna().all():
-        if numeric_series.between(1, 12).all():
-            return numeric_series.astype(int)
+        if numeric_series.between(1, 12).all(): return numeric_series.astype(int)
         dates = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
-        if dates.notna().all():
-            return dates.dt.month
+        if dates.notna().all(): return dates.dt.month
     mois_map = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12}
     texte_series = series_clean.apply(lambda x: unicodedata.normalize("NFD", str(x)).encode("ascii", "ignore").decode("utf-8").lower())
     return texte_series.map(mois_map).fillna(1).astype(int)
@@ -316,7 +308,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return result[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v163"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v164"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -470,20 +462,11 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_val'] = df_base['CAGR_Hist']
 
-    # ==============================================================================
-    # GESTION DES NOUVEAUX PRODUITS - FALLBACK HIÉRARCHIQUE EN CASCADE
-    # ==============================================================================
+    # GESTION DES NOUVEAUX PRODUITS - FALLBACK HIÉRARCHIQUE
     masque_nouveau = (df_base['Nb_Annees_Hist'] < 2) | (df_base['CAGR_val'].isna()) | (df_base['CAGR_val'] == 0)
-    
     df_matures = df_base[~masque_nouveau]
-    cagr_par_marque = {}
-    if not df_matures.empty and 'marque' in df_matures.columns:
-        cagr_par_marque = df_matures.groupby('marque', observed=True)['CAGR_val'].median().to_dict()
-        
-    cagr_par_segment = {}
-    if not df_matures.empty and 'segment' in df_matures.columns:
-        cagr_par_segment = df_matures.groupby('segment', observed=True)['CAGR_val'].median().to_dict()
-        
+    cagr_par_marque = df_matures.groupby('marque', observed=True)['CAGR_val'].median().to_dict() if not df_matures.empty and 'marque' in df_matures.columns else {}
+    cagr_par_segment = df_matures.groupby('segment', observed=True)['CAGR_val'].median().to_dict() if not df_matures.empty and 'segment' in df_matures.columns else {}
     cagr_global = df_matures['CAGR_val'].median() if not df_matures.empty else 0.03
     if pd.isna(cagr_global): cagr_global = 0.03
     
@@ -498,7 +481,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
         return 0.03
         
     df_base.loc[masque_nouveau, 'CAGR_val'] = df_base.loc[masque_nouveau].apply(appliquer_fallback, axis=1)
-    # ==============================================================================
 
     df_base['CAGR_val'] = df_base['CAGR_val'].clip(lower=-0.20, upper=0.30)
     df_base = df_base.merge(df_base_momentum, on=['agence', 'article'], how='left', sort=False).fillna({'Base_EXCEL': 0.0, 'Momentum': 0.0})
@@ -538,8 +520,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     df_budget = temp.copy()
                     break
             
-            if df_budget is None:
-                budget_status = "warning"
+            if df_budget is None: budget_status = "warning"
             else:
                 col_art = next((c for c in df_budget.columns if 'article' in c), None)
                 col_val = next((c for c in df_budget.columns if 'valeur' in c), None)
@@ -551,8 +532,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                     mask_33can = df_budget[col_art].astype(str).str.contains('33', na=False) & df_budget[col_art].astype(str).str.contains('CAN', case=False, na=False)
                     df_budget = df_budget[mask_33can].copy()
                     
-                    if df_budget.empty:
-                        budget_status = "warning"
+                    if df_budget.empty: budget_status = "warning"
                     else:
                         df_budget['key_article_budget'] = df_budget[col_art].apply(clean_text_for_budget_key)
                         df_budget['mois'] = pd.to_numeric(df_budget[col_mois], errors='coerce')
@@ -569,45 +549,26 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
                         if budget_all_agencies or not col_ag:
                             df_budget_agg = df_budget.groupby(['key_article_budget', 'mois'])['valeur_budget'].sum().reset_index()
                             df_cross = df_cross.merge(df_budget_agg, on=['key_article_budget', 'mois'], how='left', suffixes=('', '_budget'), sort=False)
-                            
-                            df_cross['Forecast_Total_Article_Mois'] = (
-                                df_cross.loc[mask_budget_target]
-                                .groupby(['key_article_budget', 'mois'])['Prevision_HL']
-                                .transform('sum')
-                                .reindex(df_cross.index)
-                            )
-                            
+                            df_cross['Forecast_Total_Article_Mois'] = (df_cross.loc[mask_budget_target].groupby(['key_article_budget', 'mois'])['Prevision_HL'].transform('sum').reindex(df_cross.index))
                             mask_apply = mask_budget_target & df_cross['valeur_budget'].notna()
                             mask_denom_pos = mask_apply & (df_cross['Forecast_Total_Article_Mois'] > 0)
                             mask_denom_zero = mask_apply & (df_cross['Forecast_Total_Article_Mois'] == 0)
-                            
-                            df_cross.loc[mask_denom_pos, 'Prevision_HL'] = (
-                                df_cross.loc[mask_denom_pos, 'Prevision_HL']
-                                * (df_cross.loc[mask_denom_pos, 'valeur_budget']
-                                   / df_cross.loc[mask_denom_pos, 'Forecast_Total_Article_Mois'])
-                            )
+                            df_cross.loc[mask_denom_pos, 'Prevision_HL'] = (df_cross.loc[mask_denom_pos, 'Prevision_HL'] * (df_cross.loc[mask_denom_pos, 'valeur_budget'] / df_cross.loc[mask_denom_pos, 'Forecast_Total_Article_Mois']))
                             df_cross.loc[mask_denom_zero, 'Prevision_HL'] = df_cross.loc[mask_denom_zero, 'valeur_budget']
-                            
                         else:
                             df_budget['agence_clean'] = df_budget[col_ag].astype(str).str.replace(r'^\d+-', '', regex=True)
                             df_budget['key_agence'] = df_budget['agence_clean'].apply(clean_text_for_key)
                             df_cross['key_agence'] = df_cross['agence'].apply(clean_text_for_key)
-                            
                             df_budget_agg = df_budget.groupby(['key_article_budget', 'key_agence', 'mois'])['valeur_budget'].sum().reset_index()
                             df_cross = df_cross.merge(df_budget_agg, on=['key_article_budget', 'key_agence', 'mois'], how='left', suffixes=('', '_budget'), sort=False)
-                            
                             mask_apply = mask_budget_target & df_cross['valeur_budget'].notna()
                             df_cross.loc[mask_apply, 'Prevision_HL'] = df_cross.loc[mask_apply, 'valeur_budget']
-                        
                         budget_status = "ok"
-                else:
-                    budget_status = "warning"
-        except Exception as e:
-            budget_status = "error"
+                else: budget_status = "warning"
+        except Exception: budget_status = "error"
 
     for c in ['key_article_budget', 'key_agence', 'valeur_budget', 'Forecast_Total_Article_Mois', 'contenance_cl_x', 'contenance_cl_y', 'agence_clean']:
-        if c in df_cross.columns:
-            df_cross = df_cross.drop(columns=[c])
+        if c in df_cross.columns: df_cross = df_cross.drop(columns=[c])
 
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
@@ -624,11 +585,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel"]
-    df_realise_out = df_realise.merge(
-        df_perimetre_filtre[['agence', 'article']].drop_duplicates(),
-        on=['agence', 'article'], how='inner', sort=False
-    ).copy()
-
+    df_realise_out = df_realise.merge(df_perimetre_filtre[['agence', 'article']].drop_duplicates(), on=['agence', 'article'], how='inner', sort=False).copy()
     df_sarr_out = df_sarr_cont.merge(df_perim_unique[['agence', 'article', 'contenance_cl']], on=['agence', 'article'], how='left', sort=False)
 
     return table_indices, df_sarr_out, None, df_cross[cols_finales].copy(), df_realise_out, budget_status
@@ -640,12 +597,10 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# MODULES SUPPLÉMENTAIRES (COMPORTEMENT & EXPORT)
+# MODULES SUPPLÉMENTAIRES (COMPORTEMENT & EXPORT SANS CACHE)
 # ==============================================================================
-@st.cache_data(show_spinner=False)
 def analyser_comportement_sku(df_sarr, df_perimetre):
-    if df_sarr is None or df_sarr.empty:
-        return pd.DataFrame()
+    if df_sarr is None or df_sarr.empty: return pd.DataFrame()
     df_clean = df_sarr.dropna(subset=['SARR_HL']).copy()
     if df_clean.empty: return pd.DataFrame()
     resultats = []
@@ -663,9 +618,7 @@ def analyser_comportement_sku(df_sarr, df_perimetre):
             peak_mois = int(indices.loc[peak_idx, 'mois'])
             peak_nom = MOIS_NOMS[peak_mois - 1]
             peak_ratio = indices['Indice'].max() / indices['Indice'].mean() if indices['Indice'].mean() > 0 else 1.0
-        else:
-            peak_nom = "N/A"
-            peak_ratio = 1.0
+        else: peak_nom, peak_ratio = "N/A", 1.0
         
         if volatilite > 0.30: profil, emoji = "Volatile", "🔄"
         elif peak_ratio > 1.50: profil, emoji = "Saisonnier", "🏔️"
@@ -707,58 +660,97 @@ def analyser_comportement_sku(df_sarr, df_perimetre):
         })
     return pd.DataFrame(resultats)
 
-@st.cache_data(show_spinner=False)
-def generer_rapport_excel(df_previsions, df_perimetre, kpis, unite_affichage):
+def generer_rapport_excel(df_previsions, df_perimetre, kpis, unite_affichage, filtres_appliques=None):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        workbook = writer.book
-        fmt_title = workbook.add_format({'bold': True, 'font_size': 14, 'bg_color': '#E30613', 'font_color': 'white', 'align': 'center', 'valign': 'vcenter'})
-        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#F3F4F6', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
-        fmt_num = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        fmt_int = workbook.add_format({'num_format': '#,##0', 'border': 1})
-        fmt_pct = workbook.add_format({'num_format': '0.0%', 'border': 1})
-        fmt_alert = workbook.add_format({'bg_color': '#FDECEE', 'font_color': '#B3050F', 'border': 1})
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        ws_synth = writer.book.create_sheet('Synthèse')
         
-        ws_synth = workbook.add_worksheet('Synthèse')
-        ws_synth.merge_range('A1:E1', f'RAPPORT DE PRÉVISIONS STAR - ANNÉE {kpis["annee_cible"]}', fmt_title)
-        ws_synth.write('A2', 'Date du rapport', fmt_header); ws_synth.write('B2', datetime.datetime.now().strftime('%d/%m/%Y %H:%M'))
-        ws_synth.write('A3', 'Unité', fmt_header); ws_synth.write('B3', unite_affichage)
-        ws_synth.write('A5', 'KPI', fmt_header); ws_synth.write('B5', 'Valeur', fmt_header)
-        ws_synth.write('A6', 'Atterrissage Prévu', fmt_header); ws_synth.write('B6', kpis['atterrissage'], fmt_int)
-        ws_synth.write('A7', 'Objectif Annuel', fmt_header); ws_synth.write('B7', kpis['objectif'], fmt_int)
-        ws_synth.write('A8', 'GAP vs Objectif', fmt_header); ws_synth.write('B8', kpis['gap'], fmt_int if kpis['gap'] >= 0 else fmt_alert)
-        ws_synth.write('A9', 'Fiabilité (WMAPE)', fmt_header); ws_synth.write('B9', kpis['wmape'] / 100, fmt_pct)
-        ws_synth.set_column('A:A', 25); ws_synth.set_column('B:B', 20)
+        ws_synth['A1'] = f'RAPPORT DE PRÉVISIONS STAR - ANNÉE {kpis["annee_cible"]}'
+        ws_synth['A1'].font = Font(bold=True, size=14, color='FFFFFF')
+        ws_synth['A1'].fill = PatternFill(start_color='E30613', end_color='E30613', fill_type='solid')
+        ws_synth.merge_cells('A1:C1')
+        ws_synth['A1'].alignment = Alignment(horizontal='center', vertical='center')
+        ws_synth.row_dimensions[1].height = 25
+        
+        ws_synth['A3'] = 'Date du rapport'; ws_synth['A3'].font = Font(bold=True)
+        ws_synth['B3'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
+        
+        row = 5
+        ws_synth.cell(row=row, column=1, value='📋 PÉRIMÈTRE APPLIQUÉ').font = Font(bold=True, size=12, color='FFFFFF')
+        ws_synth.cell(row=row, column=1).fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid')
+        ws_synth.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+        
+        row += 1
+        if filtres_appliques:
+            for label, valeur in filtres_appliques.items():
+                ws_synth.cell(row=row, column=1, value=label).font = Font(bold=True)
+                ws_synth.cell(row=row, column=2, value=valeur if valeur else 'Toutes/Tous')
+                row += 1
+        else:
+            ws_synth.cell(row=row, column=1, value='Aucun filtre (périmètre complet)')
+            row += 1
+        
+        row += 1
+        ws_synth.cell(row=row, column=1, value='🎯 INDICATEURS CLÉS').font = Font(bold=True, size=12, color='FFFFFF')
+        ws_synth.cell(row=row, column=1).fill = PatternFill(start_color='E30613', end_color='E30613', fill_type='solid')
+        ws_synth.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+        
+        row += 1
+        for col, h in enumerate(['KPI', 'Valeur', 'Unité'], 1):
+            cell = ws_synth.cell(row=row, column=col, value=h)
+            cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center')
+        
+        kpis_rows = [('Atterrissage Prévu', kpis['atterrissage'], unite_affichage), ('Objectif Annuel', kpis['objectif'], unite_affichage), ('GAP vs Objectif', kpis['gap'], unite_affichage), ('Fiabilité (WMAPE)', kpis['wmape'] / 100, '%')]
+        for kpi_label, kpi_val, kpi_unit in kpis_rows:
+            row += 1
+            ws_synth.cell(row=row, column=1, value=kpi_label)
+            cell_val = ws_synth.cell(row=row, column=2, value=kpi_val)
+            cell_val.number_format = '0.0%' if kpi_unit == '%' else '#,##0.00'
+            ws_synth.cell(row=row, column=3, value=kpi_unit)
+            if 'GAP' in kpi_label and kpi_val < 0:
+                cell_val.fill = PatternFill(start_color='FDECEE', end_color='FDECEE', fill_type='solid'); cell_val.font = Font(bold=True, color='B3050F')
+            elif 'GAP' in kpi_label and kpi_val >= 0:
+                cell_val.fill = PatternFill(start_color='D1FAE5', end_color='D1FAE5', fill_type='solid'); cell_val.font = Font(bold=True, color='059669')
+        
+        ws_synth.column_dimensions['A'].width = 30; ws_synth.column_dimensions['B'].width = 20; ws_synth.column_dimensions['C'].width = 15
 
+        # ONGLET 2 : PRÉVISIONS (UTILISE df_previsions FILTRÉ)
         df_seg = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
         df_prev_seg = df_previsions.merge(df_seg, on='article', how='left')
         pivot = df_prev_seg.pivot_table(index=['article', 'segment'], columns='mois', values='Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols', aggfunc='sum').fillna(0)
         pivot.columns = [MOIS_NOMS[int(c) - 1] for c in pivot.columns]
         pivot['Total Année'] = pivot.sum(axis=1)
         pivot = pivot.reset_index().rename(columns={'article': 'Articles', 'segment': 'Segments'})
-        pivot.to_excel(writer, sheet_name='Prévisions', index=False, startrow=1, header=False)
+        
+        pivot.to_excel(writer, sheet_name='Prévisions', index=False)
         ws_prev = writer.sheets['Prévisions']
-        for col_num, value in enumerate(pivot.columns.values): ws_prev.write(0, col_num, value, fmt_header)
-        ws_prev.set_column('A:B', 30); ws_prev.set_column('C:N', 10, fmt_int); ws_prev.set_column('O:O', 15, fmt_int)
+        for cell in ws_prev[1]:
+            cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        
+        ws_prev.column_dimensions['A'].width = 35; ws_prev.column_dimensions['B'].width = 15
+        for col in range(3, 16): ws_prev.column_dimensions[chr(64 + col)].width = 10
 
-        df_alert = df_previsions.groupby('article', observed=True).agg({
-            'Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols': 'sum', 'Momentum': 'mean', 'CAGR (%)': 'mean'
-        }).reset_index()
+        # ONGLET 3 : TOP 20 ARTICLES
+        df_alert = df_previsions.groupby('article', observed=True).agg({'Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols': 'sum', 'Momentum': 'mean', 'CAGR (%)': 'mean'}).reset_index()
         df_alert = df_alert.sort_values(by='Volume_HL' if unite_affichage == 'HL' else 'Volume_Cols', ascending=False).head(20)
         df_alert.columns = ['Article', f'Volume Total ({unite_affichage})', 'Momentum Moyen', 'CAGR Moyen (%)']
-        df_alert.to_excel(writer, sheet_name='Top 20 Articles', index=False, startrow=1, header=False)
+        
+        df_alert.to_excel(writer, sheet_name='Top 20 Articles', index=False)
         ws_alert = writer.sheets['Top 20 Articles']
-        for col_num, value in enumerate(df_alert.columns.values): ws_alert.write(0, col_num, value, fmt_header)
-        ws_alert.set_column('A:A', 35); ws_alert.set_column('B:B', 20, fmt_int); ws_alert.set_column('C:C', 15, fmt_int); ws_alert.set_column('D:D', 15, fmt_num)
+        for cell in ws_alert[1]:
+            cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center', vertical='center')
+        ws_alert.column_dimensions['A'].width = 40; ws_alert.column_dimensions['B'].width = 20; ws_alert.column_dimensions['C'].width = 15; ws_alert.column_dimensions['D'].width = 15
 
+        # ONGLET 4 : TOP RUPTURES
         df_rupture = df_perimetre[df_perimetre['rupture_hl'] > 0].groupby('article', observed=True)['rupture_hl'].sum().reset_index()
         if not df_rupture.empty:
             df_rupture = df_rupture.sort_values(by='rupture_hl', ascending=False).head(20)
             df_rupture.columns = ['Article', 'Volume Perdu (HL)']
-            df_rupture.to_excel(writer, sheet_name='Top Ruptures', index=False, startrow=1, header=False)
+            df_rupture.to_excel(writer, sheet_name='Top Ruptures', index=False)
             ws_rupt = writer.sheets['Top Ruptures']
-            for col_num, value in enumerate(df_rupture.columns.values): ws_rupt.write(0, col_num, value, fmt_header)
-            ws_rupt.set_column('A:A', 35); ws_rupt.set_column('B:B', 20, fmt_int)
+            for cell in ws_rupt[1]:
+                cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill(start_color='6B7280', end_color='6B7280', fill_type='solid'); cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws_rupt.column_dimensions['A'].width = 40; ws_rupt.column_dimensions['B'].width = 20
     return output.getvalue()
 
 # ==============================================================================
@@ -872,7 +864,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v163"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v164"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -974,25 +966,57 @@ with st.container(border=True):
     fig1.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), height=500, hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
-# EXPORT EXCEL SIDEBAR
+# EXPORT EXCEL SIDEBAR (SANS CACHE - RESPECTE LES FILTRES)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📤 Export Direction")
+
+nb_articles_filtres = df_previsions['article'].nunique()
+nb_lignes_filtrees = len(df_previsions)
+
+st.sidebar.caption(f"🎯 Le rapport contiendra **{nb_articles_filtres} articles** (sur {nb_lignes_filtrees:,} lignes).")
+if nb_articles_filtres < 10:
+    st.sidebar.success(f"✅ Filtre actif : export limité à ces {nb_articles_filtres} articles.")
+else:
+    st.sidebar.info("🌍 Périmètre large : beaucoup d'articles.")
+
+filtres_appliques = {
+    "Région": ", ".join(sel_regions) if sel_regions else "Toutes",
+    "Marque": ", ".join(sel_marques) if sel_marques else "Toutes",
+    "Agence": ", ".join(sel_agences) if sel_agences else "Toutes",
+    "Contenance": ", ".join([str(c) for c in sel_contenances]) if sel_contenances else "Toutes",
+    "Segment": ", ".join(sel_segments) if sel_segments else "Tous",
+    "Emballage": ", ".join(sel_emballages) if sel_emballages else "Tous",
+    "Article": ", ".join(sel_articles) if sel_articles else "Tous",
+    "Positionnement": ", ".join(sel_positionnements) if sel_positionnements else "Tous",
+    "Occasion": ", ".join(sel_occasions) if sel_occasions else "Toutes",
+}
+
 kpis_export = {
     "annee_cible": annee_cible, "atterrissage": atterrissage_cible,
     "objectif": objectif_final, "gap": gap, "wmape": wmape
 }
-try:
-    excel_data = generer_rapport_excel(df_previsions_filtre, df_perimetre, kpis_export, unite_affichage)
-    st.sidebar.download_button(
-        label="📊 Télécharger le Rapport Excel",
-        data=excel_data,
-        file_name=f"Rapport_Previsions_STAR_{annee_cible}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        key="btn_export_excel_direction"
-    )
-except Exception as e:
-    st.sidebar.error(f"Erreur d'export : {e}")
+
+excel_data = generer_rapport_excel(
+    df_previsions, 
+    df_perimetre, 
+    kpis_export, 
+    unite_affichage, 
+    filtres_appliques=filtres_appliques
+)
+
+nom_fichier = f"Rapport_STAR_{annee_cible}"
+if sel_agences and len(sel_agences) <= 2: nom_fichier += f"_{'_'.join(sel_agences)}"
+elif sel_regions and len(sel_regions) <= 2: nom_fichier += f"_{'_'.join(sel_regions)}"
+nom_fichier += ".xlsx"
+
+st.sidebar.download_button(
+    label="📊 Télécharger le Rapport Excel",
+    data=excel_data,
+    file_name=nom_fichier,
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    use_container_width=True,
+    key="btn_export_excel_direction"
+)
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 

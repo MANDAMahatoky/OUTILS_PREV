@@ -947,8 +947,18 @@ with tab_placeholder.container():
                 df_sarr_calc["Momentum_Abs"] = df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]
                 df_sarr_calc["Momentum_Pct"] = (df_sarr_calc["Momentum_Abs"] / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
                 df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
+                
+                # --- NOUVEAU BOUTON DE FILTRE ---
+                filtre_sarr = st.radio("Afficher :", ["Tous", "Momentum Positif (+)", "Momentum Négatif (-)"], horizontal=True, label_visibility="collapsed")
+                df_sarr_affiche = df_sarr_derniers.copy()
+                if filtre_sarr == "Momentum Positif (+)":
+                    df_sarr_affiche = df_sarr_affiche[df_sarr_affiche["Momentum_Abs"] > 0]
+                elif filtre_sarr == "Momentum Négatif (-)":
+                    df_sarr_affiche = df_sarr_affiche[df_sarr_affiche["Momentum_Abs"] < 0]
+                # --------------------------------
+
                 st.dataframe(
-                    df_sarr_derniers[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum_Abs", "Momentum_Pct", "annee", "mois"]]
+                    df_sarr_affiche[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum_Abs", "Momentum_Pct", "annee", "mois"]]
                     .rename(columns={"agence": "Agence", "article": "Article", "SARR_M1_Aff": "SARR M-1", "SARR_Aff": "SARR M", "Momentum_Abs": "Momentum (SARR M - SARR M-1)", "Momentum_Pct": "Momentum (%)"})
                     .sort_values(["Agence", "Article", "annee", "mois"]),
                     use_container_width=True, hide_index=True,

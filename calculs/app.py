@@ -326,7 +326,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
         idx4 = _calc_idx(df_h, ['segment']).rename(columns={'Indice': 'Indice_seg'})
         tot = df_h.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
         glob = (tot / (tot.sum() / 12.0)).reset_index()
-        glob.columns = ['mois', 'Indice_Global']
+        glob.columns = ['mois', 'Indice_glob'] # <-- CORRIGÉ ICI : minuscule
         glob['annee'] = annee
         global_rolling.append(glob)
 
@@ -1010,7 +1010,7 @@ with tab_placeholder.container():
             st.caption("💡 Note : L'indice global est recalculé pour chaque année en utilisant les 2 années précédentes (ex: 2023 utilise 2021-2022).")
             with st.expander("📊 Afficher les indices globaux par année", expanded=True):
                 if not df_global_rolling.empty:
-                    pivot_global = df_global_rolling.pivot(index='annee', columns='mois', values='Indice_Global')
+                    pivot_global = df_global_rolling.pivot(index='annee', columns='mois', values='Indice_glob') # <-- CORRIGÉ ICI
                     pivot_global.columns = [MOIS_NOMS[int(c)-1] for c in pivot_global.columns]
                     pivot_global.index = [f"Année {int(y)}" for y in pivot_global.index]
                     st.dataframe(pivot_global.style.background_gradient(cmap='Reds', axis=None).format("{:.2f}"), use_container_width=True)

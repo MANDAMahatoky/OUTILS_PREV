@@ -314,6 +314,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
 
     # 2. Rolling Index pour l'historique (Moyenne glissante des 2 années précédentes)
     results = []
+    global_rolling = []
     annees = df_realise['annee'].unique()
     for annee in annees:
         df_h = df_realise[(df_realise['annee'] >= annee - 2) & (df_realise['annee'] <= annee - 1)].copy()
@@ -325,24 +326,24 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
         idx4 = _calc_idx(df_h, ['segment']).rename(columns={'Indice': 'Indice_seg'})
         tot = df_h.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
         glob = (tot / (tot.sum() / 12.0)).reset_index()
-        glob.columns = ['mois', 'Indice_glob']
+        glob.columns = ['mois', 'Indice_Global']
+        glob['annee'] = annee
+        global_rolling.append(glob)
 
         df_base = df_h[['agence', 'article', 'marque', 'segment', 'mois']].drop_duplicates()
         result = (df_base.merge(idx1, on=['agence', 'article', 'mois'], how='left', sort=False)
                           .merge(idx2, on=['article', 'mois'], how='left', sort=False)
                           .merge(idx3, on=['marque', 'mois'], how='left', sort=False)
                           .merge(idx4, on=['segment', 'mois'], how='left', sort=False)
-                          .merge(glob, on='mois', how='left', sort=False))
+                          .merge(glob.drop(columns=['annee']), on='mois', how='left', sort=False))
         result['Indice'] = result['Indice'].fillna(result['Indice_art']).fillna(result['Indice_marque']).fillna(result['Indice_seg']).fillna(result['Indice_glob']).fillna(1.0)
         result['annee'] = annee
         results.append(result[['annee', 'agence', 'article', 'mois', 'Indice']])
 
-    if results:
-        table_rolling = pd.concat(results, ignore_index=True)
-    else:
-        table_rolling = pd.DataFrame(columns=['annee', 'agence', 'article', 'mois', 'Indice'])
+    table_rolling = pd.concat(results, ignore_index=True) if results else pd.DataFrame()
+    df_global_rolling = pd.concat(global_rolling, ignore_index=True) if global_rolling else pd.DataFrame()
 
-    return table_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
+    return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
 def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v166"):
@@ -353,14 +354,14 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     couples_actifs = df_recent[df_recent['hl'] > 0][['agence', 'article']].drop_duplicates()
     
     df_perimetre_filtre = pd.merge(df_perimetre, couples_actifs, on=['agence', 'article'], how='inner', sort=False)
-    if df_perimetre_filtre.empty: return None, None, None, None, df_perimetre, budget_status
+    if df_perimetre_filtre.empty: return None, None, None, None, df_perimetre, budget_status, None
 
     df_limite = df_perimetre_filtre[(df_perimetre_filtre["annee"] < annee_cloture) | ((df_perimetre_filtre["annee"] == annee_cloture) & (df_perimetre_filtre["mois"] <= mois_cutoff))].copy()
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
-    if df_realise.empty: return None, None, None, None, df_perimetre_filtre, budget_status
+    if df_realise.empty: return None, None, None, None, df_perimetre_filtre, budget_status, None
 
     # --- APPEL DE LA NOUVELLE FONCTION ---
-    table_indices_rolling, table_indices_global = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
+    table_indices_rolling, df_global_rolling, table_indices_forecast = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     
     df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)[['hl', 'hl_potentiel', 'rupture_hl']].sum().reset_index()
     min_annee = df_realise_agg['annee'].min()
@@ -375,11 +376,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     # --- SARR CALCULATION (UTILISE LE ROLLING INDEX) ---
     df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left', sort=False)
     
-    # Merge with rolling index
     df_sarr_cont = df_sarr_cont.merge(table_indices_rolling, on=['annee', 'mois', 'agence', 'article'], how='left', sort=False)
-    
-    # Fallback to global index if no rolling data available (e.g., earliest years)
-    df_sarr_cont = df_sarr_cont.merge(table_indices_global, on=['mois', 'agence', 'article'], how='left', suffixes=('', '_glob'), sort=False)
+    df_sarr_cont = df_sarr_cont.merge(table_indices_forecast, on=['mois', 'agence', 'article'], how='left', suffixes=('', '_glob'), sort=False)
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(df_sarr_cont['Indice_glob']).fillna(1.0)
     df_sarr_cont = df_sarr_cont.drop(columns=['Indice_glob'])
     # ---------------------------------------------------
@@ -431,8 +429,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.merge(df_mois_debut, on=['agence', 'article'], how='left', sort=False)
     df_base['Mois_Debut'] = df_base['Mois_Debut'].fillna(1).astype(int)
 
-    # --- CUMUL COEF (UTILISE L'INDICE GLOBAL) ---
-    df_indices_temp = df_base[['agence', 'article', 'Mois_Debut']].merge(table_indices_global, on=['agence', 'article'], how='left', sort=False)
+    # --- CUMUL COEF (UTILISE L'INDICE FORECAST) ---
+    df_indices_temp = df_base[['agence', 'article', 'Mois_Debut']].merge(table_indices_forecast, on=['agence', 'article'], how='left', sort=False)
     df_cumul = (df_indices_temp[(df_indices_temp['mois'] >= df_indices_temp['Mois_Debut']) & (df_indices_temp['mois'] <= mois_cutoff)]
                 .groupby(['agence', 'article'], observed=True)['Indice'].sum()
                 .reset_index().rename(columns={'Indice': 'Cumul_Coef'}))
@@ -536,8 +534,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['annee'] = idx.get_level_values('annee').to_numpy()
     df_cross['mois'] = idx.get_level_values('mois').to_numpy()
 
-    # --- FORECAST CROSS (UTILISE L'INDICE GLOBAL) ---
-    df_cross = df_cross.merge(table_indices_global, on=['mois', 'agence', 'article'], how='left', sort=False)
+    # --- FORECAST CROSS (UTILISE L'INDICE FORECAST) ---
+    df_cross = df_cross.merge(table_indices_forecast, on=['mois', 'agence', 'article'], how='left', sort=False)
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
     # ----------------------------------------------
 
@@ -637,8 +635,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_realise_out = df_realise.merge(df_perimetre_filtre[['agence', 'article']].drop_duplicates(), on=['agence', 'article'], how='inner', sort=False).copy()
     df_sarr_out = df_sarr_cont.merge(df_perim_unique[['agence', 'article', 'contenance_cl']], on=['agence', 'article'], how='left', sort=False)
 
-    # On retourne l'indice global (statique) pour le tableau de visualisation UI
-    return table_indices_global, df_sarr_out, None, df_cross[cols_finales].copy(), df_realise_out, budget_status
+    # On retourne l'indice glissant pour l'UI, l'indice global glissant, et l'indice forecast pour les articles
+    return table_indices_rolling, df_sarr_out, df_global_rolling, df_cross[cols_finales].copy(), df_realise_out, budget_status, table_indices_forecast
 
 @st.cache_data(show_spinner=False)
 def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
@@ -824,7 +822,7 @@ if sel_articles: df_perimetre = df_perimetre[df_perimetre["article"].isin(sel_ar
 if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marques)]
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
-table_indices, df_sarr, _, df_previsions, df_realise, budget_status = calculer_etape_5(
+table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
     df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v166"
 )
 
@@ -832,7 +830,7 @@ if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqu�
 elif budget_status == "warning": st.sidebar.warning("⚠️ Aucune donnée valide (33 CAN) trouvée dans le fichier Budget.")
 elif budget_status == "error": st.sidebar.error("⚠️ Erreur de lecture du Budget Query, ignoré.")
 
-if table_indices is None:
+if df_global_rolling is None:
     st.warning("⚠️ Impossible de calculer les prévisions. Vérifiez vos filtres (ex: pas de vente avant le cutoff).")
     st.stop()
 
@@ -1008,54 +1006,19 @@ with tab_placeholder.container():
 
         c_idx, c_sarr = st.columns(2)
         with c_idx:
-            st.markdown("**Indices de Saisonnalité (Base Prévision)**")
-            st.caption("💡 Note : L'indice ci-dessous est la moyenne globale utilisée pour les prévisions futures. Pour le calcul du SARR historique, un indice glissant sur les 2 années précédentes est appliqué.")
-            with st.expander("📊 Afficher les indices", expanded=True):
-                if not table_indices.empty:
-                    pivot_indices = _pivot_indices_cached(table_indices)
-
-                    # --- INDICE GLOBAL : TOUTES LES AGENCES ---
-                    # Calcul indépendant du filtre Agence et limité à la période IS choisie.
-                    # On part de df_enrichi pour inclure toutes les agences, même si
-                    # un filtre d'agence est actif dans le périmètre de prévision.
-                    df_global_periode = df_enrichi[
-                        (df_enrichi['annee'] >= int(annee_min_is)) &
-                        (df_enrichi['annee'] <= int(annee_max_is))
-                    ].copy()
-
-                    if not df_global_periode.empty:
-                        df_global_hl = (
-                            df_global_periode
-                            .groupby('mois', observed=True)['hl']
-                            .sum()
-                            .reindex(range(1, 13), fill_value=0.0)
-                        )
-
-                        total_hl = float(df_global_hl.sum())
-                        moyenne_mensuelle = total_hl / 12.0
-
-                        if moyenne_mensuelle > 0:
-                            global_indices = (df_global_hl / moyenne_mensuelle).values
-                        else:
-                            global_indices = [1.0] * 12
-
-                        global_row = pd.DataFrame([global_indices], columns=MOIS_NOMS)
-                        global_row.insert(0, 'article', '⭐ INDICE GLOBAL')
-                        global_row.insert(0, 'agence', 'TOUTES AGENCES')
-                        global_row = global_row.set_index(['agence', 'article'])
-
-                        pivot_indices = pd.concat([global_row, pivot_indices])
-                        st.caption(
-                            f"Indice global calculé sur toutes les agences, "
-                            f"de {int(annee_min_is)} à {int(annee_max_is)}."
-                        )
-                    else:
-                        st.warning(
-                            f"Aucune donnée disponible pour l'indice global "
-                            f"entre {int(annee_min_is)} et {int(annee_max_is)}."
-                        )
-                    # -------------------------------------------------
-
+            st.markdown("**Indices de Saisonnalité (Glissant par Année)**")
+            st.caption("💡 Note : L'indice global est recalculé pour chaque année en utilisant les 2 années précédentes (ex: 2023 utilise 2021-2022).")
+            with st.expander("📊 Afficher les indices globaux par année", expanded=True):
+                if not df_global_rolling.empty:
+                    pivot_global = df_global_rolling.pivot(index='annee', columns='mois', values='Indice_Global')
+                    pivot_global.columns = [MOIS_NOMS[int(c)-1] for c in pivot_global.columns]
+                    pivot_global.index = [f"Année {int(y)}" for y in pivot_global.index]
+                    st.dataframe(pivot_global.style.background_gradient(cmap='Reds', axis=None).format("{:.2f}"), use_container_width=True)
+                    st.markdown("---")
+                    
+                st.markdown("**Détail par Article (Base Prévision)**")
+                if not table_indices_forecast.empty:
+                    pivot_indices = _pivot_indices_cached(table_indices_forecast)
                     st.dataframe(pivot_indices, use_container_width=True)
                 else: st.info("Pas d'historique complet.")
         with c_sarr:

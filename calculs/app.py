@@ -1162,14 +1162,47 @@ with tab_placeholder.container():
     elif active_tab == "Pareto (ABC)":
         st.markdown("### Analyse Pareto & Classification ABC")
         st.markdown("La classification ABC est une méthode de gestion des stocks qui consiste à diviser les articles en trois classes en fonction de leur contribution au volume total :")
-        st.markdown("- **Classe A (0-80%)** : Les articles vitaux (généralement 20% des articles qui font 80% des ventes).\n- **Classe B (80-95%)** : Les articles intermédiaires.\n- **Classe C (95-100%)** : Les articles à faible rotation (la longue traîne).")
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("- **Classe A (0-80.5%)** : Les articles vitaux (généralement 20% des articles qui font 80% des ventes).\n- **Classe B (80.5-95%)** : Les articles intermédiaires.\n- **Classe C (95-100%)** : Les articles à faible rotation (la longue traîne).")
+        
+        st.markdown("---")
+        st.markdown("#### 🧩 Matrice ABC-XYZ")
+        st.markdown("La classification **XYZ** est basée sur la volatilité des ventes (Coefficient de Variation = Écart-type / Moyenne) :\n- **X** : Faible volatilité (CV < 0.5) - Ventes régulières\n- **Y** : Volatilité moyenne (0.5 <= CV < 1.0)\n- **Z** : Forte volatilité (CV >= 1.0) - Ventes irrégulières")
+        
         df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
         df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
+        
         if not df_pareto.empty:
             total_vol = df_pareto[col_prev_aff].sum()
             df_pareto['Cumul_Pct'] = (df_pareto[col_prev_aff].cumsum() / total_vol) * 100
-            df_pareto['Classe'] = np.select([df_pareto['Cumul_Pct'] <= 80, df_pareto['Cumul_Pct'] <= 95], ['A', 'B'], default='C')
+            # Tolérance 80.5 au lieu de 80
+            df_pareto['Classe'] = np.select([df_pareto['Cumul_Pct'] <= 80.5, df_pareto['Cumul_Pct'] <= 95], ['A', 'B'], default='C')
+            
+            # --- CALCUL XYZ ---
+            pivot_vol = df_previsions_filtre.pivot_table(index='article', columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
+            if not pivot_vol.empty:
+                df_xyz = pd.DataFrame({
+                    'Mean': pivot_vol.mean(axis=1),
+                    'Std': pivot_vol.std(axis=1)
+                }).reset_index()
+                df_xyz['CV'] = df_xyz['Std'] / df_xyz['Mean']
+                df_xyz['CV'] = df_xyz['CV'].replace([np.inf, -np.inf], np.nan).fillna(0)
+                df_xyz['XYZ'] = np.select([df_xyz['CV'] < 0.5, df_xyz['CV'] < 1.0], ['X', 'Y'], default='Z')
+                
+                # Merge
+                df_pareto_xyz = df_pareto.merge(df_xyz[['article', 'XYZ']], on='article', how='left')
+                df_pareto_xyz['XYZ'] = df_pareto_xyz['XYZ'].fillna('Z')
+                
+                # Matrice
+                df_matrix = pd.crosstab(df_pareto_xyz['Classe'], df_pareto_xyz['XYZ'], margins=True, margins_name='Total')
+                df_matrix = df_matrix.reindex(index=['A', 'B', 'C', 'Total'], columns=['X', 'Y', 'Z', 'Total'], fill_value=0)
+                
+                st.dataframe(df_matrix.style.background_gradient(cmap='Blues'), use_container_width=True)
+            else:
+                st.info("Pas assez de données pour calculer la matrice XYZ.")
+                
+            st.markdown("---")
+            
+            # --- GRAPHIQUE PARETO ---
             df_pareto_graph = df_pareto.head(15).copy()
             df_pareto_graph['Index'] = range(len(df_pareto_graph))
             df_pareto_graph['Article_Court'] = df_pareto_graph['article'].apply(lambda x: x if len(str(x)) <= 22 else str(x)[:19] + '...')
@@ -1180,14 +1213,14 @@ with tab_placeholder.container():
                 if not df_class.empty:
                     fig2.add_trace(go.Bar(x=df_class['Index'], y=df_class[col_prev_aff], name=f'Classe {classe}', marker_color=couleurs[classe], customdata=df_class['article'], hovertemplate="<b>%{customdata}</b><br>Volume: %{y:,.0f}<extra></extra>"))
             fig2.add_trace(go.Scatter(x=df_pareto_graph['Index'], y=df_pareto_graph['Cumul_Pct'], name='% Cumulé', mode='lines+markers', line=dict(color=COLORS['TEXTE'], width=2), marker=dict(size=6, color=COLORS['TEXTE']), yaxis='y2', customdata=df_pareto_graph['article'], hovertemplate="<b>%{customdata}</b><br>% Cumulé: %{y:.1f}%<extra></extra>"))
-            for seuil, color in [(80, COLORS['ROUGE']), (95, '#F59E0B')]:
+            for seuil, color in [(80.5, COLORS['ROUGE']), (95, '#F59E0B')]:
                 fig2.add_shape(type="line", x0=-0.5, x1=len(df_pareto_graph)-0.5, y0=seuil, y1=seuil, line=dict(color=color, width=1.5, dash="dot"), xref='x', yref='y2')
             fig2.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=0, r=0, t=20, b=60), yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=12, weight="bold")), yaxis2=dict(title="% Cumulé", overlaying='y', side='right', range=[0, 110], tickvals=[0, 20, 40, 60, 80, 100], showgrid=False, ticksuffix="%", tickfont=dict(family="Inter", size=12, weight="bold")), xaxis=dict(tickmode='array', tickvals=df_pareto_graph['Index'], ticktext=df_pareto_graph['Article_Court'], tickangle=-45, showgrid=False, tickfont=dict(size=11, family="Inter", weight="bold")), legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), height=450, bargap=0.3, hovermode="x unified")
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             with st.expander("📋 Voir le détail par article", expanded=True):
-                df_table = df_pareto[['article', 'Classe', col_prev_aff, 'Cumul_Pct']].copy()
-                df_table.columns = ['Article', 'Classe', f'Volume ({unite_affichage})', '% Cumulé']
-                st.dataframe(df_table, use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe': st.column_config.TextColumn(width="small")}, height=400)
+                df_table = df_pareto_xyz[['article', 'Classe', 'XYZ', col_prev_aff, 'Cumul_Pct']].copy()
+                df_table.columns = ['Article', 'Classe ABC', 'Classe XYZ', f'Volume ({unite_affichage})', '% Cumulé']
+                st.dataframe(df_table, use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe ABC': st.column_config.TextColumn(width="small"), 'Classe XYZ': st.column_config.TextColumn(width="small")}, height=400)
         else: st.info("Pas assez de données pour l'analyse.")
 
     elif active_tab == "Analyse Comportementale":

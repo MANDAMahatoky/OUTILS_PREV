@@ -948,9 +948,39 @@ with tab_placeholder.container():
             st.markdown("**Indices de Saisonnalité**")
             with st.expander("📊 Afficher les indices", expanded=True):
                 if not table_indices.empty:
-                    pivot_indices = _pivot_indices_cached(table_indices)
-                    st.dataframe(pivot_indices, use_container_width=True)
-                else: st.info("Pas d'historique complet.")
+                    # Tableau croisé des indices : lignes = Agence / Article,
+                    # colonnes = mois.
+                    pivot_indices = _pivot_indices_cached(table_indices).copy()
+
+                    # Ligne TOTAL : moyenne des indices disponibles pour chaque mois.
+                    # On utilise une moyenne (et non une somme), car les indices
+                    # de saisonnalité sont des coefficients comparables autour de 1.
+                    ligne_total = pivot_indices.mean(axis=0, skipna=True)
+
+                    # Le pivot possède un MultiIndex (agence, article).
+                    # Ajouter un tuple conserve correctement la structure des lignes.
+                    pivot_indices.loc[("TOTAL", "")] = ligne_total
+
+                    # Mettre en évidence la ligne TOTAL.
+                    def style_ligne_total(row):
+                        if isinstance(row.name, tuple) and row.name[0] == "TOTAL":
+                            return [
+                                "background-color: #E30613; color: white; font-weight: bold;"
+                            ] * len(row)
+                        return [""] * len(row)
+
+                    styled_indices = (
+                        pivot_indices.style
+                        .apply(style_ligne_total, axis=1)
+                        .format("{:.2f}", na_rep="-")
+                    )
+
+                    st.dataframe(
+                        styled_indices,
+                        use_container_width=True
+                    )
+                else:
+                    st.info("Pas d'historique complet.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):

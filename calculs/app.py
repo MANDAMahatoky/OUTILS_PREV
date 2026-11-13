@@ -948,39 +948,9 @@ with tab_placeholder.container():
             st.markdown("**Indices de Saisonnalité**")
             with st.expander("📊 Afficher les indices", expanded=True):
                 if not table_indices.empty:
-                    # Tableau croisé des indices : lignes = Agence / Article,
-                    # colonnes = mois.
-                    pivot_indices = _pivot_indices_cached(table_indices).copy()
-
-                    # Ligne TOTAL : moyenne des indices disponibles pour chaque mois.
-                    # On utilise une moyenne (et non une somme), car les indices
-                    # de saisonnalité sont des coefficients comparables autour de 1.
-                    ligne_total = pivot_indices.mean(axis=0, skipna=True)
-
-                    # Le pivot possède un MultiIndex (agence, article).
-                    # Ajouter un tuple conserve correctement la structure des lignes.
-                    pivot_indices.loc[("TOTAL", "")] = ligne_total
-
-                    # Mettre en évidence la ligne TOTAL.
-                    def style_ligne_total(row):
-                        if isinstance(row.name, tuple) and row.name[0] == "TOTAL":
-                            return [
-                                "background-color: #E30613; color: white; font-weight: bold;"
-                            ] * len(row)
-                        return [""] * len(row)
-
-                    styled_indices = (
-                        pivot_indices.style
-                        .apply(style_ligne_total, axis=1)
-                        .format("{:.2f}", na_rep="-")
-                    )
-
-                    st.dataframe(
-                        styled_indices,
-                        use_container_width=True
-                    )
-                else:
-                    st.info("Pas d'historique complet.")
+                    pivot_indices = _pivot_indices_cached(table_indices)
+                    st.dataframe(pivot_indices, use_container_width=True)
+                else: st.info("Pas d'historique complet.")
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
@@ -1026,8 +996,8 @@ with tab_placeholder.container():
                 fig_mom.update_layout(
                     plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
                     margin=dict(l=10, r=10, t=30, b=60),
-                    xaxis=dict(title="SKU", showgrid=False, tickangle=-45),
-                    yaxis=dict(title=f"Momentum ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE']),
+                    xaxis=dict(title="SKU", showgrid=False, tickangle=-45, tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")),
+                    yaxis=dict(title=f"Momentum ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")),
                     height=500,
                     separators=" ,"
                 )
@@ -1036,21 +1006,24 @@ with tab_placeholder.container():
                 st.info("Aucune donnée de Momentum à afficher avec ce filtre.")
 
         with c_graph2:
-            st.markdown("**Courbe de Saisonnalité Globale (Indices moyens)**")
-            if not table_indices.empty:
-                df_season = table_indices.groupby('mois')['Indice'].mean().reset_index()
-                df_season['Mois_Nom'] = df_season['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
+            st.markdown("**Courbe de Saisonnalité Globale**")
+            if not df_perimetre.empty:
+                # --- NOUVEAU CALCUL DE L'INDICE GLOBAL ---
+                df_global_hl = df_perimetre.groupby('mois', observed=True)['hl'].sum().reset_index()
+                total_hl = df_global_hl['hl'].sum()
+                df_global_hl['Indice_Glob'] = df_global_hl['hl'] / (total_hl / 12.0) if total_hl > 0 else 1.0
+                df_global_hl['Mois_Nom'] = df_global_hl['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
                 
                 fig_season = go.Figure()
                 fig_season.add_trace(go.Scatter(
-                    x=df_season['Mois_Nom'], 
-                    y=df_season['Indice'], 
+                    x=df_global_hl['Mois_Nom'], 
+                    y=df_global_hl['Indice_Glob'], 
                     mode='lines+markers', 
                     line=dict(color=COLORS['ROUGE'], width=4, shape='spline'),
                     marker=dict(size=8, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
                     fill='tozeroy',
                     fillcolor='rgba(227, 6, 19, 0.1)',
-                    hovertemplate="<b>%{x}</b><br>Indice moyen: %{y:.2f}<extra></extra>"
+                    hovertemplate="<b>%{x}</b><br>Indice global: %{y:.2f}<extra></extra>"
                 ))
                 
                 fig_season.add_hline(y=1.0, line_dash="dash", line_color=COLORS['GRIS'], annotation_text="Moyenne", annotation_position="top left")
@@ -1058,8 +1031,8 @@ with tab_placeholder.container():
                 fig_season.update_layout(
                     plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
                     margin=dict(l=10, r=10, t=30, b=10),
-                    xaxis=dict(title="Mois", showgrid=True, gridcolor=COLORS['BORDURE']),
-                    yaxis=dict(title="Indice de saisonnalité", showgrid=True, gridcolor=COLORS['BORDURE']),
+                    xaxis=dict(title="Mois", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")),
+                    yaxis=dict(title="Indice global de saisonnalité", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")),
                     height=500,
                     separators=" ,"
                 )

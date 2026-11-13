@@ -326,7 +326,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
         idx4 = _calc_idx(df_h, ['segment']).rename(columns={'Indice': 'Indice_seg'})
         tot = df_h.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
         glob = (tot / (tot.sum() / 12.0)).reset_index()
-        glob.columns = ['mois', 'Indice_glob'] # <-- CORRIGÉ ICI : minuscule
+        glob.columns = ['mois', 'Indice_glob'] 
         glob['annee'] = annee
         global_rolling.append(glob)
 
@@ -1166,7 +1166,7 @@ with tab_placeholder.container():
         
         st.markdown("---")
         st.markdown("#### 🧩 Matrice ABC-XYZ")
-        st.markdown("La classification **XYZ** est basée sur la volatilité des ventes (Coefficient de Variation = Écart-type / Moyenne) :\n- **X** : Faible volatilité (CV < 0.5) - Ventes régulières\n- **Y** : Volatilité moyenne (0.5 <= CV < 1.0)\n- **Z** : Forte volatilité (CV >= 1.0) - Ventes irrégulières")
+        st.markdown("La classification **XYZ** est basée sur la volatilité des ventes (Coefficient de Variation = Écart-type / Moyenne) :\n- **X** : Faible volatilité (CV < 5%) - Ventes régulières\n- **Y** : Volatilité moyenne (5% <= CV < 20%)\n- **Z** : Forte volatilité (CV >= 20%) - Ventes irrégulières")
         
         df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
         df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
@@ -1186,7 +1186,8 @@ with tab_placeholder.container():
                 }).reset_index()
                 df_xyz['CV'] = df_xyz['Std'] / df_xyz['Mean']
                 df_xyz['CV'] = df_xyz['CV'].replace([np.inf, -np.inf], np.nan).fillna(0)
-                df_xyz['XYZ'] = np.select([df_xyz['CV'] < 0.5, df_xyz['CV'] < 1.0], ['X', 'Y'], default='Z')
+                # Seuils mis à jour : X < 5%, Y < 20%, Z >= 20%
+                df_xyz['XYZ'] = np.select([df_xyz['CV'] < 0.05, df_xyz['CV'] < 0.20], ['X', 'Y'], default='Z')
                 
                 # Merge
                 df_pareto_xyz = df_pareto.merge(df_xyz[['article', 'XYZ']], on='article', how='left')

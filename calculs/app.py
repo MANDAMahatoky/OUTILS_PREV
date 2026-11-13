@@ -627,6 +627,9 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
 
+    # Correction pour éviter l'IndexError
+    df_cross['mois'] = pd.to_numeric(df_cross['mois'], errors='coerce').fillna(1).astype(int)
+    df_cross['mois'] = df_cross['mois'].clip(1, 12)
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 

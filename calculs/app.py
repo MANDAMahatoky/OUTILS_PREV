@@ -969,25 +969,32 @@ with tab_placeholder.container():
         c_graph1, c_graph2 = st.columns(2)
         
         with c_graph1:
-            st.markdown("**Graphique du Momentum (Tous les SKU filtrés)**")
+            st.markdown("**Courbe du Momentum**")
             if not df_sarr_affiche.empty:
                 df_momentum_plot = df_sarr_affiche.copy()
                 df_momentum_plot["Label"] = df_momentum_plot["agence"] + " - " + df_momentum_plot["article"]
-                
-                # On prend le dernier point pour chaque article
                 df_momentum_plot = df_momentum_plot.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article', 'Label']).tail(1).reset_index()
                 
+                # Logique Top 10 si filtre "Tous", sinon tout afficher
+                if filtre_sarr == "Tous":
+                    df_momentum_plot["Abs_Mom"] = df_momentum_plot["Momentum_Abs"].abs()
+                    df_momentum_plot = df_momentum_plot.sort_values("Abs_Mom", ascending=False).head(10)
+                
+                df_momentum_plot = df_momentum_plot.sort_values("Momentum_Abs", ascending=True)
+                df_momentum_plot["Label_Court"] = df_momentum_plot["Label"].apply(lambda x: x if len(x) <= 30 else x[:27] + '...')
+                
+                # Courbe
                 fig_mom = go.Figure()
-                colors = [COLORS["VERT"] if x >= 0 else COLORS["ROUGE"] for x in df_momentum_plot["Momentum_Abs"]]
-                fig_mom.add_trace(go.Bar(
+                fig_mom.add_trace(go.Scatter(
                     x=df_momentum_plot["Momentum_Abs"], 
-                    y=df_momentum_plot["Label"], 
-                    orientation="h", 
-                    marker_color=colors,
-                    text=df_momentum_plot["Momentum_Abs"].apply(lambda x: format_fr(x, signed=True)),
-                    textposition="auto",
+                    y=df_momentum_plot["Label_Court"], 
+                    mode='lines+markers', 
+                    line=dict(color=COLORS['ROUGE'], width=3, shape='spline'),
+                    marker=dict(size=8, color=[COLORS["VERT"] if x >= 0 else COLORS["ROUGE"] for x in df_momentum_plot["Momentum_Abs"]], line=dict(color='white', width=2)),
                     hovertemplate="<b>%{y}</b><br>Momentum: %{x:,.1f} HL<extra></extra>"
                 ))
+                fig_mom.add_vline(x=0, line_dash="dash", line_color=COLORS['GRIS'])
+                
                 fig_mom.update_layout(
                     plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
                     margin=dict(l=10, r=10, t=30, b=10),
@@ -1011,7 +1018,7 @@ with tab_placeholder.container():
                     x=df_season['Mois_Nom'], 
                     y=df_season['Indice'], 
                     mode='lines+markers', 
-                    line=dict(color=COLORS['ROUGE'], width=3),
+                    line=dict(color=COLORS['ROUGE'], width=4, shape='spline'),
                     marker=dict(size=8, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
                     fill='tozeroy',
                     fillcolor='rgba(227, 6, 19, 0.1)',

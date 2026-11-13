@@ -56,7 +56,6 @@ st.markdown(f"""
 # FONCTIONS UTILITAIRES
 # ==============================================================================
 def format_fr(val, decimals=0, signed=False):
-    """Formate un nombre au format français (espace pour les milliers, virgule pour les décimales)."""
     if pd.isna(val): return "0"
     sign = "+" if signed and val > 0 else ""
     if decimals == 0:
@@ -281,7 +280,6 @@ def charger_et_enrichir(ventes_bytes: bytes, ref_bytes: bytes, rupture_bytes: by
     return df_enrichi[["annee", "mois", "segment", "region", "produit", "agence", "hl", "hl_potentiel", "rupture_hl", "volume_brut", "article", "positionnement", "occasion", "marque", "contenance_cl", "emballage"]]
 
 def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
-    # 1. Global Index (pour les prévisions futures et le fallback)
     df_h_global = df_realise[(df_realise['annee'] >= annee_min_is) & (df_realise['annee'] <= annee_max_is)].copy()
     if df_h_global.empty: df_h_global = df_realise.copy()
 
@@ -295,7 +293,6 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
         indices = indices.replace([np.inf, -np.inf], np.nan)
         return indices.reset_index().melt(id_vars=group_cols, var_name='mois', value_name='Indice')
 
-    # Calcul des indices globaux
     idx1_glob = _calc_idx(df_h_global, ['agence', 'article'])
     idx2_glob = _calc_idx(df_h_global, ['article']).rename(columns={'Indice': 'Indice_art'})
     idx3_glob = _calc_idx(df_h_global, ['marque']).rename(columns={'Indice': 'Indice_marque'})
@@ -312,13 +309,12 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
                               .merge(glob_glob, on='mois', how='left', sort=False))
     result_glob['Indice'] = result_glob['Indice'].fillna(result_glob['Indice_art']).fillna(result_glob['Indice_marque']).fillna(result_glob['Indice_seg']).fillna(result_glob['Indice_glob']).fillna(1.0)
 
-    # 2. Rolling Index pour l'historique (Moyenne glissante des 2 années précédentes)
     results = []
     global_rolling = []
     annees = df_realise['annee'].unique()
     for annee in annees:
         df_h = df_realise[(df_realise['annee'] >= annee - 2) & (df_realise['annee'] <= annee - 1)].copy()
-        if df_h.empty: continue # Si pas de données, on utilisera le global en fallback
+        if df_h.empty: continue
 
         idx1 = _calc_idx(df_h, ['agence', 'article'])
         idx2 = _calc_idx(df_h, ['article']).rename(columns={'Indice': 'Indice_art'})
@@ -326,7 +322,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
         idx4 = _calc_idx(df_h, ['segment']).rename(columns={'Indice': 'Indice_seg'})
         tot = df_h.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
         glob = (tot / (tot.sum() / 12.0)).reset_index()
-        glob.columns = ['mois', 'Indice_glob'] 
+        glob.columns = ['mois', 'Indice_glob']
         glob['annee'] = annee
         global_rolling.append(glob)
 
@@ -360,7 +356,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_realise = df_limite[df_limite["annee"] <= annee_cloture].copy()
     if df_realise.empty: return None, None, None, None, df_perimetre_filtre, budget_status, None
 
-    # --- APPEL DE LA NOUVELLE FONCTION ---
     table_indices_rolling, df_global_rolling, table_indices_forecast = _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is)
     
     df_realise_agg = df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)[['hl', 'hl_potentiel', 'rupture_hl']].sum().reset_index()
@@ -373,14 +368,11 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     ag_art = df_realise_agg[['agence', 'article']].drop_duplicates()
     df_skeleton = pd.merge(ag_art, df_dates, how='cross')
 
-    # --- SARR CALCULATION (UTILISE LE ROLLING INDEX) ---
     df_sarr_cont = pd.merge(df_skeleton, df_realise_agg, on=['annee', 'mois', 'agence', 'article'], how='left', sort=False)
-    
     df_sarr_cont = df_sarr_cont.merge(table_indices_rolling, on=['annee', 'mois', 'agence', 'article'], how='left', sort=False)
     df_sarr_cont = df_sarr_cont.merge(table_indices_forecast, on=['mois', 'agence', 'article'], how='left', suffixes=('', '_glob'), sort=False)
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].fillna(df_sarr_cont['Indice_glob']).fillna(1.0)
     df_sarr_cont = df_sarr_cont.drop(columns=['Indice_glob'])
-    # ---------------------------------------------------
 
     df_sarr_cont['Indice'] = df_sarr_cont['Indice'].clip(lower=0.1) 
     df_sarr_cont['SARR_HL'] = df_sarr_cont['hl'] / df_sarr_cont['Indice']
@@ -429,12 +421,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.merge(df_mois_debut, on=['agence', 'article'], how='left', sort=False)
     df_base['Mois_Debut'] = df_base['Mois_Debut'].fillna(1).astype(int)
 
-    # --- CUMUL COEF (UTILISE L'INDICE FORECAST) ---
     df_indices_temp = df_base[['agence', 'article', 'Mois_Debut']].merge(table_indices_forecast, on=['agence', 'article'], how='left', sort=False)
     df_cumul = (df_indices_temp[(df_indices_temp['mois'] >= df_indices_temp['Mois_Debut']) & (df_indices_temp['mois'] <= mois_cutoff)]
                 .groupby(['agence', 'article'], observed=True)['Indice'].sum()
                 .reset_index().rename(columns={'Indice': 'Cumul_Coef'}))
-    # ---------------------------------------------
 
     df_base = df_base.drop(columns=['Mois_Debut']).merge(df_cumul, on=['agence', 'article'], how='left', sort=False)
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
@@ -503,7 +493,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     else:
         df_base['CAGR_val'] = df_base['CAGR_Hist']
 
-    # GESTION DES NOUVEAUX PRODUITS - FALLBACK HIÉRARCHIQUE
     masque_nouveau = (df_base['Nb_Annees_Hist'] < 2) | (df_base['CAGR_val'].isna()) | (df_base['CAGR_val'] == 0)
     df_matures = df_base[~masque_nouveau]
     cagr_par_marque = df_matures.groupby('marque', observed=True)['CAGR_val'].median().to_dict() if not df_matures.empty and 'marque' in df_matures.columns else {}
@@ -534,10 +523,8 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['annee'] = idx.get_level_values('annee').to_numpy()
     df_cross['mois'] = idx.get_level_values('mois').to_numpy()
 
-    # --- FORECAST CROSS (UTILISE L'INDICE FORECAST) ---
     df_cross = df_cross.merge(table_indices_forecast, on=['mois', 'agence', 'article'], how='left', sort=False)
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
-    # ----------------------------------------------
 
     df_realise_grouped = (df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)['hl'].sum().reset_index().rename(columns={'hl': 'hl_reel'}))
     df_cross = df_cross.merge(df_realise_grouped, on=['annee', 'mois', 'agence', 'article'], how='left', sort=False)
@@ -625,7 +612,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
 
-    # Correction pour éviter l'IndexError
     df_cross['mois'] = pd.to_numeric(df_cross['mois'], errors='coerce').fillna(1).astype(int)
     df_cross['mois'] = df_cross['mois'].clip(1, 12)
     _mois_arr = np.array(MOIS_NOMS, dtype=object)
@@ -635,7 +621,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_realise_out = df_realise.merge(df_perimetre_filtre[['agence', 'article']].drop_duplicates(), on=['agence', 'article'], how='inner', sort=False).copy()
     df_sarr_out = df_sarr_cont.merge(df_perim_unique[['agence', 'article', 'contenance_cl']], on=['agence', 'article'], how='left', sort=False)
 
-    # On retourne l'indice glissant pour l'UI, l'indice global glissant, et l'indice forecast pour les articles
     return table_indices_rolling, df_sarr_out, df_global_rolling, df_cross[cols_finales].copy(), df_realise_out, budget_status, table_indices_forecast
 
 @st.cache_data(show_spinner=False)
@@ -747,7 +732,6 @@ with st.sidebar:
         if use_objectif_manuel:
             objectif_manuel = st.number_input(f"Objectif Annuel ({unite_affichage})", min_value=0.0, step=1000.0, value=4400743.0, key="param_objectif_manuel")
         
-        # Méthode forcée à "Tendance Linéaire" (suppression du selectbox)
         methode_croissance = "Tendance Linéaire" 
         
         with st.expander("⚙️ Paramètres avancés"):
@@ -849,7 +833,6 @@ else:
     df_previsions_filtre = df_previsions[df_previsions['mois'].isin(mois_cibles_nums)].copy()
     label_mois_str = ", ".join(mois_cibles_selection)
 
-# Atterrissage global : annuel sans filtre de mois, ou cumul des mois sélectionnés.
 df_cible_filtre = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
 atterrissage_global_kpi = df_cible_filtre[col_prev_aff].fillna(0).sum()
 label_atterrissage_kpi = (
@@ -864,7 +847,6 @@ if not df_n1.empty:
     hist_n1_val = (df_n1['hl'] * (10000.0 / contenance_safe_n1)).fillna(0).sum() if unite_affichage == "Cols" else df_n1['hl'].fillna(0).sum()
 else: hist_n1_val = 0.0
 
-# Comparaison N-1 sur les mêmes mois que le filtre actif pour le KPI d'atterrissage.
 if mois_cibles_selection:
     df_n1_mois = df_n1[df_n1['mois'].isin(mois_cibles_nums)].copy()
     if not df_n1_mois.empty:
@@ -986,7 +968,6 @@ with tab_placeholder.container():
     elif active_tab == "Indices & SARR":
         st.markdown("### Indices de Saisonnalité & SARR")
         
-        # 1. PREPARATION DES DONNEES SARR
         df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
         df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
         df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
@@ -996,7 +977,6 @@ with tab_placeholder.container():
         df_sarr_calc["Momentum_Pct"] = (df_sarr_calc["Momentum_Abs"] / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
         df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
         
-        # 2. FILTRE
         filtre_sarr = st.radio("Afficher le SARR et Graphes :", ["Tous", "Momentum Positif (+)", "Momentum Négatif (-)"], horizontal=True, label_visibility="collapsed")
         df_sarr_affiche = df_sarr_derniers.copy()
         if filtre_sarr == "Momentum Positif (+)":
@@ -1013,7 +993,7 @@ with tab_placeholder.container():
                     pivot_global = df_global_rolling.pivot(index='annee', columns='mois', values='Indice_glob')
                     pivot_global.columns = [MOIS_NOMS[int(c)-1] for c in pivot_global.columns]
                     pivot_global.index = [f"Année {int(y)}" for y in pivot_global.index]
-                    st.dataframe(pivot_global.style.format("{:.2f}"), use_container_width=True) # <-- CORRIGÉ : plus de background_gradient
+                    st.dataframe(pivot_global.style.format("{:.2f}"), use_container_width=True)
                     st.markdown("---")
                     
                 st.markdown("**Détail par Article (Base Prévision)**")
@@ -1032,7 +1012,6 @@ with tab_placeholder.container():
                     column_config={"Année": st.column_config.NumberColumn(format="%d"), "Mois (Num)": None, "SARR M": st.column_config.NumberColumn(format="%.0f"), "SARR M-1": st.column_config.NumberColumn(format="%.0f"), "Momentum (SARR M - SARR M-1)": st.column_config.NumberColumn(format="%.1f"), "Momentum (%)": st.column_config.NumberColumn(format="%.2f %%")}
                 )
 
-        # 3. GRAPHIQUES
         st.markdown("---")
         st.markdown("### 📈 Visualisation Graphique")
         
@@ -1166,7 +1145,15 @@ with tab_placeholder.container():
         
         st.markdown("---")
         st.markdown("#### 🧩 Matrice ABC-XYZ")
-        st.markdown("La classification **XYZ** est basée sur la volatilité des ventes (Coefficient de Variation = Écart-type / Moyenne) :\n- **X** : Faible volatilité (CV < 5%) - Ventes régulières\n- **Y** : Volatilité moyenne (5% <= CV < 20%)\n- **Z** : Forte volatilité (CV >= 20%) - Ventes irrégulières")
+        
+        # --- NOUVEAUX CONTROLES POUR LES SEUILS XYZ ---
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            seuil_x_pct = st.number_input("Seuil X (Stable) - CV < (%)", min_value=1.0, max_value=100.0, value=25.0, step=1.0, key="param_seuil_x")
+        with col_s2:
+            seuil_y_pct = st.number_input("Seuil Y (Variable) - CV < (%)", min_value=seuil_x_pct, max_value=200.0, value=50.0, step=1.0, key="param_seuil_y")
+        
+        st.markdown(f"La classification **XYZ** est basée sur la volatilité des ventes (Coefficient de Variation = Écart-type / Moyenne) :\n- **X** : Faible volatilité (CV < {format_fr(seuil_x_pct, 0)}%) - Ventes régulières\n- **Y** : Volatilité moyenne ({format_fr(seuil_x_pct, 0)}% <= CV < {format_fr(seuil_y_pct, 0)}%)\n- **Z** : Forte volatilité (CV >= {format_fr(seuil_y_pct, 0)}%) - Ventes irrégulières")
         
         df_pareto = df_previsions_filtre.groupby('article', observed=True)[col_prev_aff].sum().sort_values(ascending=False).reset_index()
         df_pareto = df_pareto[df_pareto[col_prev_aff] > 0]
@@ -1177,7 +1164,7 @@ with tab_placeholder.container():
             # Tolérance 80.5 au lieu de 80
             df_pareto['Classe'] = np.select([df_pareto['Cumul_Pct'] <= 80.5, df_pareto['Cumul_Pct'] <= 95], ['A', 'B'], default='C')
             
-            # --- CALCUL XYZ ---
+            # --- CALCUL XYZ (avec seuils dynamiques) ---
             pivot_vol = df_previsions_filtre.pivot_table(index='article', columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
             if not pivot_vol.empty:
                 df_xyz = pd.DataFrame({
@@ -1186,8 +1173,11 @@ with tab_placeholder.container():
                 }).reset_index()
                 df_xyz['CV'] = df_xyz['Std'] / df_xyz['Mean']
                 df_xyz['CV'] = df_xyz['CV'].replace([np.inf, -np.inf], np.nan).fillna(0)
-                # Seuils mis à jour : X < 5%, Y < 20%, Z >= 20%
-                df_xyz['XYZ'] = np.select([df_xyz['CV'] < 0.05, df_xyz['CV'] < 0.20], ['X', 'Y'], default='Z')
+                
+                seuil_x_dec = seuil_x_pct / 100.0
+                seuil_y_dec = seuil_y_pct / 100.0
+                
+                df_xyz['XYZ'] = np.select([df_xyz['CV'] < seuil_x_dec, df_xyz['CV'] < seuil_y_dec], ['X', 'Y'], default='Z')
                 
                 # Merge
                 df_pareto_xyz = df_pareto.merge(df_xyz[['article', 'XYZ']], on='article', how='left')

@@ -949,6 +949,24 @@ with tab_placeholder.container():
             with st.expander("📊 Afficher les indices", expanded=True):
                 if not table_indices.empty:
                     pivot_indices = _pivot_indices_cached(table_indices)
+
+                    # --- AJOUT DE LA LIGNE GLOBALE DANS LE TABLEAU ---
+                    if not df_perimetre.empty:
+                        df_global_hl = df_perimetre.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
+                        total_hl = df_global_hl.sum()
+                        if total_hl > 0:
+                            global_indices = (df_global_hl / (total_hl / 12.0)).values
+                        else:
+                            global_indices = [1.0] * 12
+
+                        global_row = pd.DataFrame([global_indices], columns=MOIS_NOMS)
+                        global_row.insert(0, 'article', '⭐ INDICE GLOBAL')
+                        global_row.insert(0, 'agence', 'TOUTES AGENCES')
+                        global_row = global_row.set_index(['agence', 'article'])
+
+                        pivot_indices = pd.concat([global_row, pivot_indices])
+                    # -------------------------------------------------
+
                     st.dataframe(pivot_indices, use_container_width=True)
                 else: st.info("Pas d'historique complet.")
         with c_sarr:
@@ -982,9 +1000,7 @@ with tab_placeholder.container():
                 df_momentum_plot = df_momentum_plot.sort_values("Momentum_Abs", ascending=False)
                 df_momentum_plot["Label_Court"] = df_momentum_plot["Label"].apply(lambda x: x if len(x) <= 25 else x[:22] + '...')
                 
-                # --- CALCUL DE LA MOYENNE GLOBALE ---
                 moy_momentum_global = df_momentum_plot["Momentum_Abs"].mean()
-                # ------------------------------------
                 
                 fig_mom = go.Figure()
                 fig_mom.add_trace(go.Bar(
@@ -995,14 +1011,10 @@ with tab_placeholder.container():
                     textposition="auto",
                     hovertemplate="<b>%{x}</b><br>Momentum: %{y:,.1f} HL<extra></extra>"
                 ))
-                
                 fig_mom.add_hline(y=0, line_dash="dash", line_color=COLORS['GRIS'])
-                
-                # --- AJOUT DE LA LIGNE GLOBALE ---
                 fig_mom.add_hline(y=moy_momentum_global, line_dash="dot", line_color=COLORS['TEXTE'],
                                   annotation_text=f"Moy. Globale ({format_fr(moy_momentum_global, 1, signed=True)})",
                                   annotation_position="top right")
-                # ----------------------------------
                 
                 fig_mom.update_layout(
                     plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
@@ -1019,7 +1031,6 @@ with tab_placeholder.container():
         with c_graph2:
             st.markdown("**Courbe de Saisonnalité Globale**")
             if not df_perimetre.empty:
-                # --- NOUVEAU CALCUL DE L'INDICE GLOBAL ---
                 df_global_hl = df_perimetre.groupby('mois', observed=True)['hl'].sum().reset_index()
                 total_hl = df_global_hl['hl'].sum()
                 df_global_hl['Indice_Glob'] = df_global_hl['hl'] / (total_hl / 12.0) if total_hl > 0 else 1.0

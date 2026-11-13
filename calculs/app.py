@@ -992,12 +992,28 @@ with tab_placeholder.container():
                 if not table_indices.empty:
                     pivot_indices = _pivot_indices_cached(table_indices)
 
-                    # --- AJOUT DE LA LIGNE GLOBALE DANS LE TABLEAU ---
-                    if not df_perimetre.empty:
-                        df_global_hl = df_perimetre.groupby('mois', observed=True)['hl'].sum().reindex(range(1, 13), fill_value=0.0)
-                        total_hl = df_global_hl.sum()
-                        if total_hl > 0:
-                            global_indices = (df_global_hl / (total_hl / 12.0)).values
+                    # --- INDICE GLOBAL : TOUTES LES AGENCES ---
+                    # Calcul indépendant du filtre Agence et limité à la période IS choisie.
+                    # On part de df_enrichi pour inclure toutes les agences, même si
+                    # un filtre d'agence est actif dans le périmètre de prévision.
+                    df_global_periode = df_enrichi[
+                        (df_enrichi['annee'] >= int(annee_min_is)) &
+                        (df_enrichi['annee'] <= int(annee_max_is))
+                    ].copy()
+
+                    if not df_global_periode.empty:
+                        df_global_hl = (
+                            df_global_periode
+                            .groupby('mois', observed=True)['hl']
+                            .sum()
+                            .reindex(range(1, 13), fill_value=0.0)
+                        )
+
+                        total_hl = float(df_global_hl.sum())
+                        moyenne_mensuelle = total_hl / 12.0
+
+                        if moyenne_mensuelle > 0:
+                            global_indices = (df_global_hl / moyenne_mensuelle).values
                         else:
                             global_indices = [1.0] * 12
 
@@ -1007,6 +1023,15 @@ with tab_placeholder.container():
                         global_row = global_row.set_index(['agence', 'article'])
 
                         pivot_indices = pd.concat([global_row, pivot_indices])
+                        st.caption(
+                            f"Indice global calculé sur toutes les agences, "
+                            f"de {int(annee_min_is)} à {int(annee_max_is)}."
+                        )
+                    else:
+                        st.warning(
+                            f"Aucune donnée disponible pour l'indice global "
+                            f"entre {int(annee_min_is)} et {int(annee_max_is)}."
+                        )
                     # -------------------------------------------------
 
                     st.dataframe(pivot_indices, use_container_width=True)

@@ -1084,7 +1084,11 @@ with tab_placeholder.container():
         st.markdown("Cette section évalue la précision de l'algorithme sur les mois déjà réalisés (période de cutoff). Elle permet de savoir si l'on peut faire confiance aux prévisions futures.")
         st.markdown("<br>", unsafe_allow_html=True)
         m1, m2, m3 = st.columns(3)
-        with m1: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(mae)}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
+        
+        # --- MODIFICATION ICI : On force 2 décimales pour la MAE ---
+        with m1: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(mae, 2)}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
+        # -----------------------------------------------------------
+        
         with m2: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(wmape, 2)}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
         with m3: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(smape, 2)}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)

@@ -1010,10 +1010,10 @@ with tab_placeholder.container():
             st.caption("💡 Note : L'indice global est recalculé pour chaque année en utilisant les 2 années précédentes (ex: 2023 utilise 2021-2022).")
             with st.expander("📊 Afficher les indices globaux par année", expanded=True):
                 if not df_global_rolling.empty:
-                    pivot_global = df_global_rolling.pivot(index='annee', columns='mois', values='Indice_glob') # <-- CORRIGÉ ICI
+                    pivot_global = df_global_rolling.pivot(index='annee', columns='mois', values='Indice_glob')
                     pivot_global.columns = [MOIS_NOMS[int(c)-1] for c in pivot_global.columns]
                     pivot_global.index = [f"Année {int(y)}" for y in pivot_global.index]
-                    st.dataframe(pivot_global.style.background_gradient(cmap='Reds', axis=None).format("{:.2f}"), use_container_width=True)
+                    st.dataframe(pivot_global.style.format("{:.2f}"), use_container_width=True) # <-- CORRIGÉ : plus de background_gradient
                     st.markdown("---")
                     
                 st.markdown("**Détail par Article (Base Prévision)**")
@@ -1196,7 +1196,8 @@ with tab_placeholder.container():
                 df_matrix = pd.crosstab(df_pareto_xyz['Classe'], df_pareto_xyz['XYZ'], margins=True, margins_name='Total')
                 df_matrix = df_matrix.reindex(index=['A', 'B', 'C', 'Total'], columns=['X', 'Y', 'Z', 'Total'], fill_value=0)
                 
-                st.dataframe(df_matrix.style.background_gradient(cmap='Blues'), use_container_width=True)
+                # Affichage sans background_gradient (nécessite matplotlib)
+                st.dataframe(df_matrix, use_container_width=True)
             else:
                 st.info("Pas assez de données pour calculer la matrice XYZ.")
                 

@@ -49,6 +49,29 @@ st.markdown(f"""
     div[role="radiogroup"] label:has(input:checked) div p {{ color: {COLORS['ROUGE']} !important; font-weight: 800 !important; }}
     div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
     .block-container {{ padding-top: 1rem !important; }}
+    
+    /* --- STYLE PRO POUR LES TABLEAUX DATAFRAME --- */
+    div[data-testid="stDataFrame"] {{
+        border-radius: 10px;
+        border: 1px solid {COLORS['BORDURE']};
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        background-color: {COLORS['BLANC']};
+    }}
+    div[data-testid="stDataFrame"] > div {{
+        border-radius: 10px;
+    }}
+    div[data-testid="stDataFrame"] th {{
+        background-color: #F9FAFB !important;
+        color: {COLORS['TEXTE_SECONDAIRE']} !important;
+        font-weight: 700 !important;
+        text-transform: uppercase;
+        font-size: 0.75rem !important;
+        border-bottom: 2px solid {COLORS['BORDURE']} !important;
+    }}
+    div[data-testid="stDataFrame"] td {{
+        font-size: 0.85rem !important;
+        color: {COLORS['TEXTE']} !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -66,9 +89,9 @@ def format_fr(val, decimals=0, signed=False):
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
         val = float(val)
-        if val > seuil_alerte: return f'background-color: {COLORS["ROUGE_CLAIR"]}; color: {COLORS["ROUGE_FONCE"]};'
-        if val < seuil_bon: return f'background-color: #D1FAE5; color: {COLORS["VERT"]};'
-        return f'background-color: #FEF3C7; color: #92400E;'
+        if val > seuil_alerte: return f'background-color: {COLORS["ROUGE_CLAIR"]}; color: {COLORS["ROUGE_FONCE"]}; font-weight: bold;'
+        if val < seuil_bon: return f'background-color: #D1FAE5; color: {COLORS["VERT"]}; font-weight: bold;'
+        return f'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
     except: return ''
 
 def get_region_vectorized(series):
@@ -717,7 +740,6 @@ with st.sidebar:
         fichier_budget = st.file_uploader("Budget Query (Optionnel)", type=["xlsx"], key="uploader_budget")
         fichier_rupture = st.file_uploader("Ruptures (Optionnel)", type=["xlsx"], key="uploader_rupture")
     
-    # Forcé à True pour toujours appliquer à toutes les agences
     budget_all_agencies = True 
 
     if fichier_ventes is not None:

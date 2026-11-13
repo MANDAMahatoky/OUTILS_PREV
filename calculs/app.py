@@ -982,6 +982,10 @@ with tab_placeholder.container():
                 df_momentum_plot = df_momentum_plot.sort_values("Momentum_Abs", ascending=False)
                 df_momentum_plot["Label_Court"] = df_momentum_plot["Label"].apply(lambda x: x if len(x) <= 25 else x[:22] + '...')
                 
+                # --- CALCUL DE LA MOYENNE GLOBALE ---
+                moy_momentum_global = df_momentum_plot["Momentum_Abs"].mean()
+                # ------------------------------------
+                
                 fig_mom = go.Figure()
                 fig_mom.add_trace(go.Bar(
                     x=df_momentum_plot["Label_Court"], 
@@ -991,7 +995,14 @@ with tab_placeholder.container():
                     textposition="auto",
                     hovertemplate="<b>%{x}</b><br>Momentum: %{y:,.1f} HL<extra></extra>"
                 ))
+                
                 fig_mom.add_hline(y=0, line_dash="dash", line_color=COLORS['GRIS'])
+                
+                # --- AJOUT DE LA LIGNE GLOBALE ---
+                fig_mom.add_hline(y=moy_momentum_global, line_dash="dot", line_color=COLORS['TEXTE'],
+                                  annotation_text=f"Moy. Globale ({format_fr(moy_momentum_global, 1, signed=True)})",
+                                  annotation_position="top right")
+                # ----------------------------------
                 
                 fig_mom.update_layout(
                     plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
@@ -1026,7 +1037,9 @@ with tab_placeholder.container():
                     hovertemplate="<b>%{x}</b><br>Indice global: %{y:.2f}<extra></extra>"
                 ))
                 
-                fig_season.add_hline(y=1.0, line_dash="dash", line_color=COLORS['GRIS'], annotation_text="Moyenne", annotation_position="top left")
+                fig_season.add_hline(y=1.0, line_dash="dot", line_color=COLORS['TEXTE'], 
+                                     annotation_text="Moyenne Globale (1.0)", 
+                                     annotation_position="top left")
                 
                 fig_season.update_layout(
                     plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],

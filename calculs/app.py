@@ -969,38 +969,36 @@ with tab_placeholder.container():
         c_graph1, c_graph2 = st.columns(2)
         
         with c_graph1:
-            st.markdown("**Courbe du Momentum**")
+            st.markdown("**Graphique du Momentum (Barres Verticales)**")
             if not df_sarr_affiche.empty:
                 df_momentum_plot = df_sarr_affiche.copy()
                 df_momentum_plot["Label"] = df_momentum_plot["agence"] + " - " + df_momentum_plot["article"]
                 df_momentum_plot = df_momentum_plot.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article', 'Label']).tail(1).reset_index()
                 
-                # Logique Top 10 si filtre "Tous", sinon tout afficher
                 if filtre_sarr == "Tous":
                     df_momentum_plot["Abs_Mom"] = df_momentum_plot["Momentum_Abs"].abs()
                     df_momentum_plot = df_momentum_plot.sort_values("Abs_Mom", ascending=False).head(10)
                 
-                df_momentum_plot = df_momentum_plot.sort_values("Momentum_Abs", ascending=True)
-                df_momentum_plot["Label_Court"] = df_momentum_plot["Label"].apply(lambda x: x if len(x) <= 30 else x[:27] + '...')
+                df_momentum_plot = df_momentum_plot.sort_values("Momentum_Abs", ascending=False)
+                df_momentum_plot["Label_Court"] = df_momentum_plot["Label"].apply(lambda x: x if len(x) <= 25 else x[:22] + '...')
                 
-                # Courbe
                 fig_mom = go.Figure()
-                fig_mom.add_trace(go.Scatter(
-                    x=df_momentum_plot["Momentum_Abs"], 
-                    y=df_momentum_plot["Label_Court"], 
-                    mode='lines+markers', 
-                    line=dict(color=COLORS['ROUGE'], width=3, shape='spline'),
-                    marker=dict(size=8, color=[COLORS["VERT"] if x >= 0 else COLORS["ROUGE"] for x in df_momentum_plot["Momentum_Abs"]], line=dict(color='white', width=2)),
-                    hovertemplate="<b>%{y}</b><br>Momentum: %{x:,.1f} HL<extra></extra>"
+                fig_mom.add_trace(go.Bar(
+                    x=df_momentum_plot["Label_Court"], 
+                    y=df_momentum_plot["Momentum_Abs"], 
+                    marker_color=[COLORS["VERT"] if x >= 0 else COLORS["ROUGE"] for x in df_momentum_plot["Momentum_Abs"]],
+                    text=df_momentum_plot["Momentum_Abs"].apply(lambda x: format_fr(x, signed=True)),
+                    textposition="auto",
+                    hovertemplate="<b>%{x}</b><br>Momentum: %{y:,.1f} HL<extra></extra>"
                 ))
-                fig_mom.add_vline(x=0, line_dash="dash", line_color=COLORS['GRIS'])
+                fig_mom.add_hline(y=0, line_dash="dash", line_color=COLORS['GRIS'])
                 
                 fig_mom.update_layout(
                     plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
-                    margin=dict(l=10, r=10, t=30, b=10),
-                    xaxis=dict(title=f"Momentum ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE']),
-                    yaxis=dict(showgrid=False, tickfont=dict(size=11)),
-                    height=max(400, len(df_momentum_plot) * 25),
+                    margin=dict(l=10, r=10, t=30, b=60),
+                    xaxis=dict(title="SKU", showgrid=False, tickangle=-45),
+                    yaxis=dict(title=f"Momentum ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE']),
+                    height=500,
                     separators=" ,"
                 )
                 st.plotly_chart(fig_mom, use_container_width=True, config={'displayModeBar': False})
@@ -1032,7 +1030,7 @@ with tab_placeholder.container():
                     margin=dict(l=10, r=10, t=30, b=10),
                     xaxis=dict(title="Mois", showgrid=True, gridcolor=COLORS['BORDURE']),
                     yaxis=dict(title="Indice de saisonnalité", showgrid=True, gridcolor=COLORS['BORDURE']),
-                    height=max(400, len(df_momentum_plot) * 25),
+                    height=500,
                     separators=" ,"
                 )
                 st.plotly_chart(fig_season, use_container_width=True, config={'displayModeBar': False})

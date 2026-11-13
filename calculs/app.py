@@ -819,7 +819,9 @@ if hist_n1_val > 0: objectif_calcule = hist_n1_val * (1 + taux_ambition / 100.0)
 else: objectif_calcule = atterrissage_cible * (1 + taux_ambition / 100.0)
 
 objectif_final = objectif_manuel if use_objectif_manuel else objectif_calcule
-gap = objectif_final - atterrissage_cible
+
+# --- MODIFICATION ICI : GAP = Atterrissage - Objectif ---
+gap = atterrissage_cible - objectif_final
 
 df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
 df_eval_agg = df_eval.groupby(['annee', 'mois'], observed=True)[[col_prev_aff, col_prev_pure]].sum().reset_index()
@@ -846,11 +848,15 @@ with k1:
     st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atterrissage {annee_cible}</div><div class="kpi-value">{format_fr(atterrissage_cible)}</div><div class="kpi-delta {delta_class}">{delta_icon} {format_fr(abs(delta_n1_pct), 1)}% vs N-1</div></div>""", unsafe_allow_html=True)
 with k2:
     st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">Objectif Annuel ({unite_affichage})</div><div class="kpi-value">{format_fr(objectif_final)}</div><div class="progress-container"><div class="progress-bar" style="width: {progression}%;"></div></div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem;">{format_fr(progression, 1)}% couvert</div></div>""", unsafe_allow_html=True)
+
 with k3:
-    gap_color = COLORS["VERT"] if gap <= 0 else COLORS["ROUGE"]
-    gap_icon = "✔" if gap <= 0 else "⚠"
+    # --- MODIFICATION ICI : Couleur et icône basées sur gap >= 0 ---
+    gap_color = COLORS["VERT"] if gap >= 0 else COLORS["ROUGE"]
+    gap_icon = "✔" if gap >= 0 else "⚠"
     gap_pct = (gap / objectif_final * 100) if objectif_final > 0 else 0
-    st.markdown(f"""<div class="kpi-card" style="border-left-color: {gap_color};"><div class="kpi-label">GAP</div><div class="kpi-value" style="color: {gap_color};">{format_fr(gap, signed=True)}</div><div class="kpi-delta" style="color: {gap_color};">{gap_icon} {format_fr(abs(gap_pct), 1)}% de l'objectif</div></div>""", unsafe_allow_html=True)
+    # --- MODIFICATION ICI : Format du texte +X% VS objectif ---
+    st.markdown(f"""<div class="kpi-card" style="border-left-color: {gap_color};"><div class="kpi-label">GAP</div><div class="kpi-value" style="color: {gap_color};">{format_fr(gap, signed=True)}</div><div class="kpi-delta" style="color: {gap_color};">{gap_icon} {format_fr(gap_pct, 1, signed=True)}% VS objectif</div></div>""", unsafe_allow_html=True)
+
 with k4:
     wmape_icon = "✔" if wmape < 5 else ("⚠" if wmape <= 10 else "✖")
     wmape_color = COLORS["VERT"] if wmape < 5 else (COLORS["ROUGE"] if wmape > 10 else COLORS["TEXTE_SECONDAIRE"])
@@ -1085,9 +1091,7 @@ with tab_placeholder.container():
         st.markdown("<br>", unsafe_allow_html=True)
         m1, m2, m3 = st.columns(3)
         
-        # --- MODIFICATION ICI : On force 2 décimales pour la MAE ---
         with m1: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(mae, 2)}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
-        # -----------------------------------------------------------
         
         with m2: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(wmape, 2)}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
         with m3: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(smape, 2)}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)

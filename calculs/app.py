@@ -819,8 +819,6 @@ if hist_n1_val > 0: objectif_calcule = hist_n1_val * (1 + taux_ambition / 100.0)
 else: objectif_calcule = atterrissage_cible * (1 + taux_ambition / 100.0)
 
 objectif_final = objectif_manuel if use_objectif_manuel else objectif_calcule
-
-# --- MODIFICATION ICI : GAP = Atterrissage - Objectif ---
 gap = atterrissage_cible - objectif_final
 
 df_eval = df_previsions_filtre[df_previsions_filtre['Statut'] == 'Réalisé'].copy()
@@ -850,11 +848,9 @@ with k2:
     st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">Objectif Annuel ({unite_affichage})</div><div class="kpi-value">{format_fr(objectif_final)}</div><div class="progress-container"><div class="progress-bar" style="width: {progression}%;"></div></div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem;">{format_fr(progression, 1)}% couvert</div></div>""", unsafe_allow_html=True)
 
 with k3:
-    # --- MODIFICATION ICI : Couleur et icône basées sur gap >= 0 ---
     gap_color = COLORS["VERT"] if gap >= 0 else COLORS["ROUGE"]
     gap_icon = "✔" if gap >= 0 else "⚠"
     gap_pct = (gap / objectif_final * 100) if objectif_final > 0 else 0
-    # --- MODIFICATION ICI : Format du texte +X% VS objectif ---
     st.markdown(f"""<div class="kpi-card" style="border-left-color: {gap_color};"><div class="kpi-label">GAP</div><div class="kpi-value" style="color: {gap_color};">{format_fr(gap, signed=True)}</div><div class="kpi-delta" style="color: {gap_color};">{gap_icon} {format_fr(gap_pct, 1, signed=True)}% VS objectif</div></div>""", unsafe_allow_html=True)
 
 with k4:
@@ -928,6 +924,25 @@ with tab_placeholder.container():
 
     elif active_tab == "Indices & SARR":
         st.markdown("### Indices de Saisonnalité & SARR")
+        
+        # 1. PREPARATION DES DONNEES SARR
+        df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
+        df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
+        df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
+        df_sarr_calc["Mois M"] = df_sarr_calc.apply(lambda r: f"{MOIS_NOMS[int(r['mois'])-1]}-{int(r['annee'])}", axis=1)
+        df_sarr_calc["Mois M-1"] = df_sarr_calc.groupby(['agence', 'article'])["Mois M"].shift(1)
+        df_sarr_calc["Momentum_Abs"] = df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]
+        df_sarr_calc["Momentum_Pct"] = (df_sarr_calc["Momentum_Abs"] / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
+        df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
+        
+        # 2. FILTRE
+        filtre_sarr = st.radio("Afficher le SARR et Graphes :", ["Tous", "Momentum Positif (+)", "Momentum Négatif (-)"], horizontal=True, label_visibility="collapsed")
+        df_sarr_affiche = df_sarr_derniers.copy()
+        if filtre_sarr == "Momentum Positif (+)":
+            df_sarr_affiche = df_sarr_affiche[df_sarr_affiche["Momentum_Abs"] > 0]
+        elif filtre_sarr == "Momentum Négatif (-)":
+            df_sarr_affiche = df_sarr_affiche[df_sarr_affiche["Momentum_Abs"] < 0]
+
         c_idx, c_sarr = st.columns(2)
         with c_idx:
             st.markdown("**Indices de Saisonnalité**")
@@ -939,24 +954,6 @@ with tab_placeholder.container():
         with c_sarr:
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
-                df_sarr_calc = df_sarr.sort_values(['agence', 'article', 'annee', 'mois']).copy()
-                df_sarr_calc["SARR_Aff"] = (df_sarr_calc["SARR_HL"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_HL"])
-                df_sarr_calc["SARR_M1_Aff"] = (df_sarr_calc["SARR_M1"] * (10000 / df_sarr_calc["contenance_cl"].replace(0, 100)) if unite_affichage == "Cols" else df_sarr_calc["SARR_M1"])
-                df_sarr_calc["Mois M"] = df_sarr_calc.apply(lambda r: f"{MOIS_NOMS[int(r['mois'])-1]}-{int(r['annee'])}", axis=1)
-                df_sarr_calc["Mois M-1"] = df_sarr_calc.groupby(['agence', 'article'])["Mois M"].shift(1)
-                df_sarr_calc["Momentum_Abs"] = df_sarr_calc["SARR_Aff"] - df_sarr_calc["SARR_M1_Aff"]
-                df_sarr_calc["Momentum_Pct"] = (df_sarr_calc["Momentum_Abs"] / df_sarr_calc["SARR_M1_Aff"] * 100).replace([np.inf, -np.inf], np.nan)
-                df_sarr_derniers = df_sarr_calc.groupby(['agence', 'article'], observed=True).tail(5)
-                
-                # --- NOUVEAU BOUTON DE FILTRE ---
-                filtre_sarr = st.radio("Afficher :", ["Tous", "Momentum Positif (+)", "Momentum Négatif (-)"], horizontal=True, label_visibility="collapsed")
-                df_sarr_affiche = df_sarr_derniers.copy()
-                if filtre_sarr == "Momentum Positif (+)":
-                    df_sarr_affiche = df_sarr_affiche[df_sarr_affiche["Momentum_Abs"] > 0]
-                elif filtre_sarr == "Momentum Négatif (-)":
-                    df_sarr_affiche = df_sarr_affiche[df_sarr_affiche["Momentum_Abs"] < 0]
-                # --------------------------------
-
                 st.dataframe(
                     df_sarr_affiche[["agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum_Abs", "Momentum_Pct", "annee", "mois"]]
                     .rename(columns={"agence": "Agence", "article": "Article", "SARR_M1_Aff": "SARR M-1", "SARR_Aff": "SARR M", "Momentum_Abs": "Momentum (SARR M - SARR M-1)", "Momentum_Pct": "Momentum (%)"})
@@ -964,6 +961,76 @@ with tab_placeholder.container():
                     use_container_width=True, hide_index=True,
                     column_config={"annee": None, "mois": None, "SARR M": st.column_config.NumberColumn(format="%.0f"), "SARR M-1": st.column_config.NumberColumn(format="%.0f"), "Momentum (SARR M - SARR M-1)": st.column_config.NumberColumn(format="%.1f"), "Momentum (%)": st.column_config.NumberColumn(format="%.2f %%")}
                 )
+
+        # 3. GRAPHIQUES
+        st.markdown("---")
+        st.markdown("### 📈 Visualisation Graphique")
+        
+        c_graph1, c_graph2 = st.columns(2)
+        
+        with c_graph1:
+            st.markdown("**Graphique du Momentum (Tous les SKU filtrés)**")
+            if not df_sarr_affiche.empty:
+                df_momentum_plot = df_sarr_affiche.copy()
+                df_momentum_plot["Label"] = df_momentum_plot["agence"] + " - " + df_momentum_plot["article"]
+                
+                # On prend le dernier point pour chaque article
+                df_momentum_plot = df_momentum_plot.sort_values(['agence', 'article', 'annee', 'mois']).groupby(['agence', 'article', 'Label']).tail(1).reset_index()
+                
+                fig_mom = go.Figure()
+                colors = [COLORS["VERT"] if x >= 0 else COLORS["ROUGE"] for x in df_momentum_plot["Momentum_Abs"]]
+                fig_mom.add_trace(go.Bar(
+                    x=df_momentum_plot["Momentum_Abs"], 
+                    y=df_momentum_plot["Label"], 
+                    orientation="h", 
+                    marker_color=colors,
+                    text=df_momentum_plot["Momentum_Abs"].apply(lambda x: format_fr(x, signed=True)),
+                    textposition="auto",
+                    hovertemplate="<b>%{y}</b><br>Momentum: %{x:,.1f} HL<extra></extra>"
+                ))
+                fig_mom.update_layout(
+                    plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    xaxis=dict(title=f"Momentum ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE']),
+                    yaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                    height=max(400, len(df_momentum_plot) * 25),
+                    separators=" ,"
+                )
+                st.plotly_chart(fig_mom, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("Aucune donnée de Momentum à afficher avec ce filtre.")
+
+        with c_graph2:
+            st.markdown("**Courbe de Saisonnalité Globale (Indices moyens)**")
+            if not table_indices.empty:
+                df_season = table_indices.groupby('mois')['Indice'].mean().reset_index()
+                df_season['Mois_Nom'] = df_season['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
+                
+                fig_season = go.Figure()
+                fig_season.add_trace(go.Scatter(
+                    x=df_season['Mois_Nom'], 
+                    y=df_season['Indice'], 
+                    mode='lines+markers', 
+                    line=dict(color=COLORS['ROUGE'], width=3),
+                    marker=dict(size=8, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
+                    fill='tozeroy',
+                    fillcolor='rgba(227, 6, 19, 0.1)',
+                    hovertemplate="<b>%{x}</b><br>Indice moyen: %{y:.2f}<extra></extra>"
+                ))
+                
+                fig_season.add_hline(y=1.0, line_dash="dash", line_color=COLORS['GRIS'], annotation_text="Moyenne", annotation_position="top left")
+                
+                fig_season.update_layout(
+                    plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    xaxis=dict(title="Mois", showgrid=True, gridcolor=COLORS['BORDURE']),
+                    yaxis=dict(title="Indice de saisonnalité", showgrid=True, gridcolor=COLORS['BORDURE']),
+                    height=max(400, len(df_momentum_plot) * 25),
+                    separators=" ,"
+                )
+                st.plotly_chart(fig_season, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("Pas de données de saisonnalité disponibles.")
 
     elif active_tab == "Prévisions":
         st.markdown("### Prévisions Détaillées")

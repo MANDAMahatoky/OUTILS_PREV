@@ -845,17 +845,39 @@ atterrissage_cible = df_cible_annuel[col_prev_aff].fillna(0).sum()
 if not mois_cibles_selection:
     df_previsions_filtre = df_previsions
     label_mois_str = "Tous les mois"
+    mois_cibles_nums = list(range(1, 13))
 else:
     mois_cibles_nums = [MOIS_NOMS.index(m) + 1 for m in mois_cibles_selection]
     df_previsions_filtre = df_previsions[df_previsions['mois'].isin(mois_cibles_nums)].copy()
     label_mois_str = ", ".join(mois_cibles_selection)
+
+# Atterrissage global : annuel sans filtre de mois, ou cumul des mois sélectionnés.
+df_cible_filtre = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible]
+atterrissage_global_kpi = df_cible_filtre[col_prev_aff].fillna(0).sum()
+label_atterrissage_kpi = (
+    f"Atterrissage global {annee_cible}"
+    if not mois_cibles_selection
+    else f"Atterrissage global - {label_mois_str}"
+)
 
 df_n1 = df_perimetre[df_perimetre['annee'] == (annee_cible - 1)].copy()
 if not df_n1.empty:
     contenance_safe_n1 = df_n1['contenance_cl'].replace(0, 100).fillna(100.0)
     hist_n1_val = (df_n1['hl'] * (10000.0 / contenance_safe_n1)).fillna(0).sum() if unite_affichage == "Cols" else df_n1['hl'].fillna(0).sum()
 else: hist_n1_val = 0.0
-    
+
+# Comparaison N-1 sur les mêmes mois que le filtre actif pour le KPI d'atterrissage.
+if mois_cibles_selection:
+    df_n1_mois = df_n1[df_n1['mois'].isin(mois_cibles_nums)].copy()
+    if not df_n1_mois.empty:
+        contenance_n1_mois = df_n1_mois['contenance_cl'].replace(0, 100).fillna(100.0)
+        hist_n1_kpi = ((df_n1_mois['hl'] * (10000.0 / contenance_n1_mois)).fillna(0).sum()
+                       if unite_affichage == "Cols" else df_n1_mois['hl'].fillna(0).sum())
+    else:
+        hist_n1_kpi = 0.0
+else:
+    hist_n1_kpi = hist_n1_val
+
 if hist_n1_val > 0: objectif_calcule = hist_n1_val * (1 + taux_ambition / 100.0)
 else: objectif_calcule = atterrissage_cible * (1 + taux_ambition / 100.0)
 
@@ -876,7 +898,7 @@ if not df_eval_agg.empty and df_eval_agg[col_prev_aff].sum() > 0:
     else: smape = 0.0
 else: mae, wmape, smape = 0.0, 0.0, 0.0
 
-delta_n1_pct = ((atterrissage_cible - hist_n1_val) / hist_n1_val * 100) if hist_n1_val > 0 else 0
+delta_n1_pct = ((atterrissage_global_kpi - hist_n1_kpi) / hist_n1_kpi * 100) if hist_n1_kpi > 0 else 0
 delta_class = "up" if delta_n1_pct >= 0 else "down"
 delta_icon = "▲" if delta_n1_pct >= 0 else "▼"
 progression = (atterrissage_cible / objectif_final * 100) if objectif_final > 0 else 0
@@ -884,7 +906,7 @@ progression = min(max(progression, 0), 100)
 
 k1, k2, k3, k4 = st.columns(4, gap="large")
 with k1:
-    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atterrissage {annee_cible}</div><div class="kpi-value">{format_fr(atterrissage_cible)}</div><div class="kpi-delta {delta_class}">{delta_icon} {format_fr(abs(delta_n1_pct), 1)}% vs N-1</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">{label_atterrissage_kpi}</div><div class="kpi-value">{format_fr(atterrissage_global_kpi)}</div><div class="kpi-delta {delta_class}">{delta_icon} {format_fr(abs(delta_n1_pct), 1)}% vs N-1</div></div>""", unsafe_allow_html=True)
 with k2:
     st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['TEXTE']};"><div class="kpi-label">Objectif Annuel ({unite_affichage})</div><div class="kpi-value">{format_fr(objectif_final)}</div><div class="progress-container"><div class="progress-bar" style="width: {progression}%;"></div></div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem;">{format_fr(progression, 1)}% couvert</div></div>""", unsafe_allow_html=True)
 

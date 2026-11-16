@@ -18,7 +18,8 @@ st.set_page_config(page_title="PREVISIONS STAR MADAGASCAR", layout="wide", page_
 COLORS = {
     "ROUGE": "#E30613", "ROUGE_FONCE": "#B3050F", "ROUGE_CLAIR": "#FDECEE",
     "BLANC": "#FFFFFF", "TEXTE": "#111827", "TEXTE_SECONDAIRE": "#6B7280",
-    "BORDURE": "#E5E7EB", "GRIS": "#9CA3AF", "VERT": "#059669"
+    "BORDURE": "#E5E7EB", "GRIS": "#9CA3AF", "VERT": "#059669",
+    "VERT_CLAIR": "#D1FAE5", "ORANGE": "#D97706", "ORANGE_CLAIR": "#FEF3C7"
 }
 
 st.markdown(f"""
@@ -53,7 +54,7 @@ st.markdown(f"""
     div[data-testid="stDataFrame"] {{ border-radius: 10px; border: 1px solid {COLORS['BORDURE']}; box-shadow: 0 2px 4px rgba(0,0,0,0.02); background-color: {COLORS['BLANC']}; }}
     div[data-testid="stDataFrame"] > div {{ border-radius: 10px; }}
     div[data-testid="stDataFrame"] th {{ background-color: #F9FAFB !important; color: {COLORS['TEXTE_SECONDAIRE']} !important; font-weight: 700 !important; text-transform: uppercase; font-size: 0.75rem !important; border-bottom: 2px solid {COLORS['BORDURE']} !important; }}
-    div[data-testid="stDataFrame"] td {{ font-size: 0.85rem !important; color: {COLORS['TEXTE']} !important; }}
+    div[data-testid="stDataFrame"] td {{ font-size: 0.9rem !important; color: {COLORS['TEXTE']} !important; }}
 
     .white-card {{ background: {COLORS['BLANC']}; border-radius: 10px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); border: 1px solid {COLORS['BORDURE']}; height: 100%; }}
     .kpi-value-dark {{ color: {COLORS['TEXTE']}; font-size: 2rem; font-weight: 700; line-height: 1.1; }}
@@ -384,7 +385,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v175"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v176"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -846,7 +847,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v175"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v176"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -1137,7 +1138,7 @@ with tab_placeholder.container():
 
     elif active_tab == "Suivi Écart (Rupt vs Réalisé)":
         st.markdown("### 🔀 Suivi Écart (Rupt vs Réalisé)")
-        st.markdown("Tableau comparatif : Réalisé vs Prévision, avec et sans rupture.")
+        st.markdown("Tableau comparatif professionnel : Réalisé vs Prévision, avec et sans rupture.")
         st.markdown("<br>", unsafe_allow_html=True)
 
         has_rupture = df_perimetre['rupture_hl'].fillna(0).sum() > 0
@@ -1156,14 +1157,15 @@ with tab_placeholder.container():
             diff = total_sans - total_avec
             diff_pct = (diff / total_avec * 100) if total_avec > 0 else 0
 
+            # --- KPI CARDS AMÉLIORÉES ---
             rc1, rc2, rc3 = st.columns(3)
             with rc1:
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['ROUGE']};"><div class="kpi-label">Total AVEC rupture ({unite_affichage})</div><div class="kpi-value kpi-value-dark">{format_fr(total_avec)}</div><div class="kpi-footer">Base : ventes réelles</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['ROUGE']};"><div class="kpi-label">Total AVEC rupture ({unite_affichage})</div><div class="kpi-value">{format_fr(total_avec)}</div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']};">Base : ventes réelles</div></div>""", unsafe_allow_html=True)
             with rc2:
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['VERT']};"><div class="kpi-label">Total SANS rupture ({unite_affichage})</div><div class="kpi-value kpi-value-dark">{format_fr(total_sans)}</div><div class="kpi-footer">Base : volume potentiel</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['VERT']};"><div class="kpi-label">Total SANS rupture ({unite_affichage})</div><div class="kpi-value">{format_fr(total_sans)}</div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']};">Base : volume potentiel</div></div>""", unsafe_allow_html=True)
             with rc3:
                 ecart_color = COLORS['VERT'] if diff >= 0 else COLORS['ROUGE']
-                st.markdown(f"""<div class="white-card" style="border-top: 4px solid {ecart_color};"><div class="kpi-label">Manque à gagner (rupture)</div><div class="kpi-value kpi-value-dark" style="color: {ecart_color};">{format_fr(diff, signed=True)}</div><div class="kpi-footer">{format_fr(diff_pct, 1, signed=True)}% vs prévision avec rupture</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-card" style="border-left-color: {ecart_color};"><div class="kpi-label">Manque à gagner (rupture)</div><div class="kpi-value" style="color: {ecart_color};">{format_fr(diff, signed=True)}</div><div class="kpi-delta" style="color: {ecart_color};">{format_fr(diff_pct, 1, signed=True)}% vs prévision avec rupture</div></div>""", unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1211,17 +1213,50 @@ with tab_placeholder.container():
                 recap_df = ajouter_total(recap_df, label_col="Marque", label="TOTAL", exclude_cols=["% PV"], custom_total_calc={
                     "% PV": lambda r: (r["Réalisé + Rupture"] - r["Prévision"]) / r["Prévision"] * 100 if r["Prévision"] > 0 else 0
                 })
-                
-                # Bold total
-                st.dataframe(bold_total_row(recap_df), use_container_width=True, hide_index=True, height=600,
-                             column_config={
-                                 "Réalisé": st.column_config.NumberColumn(format="localized"),
-                                 "Prévision": st.column_config.NumberColumn(format="localized"),
-                                 "Rupture": st.column_config.NumberColumn(format="localized"),
-                                 "Réalisé + Rupture": st.column_config.NumberColumn(format="localized"),
-                                 "Écart PV": st.column_config.NumberColumn(format="localized"),
-                                 "% PV": st.column_config.NumberColumn(format="%+.1f %%"),
-                             })
+
+                # --- STYLE PROFESSIONNEL DU TABLEAU ---
+                def style_dataframe(df):
+                    def color_ecart(val):
+                        if pd.isna(val): return ''
+                        # Ecart PV = Prevision - Reel. Negatif = On a depasse la prev -> Vert. Positif = On a pas atteint -> Rouge.
+                        color = COLORS['VERT'] if val < 0 else COLORS['ROUGE']
+                        bg = COLORS['VERT_CLAIR'] if val < 0 else COLORS['ROUGE_CLAIR']
+                        return f'background-color: {bg}; color: {color}; font-weight: 700; border-left: 2px solid {color};'
+
+                    def color_pct(val):
+                        if pd.isna(val): return ''
+                        # % PV = Reel / Prevision. Positif = On a depasse -> Vert. Negatif = On a pas atteint -> Rouge.
+                        color = COLORS['VERT'] if val >= 0 else COLORS['ROUGE']
+                        bg = COLORS['VERT_CLAIR'] if val >= 0 else COLORS['ROUGE_CLAIR']
+                        return f'background-color: {bg}; color: {color}; font-weight: 700;'
+
+                    def color_rupture(val):
+                        if pd.isna(val): return ''
+                        if val > 0:
+                            return f'color: {COLORS["ORANGE"]}; font-weight: 700;'
+                        return ''
+
+                    styled = df.style.format({
+                        'Réalisé': '{:,.0f}',
+                        'Prévision': '{:,.0f}',
+                        'Rupture': '{:,.0f}',
+                        'Réalisé + Rupture': '{:,.0f}',
+                        'Écart PV': '{:+,.0f}',
+                        '% PV': '{:+.1f} %'
+                    }).map(color_ecart, subset=['Écart PV']).map(color_pct, subset=['% PV']).map(color_rupture, subset=['Rupture'])
+                    
+                    def highlight_total(row):
+                        if row.name == len(df) - 1:
+                            return [f'background-color: {COLORS["BORDURE"]}; font-weight: 800; color: {COLORS["TEXTE"]}; border-top: 2px solid {COLORS["GRIS"]};'] * len(row)
+                        return [''] * len(row)
+                    
+                    styled = styled.apply(highlight_total, axis=1)
+                    return styled
+
+                with st.container(border=True):
+                    st.markdown(f"#### 📊 Récap Annuel par Article")
+                    st.caption("Vert = Objectif dépassé / Rouge = Objectif manqué")
+                    st.dataframe(style_dataframe(recap_df), use_container_width=True, hide_index=True, height=600)
             else:
                 pivot_avec = df_year.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
                 pivot_avec = pivot_avec.reindex(columns=range(1, 13), fill_value=0)
@@ -1237,11 +1272,13 @@ with tab_placeholder.container():
 
                 c_avec, c_sans = st.columns(2)
                 with c_avec:
-                    st.markdown(f"**🟥 AVEC rupture ({unite_affichage})**")
-                    st.dataframe(bold_total_row(pivot_avec_reset), use_container_width=True, height=600, hide_index=True)
+                    with st.container(border=True):
+                        st.markdown(f"**🟥 AVEC rupture ({unite_affichage})**")
+                        st.dataframe(bold_total_row(pivot_avec_reset), use_container_width=True, height=600, hide_index=True)
                 with c_sans:
-                    st.markdown(f"**🟩 SANS rupture ({unite_affichage})**")
-                    st.dataframe(bold_total_row(pivot_sans_reset), use_container_width=True, height=600, hide_index=True)
+                    with st.container(border=True):
+                        st.markdown(f"**🟩 SANS rupture ({unite_affichage})**")
+                        st.dataframe(bold_total_row(pivot_sans_reset), use_container_width=True, height=600, hide_index=True)
 
     elif active_tab == "Pareto (ABC)":
         st.markdown("### Analyse Pareto & Classification ABC")

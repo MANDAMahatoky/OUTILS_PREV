@@ -75,7 +75,6 @@ def format_fr(val, decimals=0, signed=False):
         return sign + f"{val:,.{decimals}f}".replace(",", " ").replace(".", ",")
 
 def ajouter_total(df, label_col, label="TOTAL", exclude_cols=None, custom_total_calc=None):
-    """Ajoute une ligne TOTAL en sommant les colonnes numériques."""
     if df is None or df.empty: return df
     exclude = exclude_cols or []
     row = {c: np.nan for c in df.columns}
@@ -99,6 +98,17 @@ def ajouter_total(df, label_col, label="TOTAL", exclude_cols=None, custom_total_
                 row[c] = ""
                 
     return pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+
+def small_kpi(label, value, color=COLORS['ROUGE']):
+    st.markdown(f"""
+    <div style="display: inline-block; background-color: {COLORS['BLANC']}; padding: 12px 20px; border-radius: 10px; border: 1px solid {COLORS['BORDURE']}; border-left: 4px solid {color}; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 15px; margin-right: 10px;">
+        <div style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">{label}</div>
+        <div style="color: {COLORS['TEXTE']}; font-size: 1.5rem; font-weight: 800;">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def bold_total_row(df):
+    return df.style.apply(lambda x: ['font-weight: bold; background-color: #F9FAFB;'] * len(x) if x.name == len(df)-1 else [''] * len(x), axis=1)
 
 def color_error(val, seuil_alerte=10, seuil_bon=5):
     try:
@@ -374,7 +384,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v171"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v172"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -836,7 +846,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v171"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v172"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -975,10 +985,12 @@ with tab_placeholder.container():
                 st.caption(f"⚠️ Affichage limité à {format_fr(N_MAX_DISPLAY)} lignes sur {format_fr(len(df_to_show))}.")
                 df_show_limited = df_to_show.head(N_MAX_DISPLAY)
                 df_show_limited = ajouter_total(df_show_limited, label_col="Année", label="TOTAL (affiché)")
-                st.dataframe(df_show_limited, use_container_width=True, hide_index=True)
+                small_kpi("TOTAL Ventes Réelles", format_fr(df_show_limited['Ventes Réelles (HL)'].iloc[-1]))
+                st.dataframe(bold_total_row(df_show_limited), use_container_width=True, hide_index=True)
             else:
                 df_to_show = ajouter_total(df_to_show, label_col="Année")
-                st.dataframe(df_to_show, use_container_width=True, hide_index=True)
+                small_kpi("TOTAL Ventes Réelles", format_fr(df_to_show['Ventes Réelles (HL)'].iloc[-1]))
+                st.dataframe(bold_total_row(df_to_show), use_container_width=True, hide_index=True)
 
     elif active_tab == "Réalisé Cumulé":
         st.markdown("### Réalisé Cumulé (Jusqu'au Cutoff)")
@@ -987,7 +999,8 @@ with tab_placeholder.container():
                 df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl', 'rupture_hl', 'hl_potentiel']].sum().reset_index())
                 df_real_agg.columns = ["Année", "Mois", "Région", "Agence", "Article", "Ventes Réelles", "Pertes Ruptures", "Volume Potentiel"]
                 df_real_agg = ajouter_total(df_real_agg, label_col="Année")
-                st.dataframe(df_real_agg.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True)
+                small_kpi("TOTAL Ventes Réelles", format_fr(df_real_agg['Ventes Réelles'].iloc[-1]))
+                st.dataframe(bold_total_row(df_real_agg.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
             else: st.info("Aucune donnée réalisée pour le moment.")
 
     elif active_tab == "Indices & SARR":
@@ -1033,8 +1046,9 @@ with tab_placeholder.container():
                         return (r.get("Momentum (SARR M - SARR M-1)", 0) / r["SARR M-1"]) * 100
                     return np.nan
                 df_sarr_aff = ajouter_total(df_sarr_aff, label_col="Agence", exclude_cols=["Momentum (%)"], custom_total_calc={"Momentum (%)": calc_mom_pct})
+                small_kpi("TOTAL SARR M", format_fr(df_sarr_aff["SARR M"].iloc[-1]))
                 st.dataframe(
-                    df_sarr_aff,
+                    bold_total_row(df_sarr_aff),
                     use_container_width=True, hide_index=True,
                     column_config={"Année": st.column_config.NumberColumn(format="%d"), "Mois (Num)": None, "SARR M": st.column_config.NumberColumn(format="%.0f"), "SARR M-1": st.column_config.NumberColumn(format="%.0f"), "Momentum (SARR M - SARR M-1)": st.column_config.NumberColumn(format="%.1f"), "Momentum (%)": st.column_config.NumberColumn(format="%.2f %%")}
                 )
@@ -1107,18 +1121,19 @@ with tab_placeholder.container():
                 pivot_mensuel_display = pivot_mensuel_reset[mask]
             else: pivot_mensuel_display = pivot_mensuel_reset
             pivot_mensuel_display = ajouter_total(pivot_mensuel_display, label_col="Articles")
+            small_kpi(f"TOTAL {nom_total} ({unite_affichage})", format_fr(pivot_mensuel_display[nom_total].iloc[-1]))
             col_config = {"Articles": st.column_config.TextColumn("Articles", width="medium"), "Segments": st.column_config.TextColumn("Segments", width="small")}
             for mois in MOIS_NOMS:
                 if mois in pivot_mensuel_display.columns: col_config[mois] = st.column_config.NumberColumn(mois, format="%.2f")
             if nom_total in pivot_mensuel_display.columns: col_config[nom_total] = st.column_config.NumberColumn(nom_total, format="%.2f")
-            st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
+            st.dataframe(bold_total_row(pivot_mensuel_display), use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
         with st.expander("🔍 Voir le détail des calculs (Hybride)"):
             st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR calculé.")
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
             df_detail = ajouter_total(df_detail, label_col="annee", exclude_cols=["CAGR (%)", "Indice"])
-            st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
+            st.dataframe(bold_total_row(df_detail.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
 
     elif active_tab == "Récap Avec/Sans Rupture":
         st.markdown("### 🔀 Récap côte-à-côte : Prévisions AVEC vs SANS rupture")
@@ -1177,7 +1192,7 @@ with tab_placeholder.container():
 
                 recap_df = ajouter_total(recap_df, label_col="Article", exclude_cols=["Écart (%)"], custom_total_calc={"Écart (%)": calc_ecart_pct})
                 
-                st.dataframe(recap_df, use_container_width=True, hide_index=True, height=600,
+                st.dataframe(bold_total_row(recap_df), use_container_width=True, hide_index=True, height=600,
                              column_config={
                                  f'Avec rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
                                  f'Sans rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
@@ -1200,10 +1215,10 @@ with tab_placeholder.container():
                 c_avec, c_sans = st.columns(2)
                 with c_avec:
                     st.markdown(f"**🟥 AVEC rupture ({unite_affichage})**")
-                    st.dataframe(pivot_avec_reset, use_container_width=True, height=600, hide_index=True)
+                    st.dataframe(bold_total_row(pivot_avec_reset), use_container_width=True, height=600, hide_index=True)
                 with c_sans:
                     st.markdown(f"**🟩 SANS rupture ({unite_affichage})**")
-                    st.dataframe(pivot_sans_reset, use_container_width=True, height=600, hide_index=True)
+                    st.dataframe(bold_total_row(pivot_sans_reset), use_container_width=True, height=600, hide_index=True)
 
     elif active_tab == "Pareto (ABC)":
         st.markdown("### Analyse Pareto & Classification ABC")
@@ -1256,7 +1271,8 @@ with tab_placeholder.container():
                 df_table = df_pareto_xyz[['article', 'Classe', 'XYZ', col_prev_aff, 'Cumul_Pct']].copy()
                 df_table.columns = ['Article', 'Classe ABC', 'Classe XYZ', f'Volume ({unite_affichage})', '% Cumulé']
                 df_table = ajouter_total(df_table, label_col="Article", exclude_cols=["% Cumulé"], custom_total_calc={"% Cumulé": lambda r: 100.0})
-                st.dataframe(df_table, use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe ABC': st.column_config.TextColumn(width="small"), 'Classe XYZ': st.column_config.TextColumn(width="small")}, height=400)
+                small_kpi("TOTAL Volume", format_fr(df_table[f'Volume ({unite_affichage})'].iloc[-1]))
+                st.dataframe(bold_total_row(df_table), use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe ABC': st.column_config.TextColumn(width="small"), 'Classe XYZ': st.column_config.TextColumn(width="small")}, height=400)
         else: st.info("Pas assez de données pour l'analyse.")
 
     elif active_tab == "Analyse Comportementale":
@@ -1333,7 +1349,7 @@ with tab_placeholder.container():
                         return (abs(r.get('Écart', 0)) / r[f'Réalisé ({unite_affichage})']) * 100
                     return np.nan
                 df_error_monthly = ajouter_total(df_error_monthly, label_col="Année", exclude_cols=["Erreur (%)"], custom_total_calc={"Erreur (%)": calc_err_pct})
-                styled_error_df = df_error_monthly.style.map(color_error, subset=['Erreur (%)'])
+                styled_error_df = df_error_monthly.style.map(color_error, subset=['Erreur (%)']).apply(lambda x: ['font-weight: bold; background-color: #F9FAFB;'] * len(x) if x.name == len(df_error_monthly)-1 else [''] * len(x), axis=1)
                 st.dataframe(styled_error_df, use_container_width=True, hide_index=True, column_config={f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"), f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"), 'Écart': st.column_config.NumberColumn(format="localized"), 'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")})
             else: st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")
 
@@ -1384,6 +1400,7 @@ with tab_placeholder.container():
                 df_rupture_detail.columns = ['Année', 'Mois', 'Agence', 'Article', 'Volume Perdu (HL)']
                 df_rupture_detail = df_rupture_detail.sort_values('Volume Perdu (HL)', ascending=False)
                 df_rupture_detail = ajouter_total(df_rupture_detail, label_col="Année")
-                st.dataframe(df_rupture_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, column_config={'Volume Perdu (HL)': st.column_config.NumberColumn(format="%.2f")})
+                small_kpi("TOTAL Volume Perdu", format_fr(df_rupture_detail['Volume Perdu (HL)'].iloc[-1]))
+                st.dataframe(bold_total_row(df_rupture_detail.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True, column_config={'Volume Perdu (HL)': st.column_config.NumberColumn(format="%.2f")})
         else:
             st.info("Aucune rupture enregistrée sur le périmètre sélectionné.")

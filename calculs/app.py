@@ -962,6 +962,36 @@ with st.container(border=True):
     fig1.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), height=500, hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
+with st.container(border=True):
+    st.markdown(f"#### Décomposition du volume en aires empilées ({annee_cible})")
+    st.caption("De bas en haut : Baseline, Bruit, Saisonnalité, Momentum. Le haut de la pile = Réalisé (mois clos) + Prévision (mois restants).")
+    df_dec = df_cible_annuel.copy()
+    _f = (10000.0 / df_dec['contenance_cl'].replace(0, 100).fillna(100.0)) if unite_affichage == "Cols" else 1.0
+    df_dec['Baseline'] = df_dec['Base_Mensuelle'] * _f
+    df_dec['Saisonnalite'] = df_dec['Base_Mensuelle'] * (df_dec['Indice'] - 1.0) * _f
+    df_dec['Momentum_c'] = df_dec['Momentum'] * df_dec['Indice'] * _f
+    df_dec['Total'] = df_dec[col_prev_aff]
+    df_dec['Bruit'] = df_dec['Total'] - df_dec['Baseline'] - df_dec['Saisonnalite'] - df_dec['Momentum_c']
+    df_dec_plot = df_dec.groupby('mois', observed=True)[['Baseline', 'Bruit', 'Saisonnalite', 'Momentum_c', 'Total']].sum().reset_index()
+    df_dec_plot['Date_Plot'] = pd.to_datetime(annee_cible.__str__() + '-' + df_dec_plot['mois'].astype(str).str.zfill(2) + '-01')
+    df_dec_plot = df_dec_plot.sort_values('Date_Plot')
+
+    fig_dec = go.Figure()
+    _comp = [("Baseline", "Baseline", "rgba(17,24,39,0.55)"),
+             ("Bruit", "Bruit", "rgba(156,163,175,0.65)"),
+             ("Saisonnalité", "Saisonnalite", "rgba(217,119,6,0.65)"),
+             ("Momentum", "Momentum_c", "rgba(5,150,105,0.65)")]
+    for _nom, _col, _clr in _comp:
+        fig_dec.add_trace(go.Scatter(x=df_dec_plot['Date_Plot'], y=df_dec_plot[_col], name=_nom, mode='lines', stackgroup='decomp',
+                                     line=dict(width=1, color=_clr.replace('0.55', '1').replace('0.65', '1')), fillcolor=_clr,
+                                     hovertemplate=f"<b>{_nom}</b>: %{{y:,.0f}}<extra></extra>"))
+    fig_dec.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10),
+                          legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter")),
+                          xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1"),
+                          yaxis=dict(title=unite_affichage, showgrid=True, gridcolor=COLORS['BORDURE']), height=450, hovermode="x unified")
+    st.plotly_chart(fig_dec, use_container_width=True, config={'displayModeBar': False})
+
+
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
 
 # ==============================================================================

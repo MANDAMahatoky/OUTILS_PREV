@@ -964,7 +964,7 @@ with st.container(border=True):
 
 with st.container(border=True):
     st.markdown(f"#### Décomposition du volume en aires empilées ({annee_cible})")
-    st.caption("De bas en haut : Baseline, Bruit, Saisonnalité, Momentum. Bruit = données fictives (démo). Axe Y tronqué pour mieux voir les couches fines.")
+    st.caption("De bas en haut : Baseline, Bruit, Saisonnalité, Momentum. Bruit = résidu (Réalisé − modèle), mesuré sur les mois réalisés uniquement. Axe Y tronqué pour mieux voir les couches fines.")
     df_dec = df_cible_annuel.copy()
     _f = (10000.0 / df_dec['contenance_cl'].replace(0, 100).fillna(100.0)) if unite_affichage == "Cols" else 1.0
     df_dec['Baseline'] = df_dec['Base_Mensuelle'] * _f
@@ -972,12 +972,10 @@ with st.container(border=True):
     df_dec['Momentum_c'] = df_dec['Momentum'] * df_dec['Indice'] * _f
     df_dec['Total'] = df_dec[col_prev_aff]
     df_dec['Bruit'] = df_dec['Total'] - df_dec['Baseline'] - df_dec['Saisonnalite'] - df_dec['Momentum_c']
+    df_dec.loc[df_dec['Statut'] != 'Réalisé', 'Bruit'] = 0.0  # bruit mesuré uniquement sur les mois réalisés
     df_dec_plot = df_dec.groupby('mois', observed=True)[['Baseline', 'Bruit', 'Saisonnalite', 'Momentum_c', 'Total']].sum().reset_index()
     df_dec_plot['Date_Plot'] = pd.to_datetime(annee_cible.__str__() + '-' + df_dec_plot['mois'].astype(str).str.zfill(2) + '-01')
     df_dec_plot = df_dec_plot.sort_values('Date_Plot')
-    # Bruit FICTIF (données de démonstration) : 3 à 10 % de la Baseline, tirage reproductible
-    _rng = np.random.default_rng(42)
-    df_dec_plot['Bruit'] = df_dec_plot['Baseline'] * _rng.uniform(0.03, 0.10, size=len(df_dec_plot))
 
     # Zoom de l'axe Y pour rendre visibles les couches fines (Momentum, Bruit)
     _cum3 = df_dec_plot['Baseline'] + df_dec_plot['Bruit'] + df_dec_plot['Saisonnalite']

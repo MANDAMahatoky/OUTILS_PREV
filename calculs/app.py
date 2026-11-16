@@ -977,13 +977,14 @@ with st.container(border=True):
     df_dec_plot = df_dec_plot.sort_values('Date_Plot')
 
     fig_dec = go.Figure()
-    _comp = [("Baseline", "Baseline", "rgba(17,24,39,0.55)"),
-             ("Bruit", "Bruit", "rgba(156,163,175,0.65)"),
-             ("Saisonnalité", "Saisonnalite", "rgba(217,119,6,0.65)"),
-             ("Momentum", "Momentum_c", "rgba(5,150,105,0.65)")]
-    for _nom, _col, _clr in _comp:
+    # (nom, colonne, couleur de remplissage, couleur du contour)
+    _comp = [("Baseline", "Baseline", "#3D348B", "#231B5C"),
+             ("Bruit", "Bruit", "#8E8CD8", "#5B59A8"),
+             ("Saisonnalité", "Saisonnalite", "#FFD166", "#C99A1E"),
+             ("Momentum", "Momentum_c", "#EF476F", "#A8223F")]
+    for _nom, _col, _fill, _line in _comp:
         fig_dec.add_trace(go.Scatter(x=df_dec_plot['Date_Plot'], y=df_dec_plot[_col], name=_nom, mode='lines', stackgroup='decomp',
-                                     line=dict(width=1, color=_clr.replace('0.55', '1').replace('0.65', '1')), fillcolor=_clr,
+                                     line=dict(width=2, color=_line, shape='linear'), fillcolor=_fill,
                                      hovertemplate=f"<b>{_nom}</b>: %{{y:,.0f}}<extra></extra>"))
     fig_dec.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10),
                           legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter")),

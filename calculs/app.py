@@ -384,7 +384,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v172"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v173"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -846,7 +846,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v172"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v173"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -966,7 +966,7 @@ st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_al
 # ==============================================================================
 # CONSTRUCTION DYNAMIQUE DES ONGLETS
 # ==============================================================================
-tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Récap Avec/Sans Rupture", "Pareto (ABC)", "Fiabilité", "Ruptures"]
+tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Suivi Écart (Rupt vs Réalisé)", "Pareto (ABC)", "Fiabilité", "Ruptures"]
 if show_analyse_comp: tab_names.insert(5, "Analyse Comportementale")
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
@@ -1135,9 +1135,9 @@ with tab_placeholder.container():
             df_detail = ajouter_total(df_detail, label_col="annee", exclude_cols=["CAGR (%)", "Indice"])
             st.dataframe(bold_total_row(df_detail.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
 
-    elif active_tab == "Récap Avec/Sans Rupture":
-        st.markdown("### 🔀 Récap côte-à-côte : Prévisions AVEC vs SANS rupture")
-        st.markdown("Compare les prévisions calculées à partir des **ventes réelles** (avec impact des ruptures passées) et celles calculées à partir du **volume potentiel** (sans impact des ruptures).")
+    elif active_tab == "Suivi Écart (Rupt vs Réalisé)":
+        st.markdown("### 🔀 Suivi Écart (Rupt vs Réalisé)")
+        st.markdown("Tableau comparatif format Excel : Réalisé vs Prévision, avec et sans rupture.")
         st.markdown("<br>", unsafe_allow_html=True)
 
         has_rupture = df_perimetre['rupture_hl'].fillna(0).sum() > 0
@@ -1167,37 +1167,67 @@ with tab_placeholder.container():
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            mode_affichage = st.radio("Mode d'affichage", ["Récap annuel (total par article)", "Détail mensuel côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode_tab")
+            mode_affichage = st.radio("Mode d'affichage", ["Format Excel (Suivi Écart)", "Détail mensuel côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode_tab")
 
-            df_seg_map = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
-            df_year = df_year.merge(df_seg_map, on='article', how='left')
+            if mode_affichage == "Format Excel (Suivi Écart)":
+                # Build the Excel format table
+                df_marque = df_perimetre[['article', 'marque']].drop_duplicates()
+                df_year_m = df_year.merge(df_marque, on='article', how='left')
 
-            if mode_affichage == "Récap annuel (total par article)":
-                recap_df = (df_year.groupby(['article', 'segment'], observed=True)
-                            .agg(avec=(col_prev_aff, 'sum'), sans=(col_vol_sans, 'sum'))
-                            .reset_index())
-                recap_df['Écart'] = recap_df['sans'] - recap_df['avec']
-                recap_df['Écart (%)'] = np.where(recap_df['avec'] > 0, (recap_df['Écart'] / recap_df['avec']) * 100, 0)
-                recap_df = recap_df[(recap_df['avec'] > 0) | (recap_df['sans'] > 0)]
-                recap_df = recap_df.sort_values('avec', ascending=False).rename(columns={
-                    'article': 'Article', 'segment': 'Segment',
-                    'avec': f'Avec rupture ({unite_affichage})', 'sans': f'Sans rupture ({unite_affichage})'
+                # Aggregate Vtes A and PV sem
+                recap_df = df_year_m.groupby(['marque', 'article'], as_index=False).agg(
+                    Vtes_A=('hl_reel', 'sum'),
+                    PV_sem=(col_prev_pure, 'sum')
+                )
+
+                # Aggregate Rupture for the same period
+                df_rupture_sum = df_perimetre[(df_perimetre['annee'] == annee_cible) & (df_perimetre['mois'].isin(mois_cibles_nums))]
+                df_rupture_sum = df_rupture_sum.groupby('article', as_index=False)['rupture_hl'].sum()
+                
+                recap_df = recap_df.merge(df_rupture_sum, on='article', how='left').fillna({'rupture_hl': 0})
+
+                # Calculations
+                recap_df['Vtes A + Rupture'] = recap_df['Vtes_A'] + recap_df['rupture_hl']
+                recap_df['Ecart PV Sem'] = recap_df['PV_sem'] - recap_df['Vtes_A']
+                recap_df['Ecart PV'] = recap_df['PV_sem'] - recap_df['Vtes A + Rupture']
+
+                recap_df['% PV sem'] = np.where(recap_df['PV_sem'] > 0, (recap_df['Vtes_A'] - recap_df['PV_sem']) / recap_df['PV_sem'] * 100, 0)
+                recap_df['% PV'] = np.where(recap_df['PV_sem'] > 0, (recap_df['Vtes A + Rupture'] - recap_df['PV_sem']) / recap_df['PV_sem'] * 100, 0)
+
+                # Rename for display
+                recap_df = recap_df.rename(columns={
+                    'marque': 'Marque',
+                    'article': 'Article',
+                    'Vtes_A': 'Vtes A hecto',
+                    'PV_sem': 'PV sem',
+                    'rupture_hl': 'Rupture'
+                })
+
+                # Order columns
+                cols_excel = ['Marque', 'Article', 'Vtes A hecto', 'PV sem', '% PV sem', 'Ecart PV Sem', 'Rupture', 'Vtes A + Rupture', 'Ecart PV', '% PV']
+                recap_df = recap_df[cols_excel]
+                
+                # Filter 0 rows
+                recap_df = recap_df[(recap_df['Vtes A hecto'] > 0) | (recap_df['PV sem'] > 0)]
+                recap_df = recap_df.sort_values('Vtes A hecto', ascending=False)
+                
+                # Add Total row
+                recap_df = ajouter_total(recap_df, label_col="Marque", label="TOTAL", exclude_cols=["% PV sem", "% PV"], custom_total_calc={
+                    "% PV sem": lambda r: (r["Vtes A hecto"] - r["PV sem"]) / r["PV sem"] * 100 if r["PV sem"] > 0 else 0,
+                    "% PV": lambda r: (r["Vtes A + Rupture"] - r["PV sem"]) / r["PV sem"] * 100 if r["PV sem"] > 0 else 0
                 })
                 
-                col_avec = f'Avec rupture ({unite_affichage})'
-                def calc_ecart_pct(r):
-                    if r.get(col_avec, 0) > 0:
-                        return (r.get('Écart', 0) / r[col_avec]) * 100
-                    return np.nan
-
-                recap_df = ajouter_total(recap_df, label_col="Article", exclude_cols=["Écart (%)"], custom_total_calc={"Écart (%)": calc_ecart_pct})
-                
+                # Bold total
                 st.dataframe(bold_total_row(recap_df), use_container_width=True, hide_index=True, height=600,
                              column_config={
-                                 f'Avec rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
-                                 f'Sans rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
-                                 'Écart': st.column_config.NumberColumn(format="%+.2f"),
-                                 'Écart (%)': st.column_config.NumberColumn(format="%+.2f %%"),
+                                 "Vtes A hecto": st.column_config.NumberColumn(format="localized"),
+                                 "PV sem": st.column_config.NumberColumn(format="localized"),
+                                 "% PV sem": st.column_config.NumberColumn(format="%+.1f %%"),
+                                 "Ecart PV Sem": st.column_config.NumberColumn(format="localized"),
+                                 "Rupture": st.column_config.NumberColumn(format="localized"),
+                                 "Vtes A + Rupture": st.column_config.NumberColumn(format="localized"),
+                                 "Ecart PV": st.column_config.NumberColumn(format="localized"),
+                                 "% PV": st.column_config.NumberColumn(format="%+.1f %%"),
                              })
             else:
                 pivot_avec = df_year.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)

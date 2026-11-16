@@ -1050,8 +1050,9 @@ def onglet_suivi_ecart():
 
             # Calculations
             recap_df['Réalisé + Rupture'] = recap_df['Realise'] + recap_df['rupture_hl']
-            recap_df['Écart PV'] = recap_df['Prevision'] - recap_df['Réalisé + Rupture']
-            recap_df['% PV'] = np.where(recap_df['Prevision'] > 0, (recap_df['Réalisé + Rupture'] - recap_df['Prevision']) / recap_df['Prevision'] * 100, 0)
+            # Écart PV = Prévision (avec rupture) - Réalisé (avec rupture, ventes réelles)
+            recap_df['Écart PV'] = recap_df['Prevision'] - recap_df['Realise']
+            recap_df['% PV'] = np.where(recap_df['Prevision'] > 0, (recap_df['Realise'] - recap_df['Prevision']) / recap_df['Prevision'] * 100, 0)
 
             # Rename for display
             recap_df = recap_df.rename(columns={

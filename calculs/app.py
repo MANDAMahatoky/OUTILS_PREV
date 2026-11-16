@@ -384,7 +384,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v173"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v174"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -846,7 +846,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v173"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v174"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -1169,13 +1169,13 @@ with tab_placeholder.container():
 
             mode_affichage = st.radio("Mode d'affichage", ["Format Excel (Suivi Écart)", "Détail mensuel côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode_tab")
 
-            if mode_affichage == "Format Excel (Suivi Écart)":
-                # Build the Excel format table
-                df_marque = df_perimetre[['article', 'marque']].drop_duplicates()
-                df_year_m = df_year.merge(df_marque, on='article', how='left')
+            # === CORRECTION ICI : on fusionne segment et marque pour que les deux modes fonctionnent ===
+            df_meta = df_perimetre[['article', 'segment', 'marque']].drop_duplicates(subset=['article'])
+            df_year = df_year.merge(df_meta, on='article', how='left')
 
+            if mode_affichage == "Format Excel (Suivi Écart)":
                 # Aggregate Vtes A and PV sem
-                recap_df = df_year_m.groupby(['marque', 'article'], as_index=False).agg(
+                recap_df = df_year.groupby(['marque', 'article'], as_index=False).agg(
                     Vtes_A=('hl_reel', 'sum'),
                     PV_sem=(col_prev_pure, 'sum')
                 )

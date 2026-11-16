@@ -353,7 +353,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v168"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v169"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -413,17 +413,15 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_ytd = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)].groupby(['agence', 'article'], observed=True)['hl_positif'].sum().reset_index().rename(columns={'hl_positif': 'YTD_HL'}))
     df_premiere_annee = (df_realise[df_realise['hl'] > 0].groupby(['agence', 'article'], observed=True)['annee'].min().reset_index().rename(columns={'annee': 'Annee_Debut'}))
 
-    # --- NOUVEAU : YTD potentiel (sans impact rupture) ---
     df_ytd_pot = (df_realise[(df_realise['annee'] == annee_cloture) & (df_realise['mois'] <= mois_cutoff)]
                   .groupby(['agence', 'article'], observed=True)['hl_potentiel'].sum()
                   .reset_index().rename(columns={'hl_potentiel': 'YTD_HL_pot'}))
-    # --- FIN NOUVEAU ---
 
     df_base = (df_perim_unique.merge(df_ytd, on=['agence', 'article'], how='left', sort=False)
-                              .merge(df_ytd_pot, on=['agence', 'article'], how='left', sort=False)  # --- NOUVEAU ---
+                              .merge(df_ytd_pot, on=['agence', 'article'], how='left', sort=False)
                               .merge(df_premiere_annee, on=['agence', 'article'], how='left', sort=False))
     df_base['YTD_HL'] = df_base['YTD_HL'].fillna(0.0)
-    df_base['YTD_HL_pot'] = df_base['YTD_HL_pot'].fillna(0.0)  # --- NOUVEAU ---
+    df_base['YTD_HL_pot'] = df_base['YTD_HL_pot'].fillna(0.0)
     df_base['Annee_Debut'] = df_base['Annee_Debut'].fillna(annee_cloture)
 
     df_base['Annee_Base'] = np.maximum(np.maximum(annee_min_cagr, annee_rupture_tendance), df_base['Annee_Debut'])
@@ -448,7 +446,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_base = df_base.drop(columns=['Mois_Debut']).merge(df_cumul, on=['agence', 'article'], how='left', sort=False)
     df_base['Cumul_Coef'] = df_base['Cumul_Coef'].fillna(mois_cutoff * 1.0).replace(0, 1.0)
     df_base['Base_Mensuelle'] = df_base['YTD_HL'] / df_base['Cumul_Coef']
-    df_base['Base_Mensuelle_pot'] = df_base['YTD_HL_pot'] / df_base['Cumul_Coef']  # --- NOUVEAU ---
+    df_base['Base_Mensuelle_pot'] = df_base['YTD_HL_pot'] / df_base['Cumul_Coef']
     df_base['Projection_CurrentYear'] = df_base['Base_Mensuelle'] * 12.0
     df_base['Nb_Annees'] = annee_cloture - df_base['Annee_Base']
 
@@ -537,7 +535,6 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross = df_cross.merge(table_indices_forecast, on=['mois', 'agence', 'article'], how='left', sort=False)
     df_cross['Indice'] = df_cross['Indice'].fillna(1.0)
 
-    # --- NOUVEAU : récupérer hl_potentiel réel pour les mois réalisés ---
     df_realise_grouped = (df_realise.groupby(['annee', 'mois', 'agence', 'article'], observed=True)
                           .agg(hl_reel=('hl', 'sum'), hl_pot_reel=('hl_potentiel', 'sum'))
                           .reset_index())
@@ -551,12 +548,10 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Prevision_HL'] = np.where(df_cross['annee'] <= annee_cible, prev_2026, prev_futur)
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
 
-    # --- NOUVEAU : prévision SANS rupture (basée sur Base_Mensuelle_pot) ---
     prev_sans_2026 = df_cross['Base_Mensuelle_pot'] * df_cross['Indice']
     prev_sans_futur = df_cross['Base_Mensuelle_pot'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
     df_cross['Prevision_HL_sans_rupture'] = np.where(df_cross['annee'] <= annee_cible, prev_sans_2026, prev_sans_futur)
     df_cross['Prevision_HL_sans_rupture'] = np.maximum(0.0, df_cross['Prevision_HL_sans_rupture'])
-    # --- FIN NOUVEAU ---
 
     df_cross['key_article_budget'] = df_cross['article'].apply(clean_text_for_budget_key)
 
@@ -618,19 +613,15 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Volume_HL'] = np.where(df_cross['is_realise'], df_cross['hl_reel'].fillna(0.0), df_cross['Prevision_HL'])
     df_cross['Volume_HL'] = np.maximum(0.0, df_cross['Volume_HL'])
 
-    # --- NOUVEAU : Volume sans rupture (réel potentiel + prévision potentielle) ---
     df_cross['Volume_HL_sans_rupture'] = np.where(df_cross['is_realise'], df_cross['hl_pot_reel'].fillna(0.0), df_cross['Prevision_HL_sans_rupture'])
     df_cross['Volume_HL_sans_rupture'] = np.maximum(0.0, df_cross['Volume_HL_sans_rupture'])
-    # --- FIN NOUVEAU ---
 
     contenance_safe = df_cross['contenance_cl'].replace(0, 100).fillna(100.0)
     df_cross['Volume_Cols'] = df_cross['Volume_HL'] * (10000.0 / contenance_safe)
     df_cross['Prevision_Cols'] = df_cross['Prevision_HL'] * (10000.0 / contenance_safe)
 
-    # --- NOUVEAU : Cols sans rupture ---
     df_cross['Volume_Cols_sans_rupture'] = df_cross['Volume_HL_sans_rupture'] * (10000.0 / contenance_safe)
     df_cross['Prevision_Cols_sans_rupture'] = df_cross['Prevision_HL_sans_rupture'] * (10000.0 / contenance_safe)
-    # --- FIN NOUVEAU ---
 
     df_cross['Statut'] = np.where(df_cross['is_realise'], "Réalisé", "Prévision")
     df_cross['CAGR (%)'] = df_cross['CAGR_val'] * 100
@@ -641,7 +632,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     df_cross['Date'] = (_mois_arr[df_cross['mois'].to_numpy() - 1] + '-' + df_cross['annee'].astype(str).str[-2:].to_numpy())
 
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel",
-                    "Volume_HL_sans_rupture", "Volume_Cols_sans_rupture", "Prevision_HL_sans_rupture", "Prevision_Cols_sans_rupture"]  # --- NOUVEAU ---
+                    "Volume_HL_sans_rupture", "Volume_Cols_sans_rupture", "Prevision_HL_sans_rupture", "Prevision_Cols_sans_rupture"]
     df_realise_out = df_realise.merge(df_perimetre_filtre[['agence', 'article']].drop_duplicates(), on=['agence', 'article'], how='inner', sort=False).copy()
     df_sarr_out = df_sarr_cont.merge(df_perim_unique[['agence', 'article', 'contenance_cl']], on=['agence', 'article'], how='left', sort=False)
 
@@ -654,7 +645,7 @@ def _pivot_indices_cached(df_idx: pd.DataFrame) -> pd.DataFrame:
     return p
 
 # ==============================================================================
-# MODULES SUPPLÉMENTAIRES (COMPORTEMENT & EXPORT)
+# MODULES SUPPLÉMENTAIRES
 # ==============================================================================
 def analyser_comportement_sku(df_sarr, df_perimetre):
     if df_sarr is None or df_sarr.empty: return pd.DataFrame()
@@ -824,7 +815,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v168"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v169"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -944,8 +935,8 @@ st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_al
 # ==============================================================================
 # CONSTRUCTION DYNAMIQUE DES ONGLETS
 # ==============================================================================
-tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Pareto (ABC)", "Fiabilité", "Ruptures"]
-if show_analyse_comp: tab_names.insert(4, "Analyse Comportementale")
+tab_names = ["Réalisé Cumulé", "Indices & SARR", "Prévisions", "Récap Avec/Sans Rupture", "Pareto (ABC)", "Fiabilité", "Ruptures"]
+if show_analyse_comp: tab_names.insert(5, "Analyse Comportementale")
 if show_raw_data: tab_names.insert(0, "Données Brutes")
 
 active_tab = st.radio("Navigation", tab_names, horizontal=True, label_visibility="collapsed", key="main_navigation_radio")
@@ -1091,84 +1082,82 @@ with tab_placeholder.container():
             if nom_total in pivot_mensuel_display.columns: col_config[nom_total] = st.column_config.NumberColumn(nom_total, format="%.2f")
             st.dataframe(pivot_mensuel_display, use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
-        # ==================================================================
-        # NOUVEAU : RÉCAP CÔTE-À-CÔTE AVEC vs SANS RUPTURE
-        # ==================================================================
-        with st.expander("🔀 Récap côte-à-côte : Prévisions AVEC vs SANS rupture", expanded=False):
-            st.markdown("Compare les prévisions calculées à partir des **ventes réelles** (avec impact des ruptures passées) et celles calculées à partir du **volume potentiel** (sans impact des ruptures).")
-            has_rupture = df_perimetre['rupture_hl'].fillna(0).sum() > 0
-            if not has_rupture:
-                st.info("ℹ️ Aucune donnée de rupture détectée dans le périmètre sélectionné. Les prévisions 'avec' et 'sans' rupture sont identiques.")
-
-            col_vol_sans = "Volume_Cols_sans_rupture" if unite_affichage == "Cols" else "Volume_HL_sans_rupture"
-            col_prev_sans = "Prevision_Cols_sans_rupture" if unite_affichage == "Cols" else "Prevision_HL_sans_rupture"
-
-            df_year = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
-            if df_year.empty:
-                st.warning("Aucune donnée de prévision pour l'année cible.")
-            else:
-                # KPI globaux
-                total_avec = df_year[col_prev_aff].fillna(0).sum()
-                total_sans = df_year[col_vol_sans].fillna(0).sum()
-                diff = total_sans - total_avec
-                diff_pct = (diff / total_avec * 100) if total_avec > 0 else 0
-
-                rc1, rc2, rc3 = st.columns(3)
-                with rc1:
-                    st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['ROUGE']};"><div class="kpi-label">Total AVEC rupture ({unite_affichage})</div><div class="kpi-value kpi-value-dark">{format_fr(total_avec)}</div><div class="kpi-footer">Base : ventes réelles</div></div>""", unsafe_allow_html=True)
-                with rc2:
-                    st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['VERT']};"><div class="kpi-label">Total SANS rupture ({unite_affichage})</div><div class="kpi-value kpi-value-dark">{format_fr(total_sans)}</div><div class="kpi-footer">Base : volume potentiel</div></div>""", unsafe_allow_html=True)
-                with rc3:
-                    ecart_color = COLORS['VERT'] if diff >= 0 else COLORS['ROUGE']
-                    st.markdown(f"""<div class="white-card" style="border-top: 4px solid {ecart_color};"><div class="kpi-label">Manque à gagner (rupture)</div><div class="kpi-value kpi-value-dark" style="color: {ecart_color};">{format_fr(diff, signed=True)}</div><div class="kpi-footer">{format_fr(diff_pct, 1, signed=True)}% vs prévision avec rupture</div></div>""", unsafe_allow_html=True)
-
-                st.markdown("<br>", unsafe_allow_html=True)
-
-                mode_affichage = st.radio("Mode d'affichage", ["Récap annuel (total par article)", "Détail mensuel côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode")
-
-                df_seg_map = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
-                df_year = df_year.merge(df_seg_map, on='article', how='left')
-
-                if mode_affichage == "Récap annuel (total par article)":
-                    recap_df = (df_year.groupby(['article', 'segment'], observed=True)
-                                .agg(avec=(col_prev_aff, 'sum'), sans=(col_vol_sans, 'sum'))
-                                .reset_index())
-                    recap_df['Écart'] = recap_df['sans'] - recap_df['avec']
-                    recap_df['Écart (%)'] = np.where(recap_df['avec'] > 0, (recap_df['Écart'] / recap_df['avec']) * 100, 0)
-                    recap_df = recap_df[(recap_df['avec'] > 0) | (recap_df['sans'] > 0)]
-                    recap_df = recap_df.sort_values('avec', ascending=False).rename(columns={
-                        'article': 'Article', 'segment': 'Segment',
-                        'avec': f'Avec rupture ({unite_affichage})', 'sans': f'Sans rupture ({unite_affichage})'
-                    })
-                    st.dataframe(recap_df, use_container_width=True, hide_index=True, height=500,
-                                 column_config={
-                                     f'Avec rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
-                                     f'Sans rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
-                                     'Écart': st.column_config.NumberColumn(format="%+.2f"),
-                                     'Écart (%)': st.column_config.NumberColumn(format="%+.2f %%"),
-                                 })
-                else:
-                    pivot_avec = df_year.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
-                    pivot_avec = pivot_avec.reindex(columns=range(1, 13), fill_value=0)
-                    pivot_avec.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_avec.columns]
-                    pivot_sans = df_year.pivot_table(index=['article', 'segment'], columns='mois', values=col_vol_sans, aggfunc='sum').fillna(0)
-                    pivot_sans = pivot_sans.reindex(columns=range(1, 13), fill_value=0)
-                    pivot_sans.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_sans.columns]
-
-                    c_avec, c_sans = st.columns(2)
-                    with c_avec:
-                        st.markdown(f"**🟥 AVEC rupture ({unite_affichage})**")
-                        st.dataframe(pivot_avec, use_container_width=True, height=500)
-                    with c_sans:
-                        st.markdown(f"**🟩 SANS rupture ({unite_affichage})**")
-                        st.dataframe(pivot_sans, use_container_width=True, height=500)
-        # ==================================================================
-
         with st.expander("🔍 Voir le détail des calculs (Hybride)"):
             st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR calculé.")
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
             st.dataframe(df_detail.head(N_MAX_DISPLAY), use_container_width=True, hide_index=True, height=400, column_config={"Base_EXCEL": st.column_config.NumberColumn(format="%.1f"), "Momentum": st.column_config.NumberColumn(format="%.1f"), "Base_Mensuelle": st.column_config.NumberColumn(format="%.1f"), "CAGR (%)": st.column_config.NumberColumn(format="%.2f %%")})
+
+    elif active_tab == "Récap Avec/Sans Rupture":
+        st.markdown("### 🔀 Récap côte-à-côte : Prévisions AVEC vs SANS rupture")
+        st.markdown("Compare les prévisions calculées à partir des **ventes réelles** (avec impact des ruptures passées) et celles calculées à partir du **volume potentiel** (sans impact des ruptures).")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        has_rupture = df_perimetre['rupture_hl'].fillna(0).sum() > 0
+        if not has_rupture:
+            st.info("ℹ️ Aucune donnée de rupture détectée dans le périmètre sélectionné. Les prévisions 'avec' et 'sans' rupture sont identiques.")
+
+        col_vol_sans = "Volume_Cols_sans_rupture" if unite_affichage == "Cols" else "Volume_HL_sans_rupture"
+        col_prev_sans = "Prevision_Cols_sans_rupture" if unite_affichage == "Cols" else "Prevision_HL_sans_rupture"
+
+        df_year = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
+        if df_year.empty:
+            st.warning("Aucune donnée de prévision pour l'année cible.")
+        else:
+            total_avec = df_year[col_prev_aff].fillna(0).sum()
+            total_sans = df_year[col_vol_sans].fillna(0).sum()
+            diff = total_sans - total_avec
+            diff_pct = (diff / total_avec * 100) if total_avec > 0 else 0
+
+            rc1, rc2, rc3 = st.columns(3)
+            with rc1:
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['ROUGE']};"><div class="kpi-label">Total AVEC rupture ({unite_affichage})</div><div class="kpi-value kpi-value-dark">{format_fr(total_avec)}</div><div class="kpi-footer">Base : ventes réelles</div></div>""", unsafe_allow_html=True)
+            with rc2:
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['VERT']};"><div class="kpi-label">Total SANS rupture ({unite_affichage})</div><div class="kpi-value kpi-value-dark">{format_fr(total_sans)}</div><div class="kpi-footer">Base : volume potentiel</div></div>""", unsafe_allow_html=True)
+            with rc3:
+                ecart_color = COLORS['VERT'] if diff >= 0 else COLORS['ROUGE']
+                st.markdown(f"""<div class="white-card" style="border-top: 4px solid {ecart_color};"><div class="kpi-label">Manque à gagner (rupture)</div><div class="kpi-value kpi-value-dark" style="color: {ecart_color};">{format_fr(diff, signed=True)}</div><div class="kpi-footer">{format_fr(diff_pct, 1, signed=True)}% vs prévision avec rupture</div></div>""", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            mode_affichage = st.radio("Mode d'affichage", ["Récap annuel (total par article)", "Détail mensuel côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode_tab")
+
+            df_seg_map = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
+            df_year = df_year.merge(df_seg_map, on='article', how='left')
+
+            if mode_affichage == "Récap annuel (total par article)":
+                recap_df = (df_year.groupby(['article', 'segment'], observed=True)
+                            .agg(avec=(col_prev_aff, 'sum'), sans=(col_vol_sans, 'sum'))
+                            .reset_index())
+                recap_df['Écart'] = recap_df['sans'] - recap_df['avec']
+                recap_df['Écart (%)'] = np.where(recap_df['avec'] > 0, (recap_df['Écart'] / recap_df['avec']) * 100, 0)
+                recap_df = recap_df[(recap_df['avec'] > 0) | (recap_df['sans'] > 0)]
+                recap_df = recap_df.sort_values('avec', ascending=False).rename(columns={
+                    'article': 'Article', 'segment': 'Segment',
+                    'avec': f'Avec rupture ({unite_affichage})', 'sans': f'Sans rupture ({unite_affichage})'
+                })
+                st.dataframe(recap_df, use_container_width=True, hide_index=True, height=600,
+                             column_config={
+                                 f'Avec rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
+                                 f'Sans rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
+                                 'Écart': st.column_config.NumberColumn(format="%+.2f"),
+                                 'Écart (%)': st.column_config.NumberColumn(format="%+.2f %%"),
+                             })
+            else:
+                pivot_avec = df_year.pivot_table(index=['article', 'segment'], columns='mois', values=col_prev_aff, aggfunc='sum').fillna(0)
+                pivot_avec = pivot_avec.reindex(columns=range(1, 13), fill_value=0)
+                pivot_avec.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_avec.columns]
+                pivot_sans = df_year.pivot_table(index=['article', 'segment'], columns='mois', values=col_vol_sans, aggfunc='sum').fillna(0)
+                pivot_sans = pivot_sans.reindex(columns=range(1, 13), fill_value=0)
+                pivot_sans.columns = [MOIS_NOMS[int(c) - 1] for c in pivot_sans.columns]
+
+                c_avec, c_sans = st.columns(2)
+                with c_avec:
+                    st.markdown(f"**🟥 AVEC rupture ({unite_affichage})**")
+                    st.dataframe(pivot_avec, use_container_width=True, height=600)
+                with c_sans:
+                    st.markdown(f"**🟩 SANS rupture ({unite_affichage})**")
+                    st.dataframe(pivot_sans, use_container_width=True, height=600)
 
     elif active_tab == "Pareto (ABC)":
         st.markdown("### Analyse Pareto & Classification ABC")

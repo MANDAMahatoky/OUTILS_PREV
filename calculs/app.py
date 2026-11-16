@@ -384,7 +384,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v174"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v175"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -846,7 +846,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v174"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v175"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -1137,7 +1137,7 @@ with tab_placeholder.container():
 
     elif active_tab == "Suivi Écart (Rupt vs Réalisé)":
         st.markdown("### 🔀 Suivi Écart (Rupt vs Réalisé)")
-        st.markdown("Tableau comparatif format Excel : Réalisé vs Prévision, avec et sans rupture.")
+        st.markdown("Tableau comparatif : Réalisé vs Prévision, avec et sans rupture.")
         st.markdown("<br>", unsafe_allow_html=True)
 
         has_rupture = df_perimetre['rupture_hl'].fillna(0).sum() > 0
@@ -1167,17 +1167,16 @@ with tab_placeholder.container():
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            mode_affichage = st.radio("Mode d'affichage", ["Format Excel (Suivi Écart)", "Détail mensuel côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode_tab")
+            mode_affichage = st.radio("Mode d'affichage", ["Récap Annuel par Article", "Détail Mensuel Côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode_tab")
 
-            # === CORRECTION ICI : on fusionne segment et marque pour que les deux modes fonctionnent ===
             df_meta = df_perimetre[['article', 'segment', 'marque']].drop_duplicates(subset=['article'])
             df_year = df_year.merge(df_meta, on='article', how='left')
 
-            if mode_affichage == "Format Excel (Suivi Écart)":
-                # Aggregate Vtes A and PV sem
+            if mode_affichage == "Récap Annuel par Article":
+                # Aggregations
                 recap_df = df_year.groupby(['marque', 'article'], as_index=False).agg(
-                    Vtes_A=('hl_reel', 'sum'),
-                    PV_sem=(col_prev_pure, 'sum')
+                    Realise=('hl_reel', 'sum'),
+                    Prevision=(col_prev_pure, 'sum')
                 )
 
                 # Aggregate Rupture for the same period
@@ -1187,46 +1186,40 @@ with tab_placeholder.container():
                 recap_df = recap_df.merge(df_rupture_sum, on='article', how='left').fillna({'rupture_hl': 0})
 
                 # Calculations
-                recap_df['Vtes A + Rupture'] = recap_df['Vtes_A'] + recap_df['rupture_hl']
-                recap_df['Ecart PV Sem'] = recap_df['PV_sem'] - recap_df['Vtes_A']
-                recap_df['Ecart PV'] = recap_df['PV_sem'] - recap_df['Vtes A + Rupture']
-
-                recap_df['% PV sem'] = np.where(recap_df['PV_sem'] > 0, (recap_df['Vtes_A'] - recap_df['PV_sem']) / recap_df['PV_sem'] * 100, 0)
-                recap_df['% PV'] = np.where(recap_df['PV_sem'] > 0, (recap_df['Vtes A + Rupture'] - recap_df['PV_sem']) / recap_df['PV_sem'] * 100, 0)
+                recap_df['Réalisé + Rupture'] = recap_df['Realise'] + recap_df['rupture_hl']
+                recap_df['Écart PV'] = recap_df['Prevision'] - recap_df['Réalisé + Rupture']
+                recap_df['% PV'] = np.where(recap_df['Prevision'] > 0, (recap_df['Réalisé + Rupture'] - recap_df['Prevision']) / recap_df['Prevision'] * 100, 0)
 
                 # Rename for display
                 recap_df = recap_df.rename(columns={
                     'marque': 'Marque',
                     'article': 'Article',
-                    'Vtes_A': 'Vtes A hecto',
-                    'PV_sem': 'PV sem',
+                    'Realise': 'Réalisé',
+                    'Prevision': 'Prévision',
                     'rupture_hl': 'Rupture'
                 })
 
                 # Order columns
-                cols_excel = ['Marque', 'Article', 'Vtes A hecto', 'PV sem', '% PV sem', 'Ecart PV Sem', 'Rupture', 'Vtes A + Rupture', 'Ecart PV', '% PV']
+                cols_excel = ['Marque', 'Article', 'Réalisé', 'Prévision', 'Rupture', 'Réalisé + Rupture', 'Écart PV', '% PV']
                 recap_df = recap_df[cols_excel]
                 
                 # Filter 0 rows
-                recap_df = recap_df[(recap_df['Vtes A hecto'] > 0) | (recap_df['PV sem'] > 0)]
-                recap_df = recap_df.sort_values('Vtes A hecto', ascending=False)
+                recap_df = recap_df[(recap_df['Réalisé'] > 0) | (recap_df['Prévision'] > 0)]
+                recap_df = recap_df.sort_values('Réalisé', ascending=False)
                 
                 # Add Total row
-                recap_df = ajouter_total(recap_df, label_col="Marque", label="TOTAL", exclude_cols=["% PV sem", "% PV"], custom_total_calc={
-                    "% PV sem": lambda r: (r["Vtes A hecto"] - r["PV sem"]) / r["PV sem"] * 100 if r["PV sem"] > 0 else 0,
-                    "% PV": lambda r: (r["Vtes A + Rupture"] - r["PV sem"]) / r["PV sem"] * 100 if r["PV sem"] > 0 else 0
+                recap_df = ajouter_total(recap_df, label_col="Marque", label="TOTAL", exclude_cols=["% PV"], custom_total_calc={
+                    "% PV": lambda r: (r["Réalisé + Rupture"] - r["Prévision"]) / r["Prévision"] * 100 if r["Prévision"] > 0 else 0
                 })
                 
                 # Bold total
                 st.dataframe(bold_total_row(recap_df), use_container_width=True, hide_index=True, height=600,
                              column_config={
-                                 "Vtes A hecto": st.column_config.NumberColumn(format="localized"),
-                                 "PV sem": st.column_config.NumberColumn(format="localized"),
-                                 "% PV sem": st.column_config.NumberColumn(format="%+.1f %%"),
-                                 "Ecart PV Sem": st.column_config.NumberColumn(format="localized"),
+                                 "Réalisé": st.column_config.NumberColumn(format="localized"),
+                                 "Prévision": st.column_config.NumberColumn(format="localized"),
                                  "Rupture": st.column_config.NumberColumn(format="localized"),
-                                 "Vtes A + Rupture": st.column_config.NumberColumn(format="localized"),
-                                 "Ecart PV": st.column_config.NumberColumn(format="localized"),
+                                 "Réalisé + Rupture": st.column_config.NumberColumn(format="localized"),
+                                 "Écart PV": st.column_config.NumberColumn(format="localized"),
                                  "% PV": st.column_config.NumberColumn(format="%+.1f %%"),
                              })
             else:

@@ -74,20 +74,30 @@ def format_fr(val, decimals=0, signed=False):
     else:
         return sign + f"{val:,.{decimals}f}".replace(",", " ").replace(".", ",")
 
-def ajouter_total(df, label_col, label="TOTAL", exclude_cols=None):
-    """Ajoute une ligne TOTAL en sommant les colonnes numériques.
-    label_col : nom de la colonne où écrire le label.
-    exclude_cols : colonnes à exclure du sum (ex: CAGR %, % Cumulé)."""
+def ajouter_total(df, label_col, label="TOTAL", exclude_cols=None, custom_total_calc=None):
+    """Ajoute une ligne TOTAL en sommant les colonnes numériques."""
     if df is None or df.empty: return df
     exclude = exclude_cols or []
-    row = {c: "" for c in df.columns}
+    row = {c: np.nan for c in df.columns}
     if label_col in df.columns: row[label_col] = label
+    
     for c in df.columns:
         if c == label_col or c in exclude: continue
         try:
             if pd.api.types.is_numeric_dtype(df[c]):
                 row[c] = df[c].fillna(0).sum()
         except Exception: pass
+    
+    if custom_total_calc:
+        for col, func in custom_total_calc.items():
+            if col in row:
+                row[col] = func(row)
+                
+    for c in df.columns:
+        if not pd.api.types.is_numeric_dtype(df[c]):
+            if pd.isna(row[c]):
+                row[c] = ""
+                
     return pd.concat([df, pd.DataFrame([row])], ignore_index=True)
 
 def color_error(val, seuil_alerte=10, seuil_bon=5):
@@ -134,11 +144,6 @@ def clean_text_for_budget_key(text):
     text = text.replace('33 cl', '33').replace('33cl', '33')
     text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')
     return re.sub(r'[^a-z0-9]', '', text)
-
-def map_unique_apply(series, func):
-    unique_values = series.unique()
-    mapping = {v: func(v) for v in unique_values}
-    return series.map(mapping)
 
 REF_DEFAUT = [
     {"Article": "Booster Appel-Mix 50CL VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"}, {"Article": "Booster Tornado 50CL VER VER", "Contenance (Cl)": 50, "Positionnement": "Entrée"},
@@ -369,7 +374,7 @@ def _calculer_indices_fallback(df_realise, annee_min_is, annee_max_is):
     return table_rolling, df_global_rolling, result_glob[['agence', 'article', 'mois', 'Indice']]
 
 @st.cache_data(show_spinner="Calcul des prévisions...")
-def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v170"):
+def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, budget_bytes, budget_all_agencies, cache_bust="v171"):
     budget_status = "skipped"
 
     annees_recentes = [annee_cloture, annee_cloture - 1]
@@ -831,7 +836,7 @@ if sel_marques: df_perimetre = df_perimetre[df_perimetre["marque"].isin(sel_marq
 if sel_occasions: df_perimetre = df_perimetre[df_perimetre["occasion"].isin(sel_occasions)]
 
 table_indices_rolling, df_sarr, df_global_rolling, df_previsions, df_realise, budget_status, table_indices_forecast = calculer_etape_5(
-    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v170"
+    df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, annee_max_cagr, annee_cloture, mois_cutoff, annee_cible, methode_croissance, annee_rupture_tendance, fichier_budget.getvalue() if fichier_budget is not None else None, budget_all_agencies, cache_bust="v171"
 )
 
 if budget_status == "ok": st.sidebar.success("✅ Budget Query (33 CAN) appliqué à l'année cible.")
@@ -1023,7 +1028,11 @@ with tab_placeholder.container():
             st.markdown("**Table SARR (5 derniers mois) avec Momentum**")
             with st.expander("📊 Afficher le SARR & Momentum", expanded=True):
                 df_sarr_aff = df_sarr_affiche[["annee", "mois", "agence", "article", "Mois M-1", "SARR_M1_Aff", "Mois M", "SARR_Aff", "Momentum_Abs", "Momentum_Pct"]].rename(columns={"annee": "Année", "mois": "Mois (Num)", "agence": "Agence", "article": "Article", "SARR_M1_Aff": "SARR M-1", "SARR_Aff": "SARR M", "Momentum_Abs": "Momentum (SARR M - SARR M-1)", "Momentum_Pct": "Momentum (%)"}).sort_values(["Agence", "Article", "Année", "Mois (Num)"])
-                df_sarr_aff = ajouter_total(df_sarr_aff, label_col="Agence", exclude_cols=["Momentum (%)"])
+                def calc_mom_pct(r):
+                    if r.get("SARR M-1", 0) > 0:
+                        return (r.get("Momentum (SARR M - SARR M-1)", 0) / r["SARR M-1"]) * 100
+                    return np.nan
+                df_sarr_aff = ajouter_total(df_sarr_aff, label_col="Agence", exclude_cols=["Momentum (%)"], custom_total_calc={"Momentum (%)": calc_mom_pct})
                 st.dataframe(
                     df_sarr_aff,
                     use_container_width=True, hide_index=True,
@@ -1159,7 +1168,15 @@ with tab_placeholder.container():
                     'article': 'Article', 'segment': 'Segment',
                     'avec': f'Avec rupture ({unite_affichage})', 'sans': f'Sans rupture ({unite_affichage})'
                 })
-                recap_df = ajouter_total(recap_df, label_col="Article", exclude_cols=["Écart (%)"])
+                
+                col_avec = f'Avec rupture ({unite_affichage})'
+                def calc_ecart_pct(r):
+                    if r.get(col_avec, 0) > 0:
+                        return (r.get('Écart', 0) / r[col_avec]) * 100
+                    return np.nan
+
+                recap_df = ajouter_total(recap_df, label_col="Article", exclude_cols=["Écart (%)"], custom_total_calc={"Écart (%)": calc_ecart_pct})
+                
                 st.dataframe(recap_df, use_container_width=True, hide_index=True, height=600,
                              column_config={
                                  f'Avec rupture ({unite_affichage})': st.column_config.NumberColumn(format="%.2f"),
@@ -1238,7 +1255,7 @@ with tab_placeholder.container():
             with st.expander("📋 Voir le détail par article", expanded=True):
                 df_table = df_pareto_xyz[['article', 'Classe', 'XYZ', col_prev_aff, 'Cumul_Pct']].copy()
                 df_table.columns = ['Article', 'Classe ABC', 'Classe XYZ', f'Volume ({unite_affichage})', '% Cumulé']
-                df_table = ajouter_total(df_table, label_col="Article", exclude_cols=["% Cumulé"])
+                df_table = ajouter_total(df_table, label_col="Article", exclude_cols=["% Cumulé"], custom_total_calc={"% Cumulé": lambda r: 100.0})
                 st.dataframe(df_table, use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe ABC': st.column_config.TextColumn(width="small"), 'Classe XYZ': st.column_config.TextColumn(width="small")}, height=400)
         else: st.info("Pas assez de données pour l'analyse.")
 
@@ -1311,7 +1328,11 @@ with tab_placeholder.container():
                 df_error_monthly['Mois_Label'] = df_error_monthly['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
                 df_error_monthly = df_error_monthly[['annee', 'Mois_Label', col_prev_aff, col_prev_pure, 'Ecart', 'Erreur_Pct (%)']]
                 df_error_monthly.columns = ['Année', 'Mois', f'Réalisé ({unite_affichage})', f'Prévision ({unite_affichage})', 'Écart', 'Erreur (%)']
-                df_error_monthly = ajouter_total(df_error_monthly, label_col="Année", exclude_cols=["Erreur (%)"])
+                def calc_err_pct(r):
+                    if r.get(f'Réalisé ({unite_affichage})', 0) > 0:
+                        return (abs(r.get('Écart', 0)) / r[f'Réalisé ({unite_affichage})']) * 100
+                    return np.nan
+                df_error_monthly = ajouter_total(df_error_monthly, label_col="Année", exclude_cols=["Erreur (%)"], custom_total_calc={"Erreur (%)": calc_err_pct})
                 styled_error_df = df_error_monthly.style.map(color_error, subset=['Erreur (%)'])
                 st.dataframe(styled_error_df, use_container_width=True, hide_index=True, column_config={f'Réalisé ({unite_affichage})': st.column_config.NumberColumn(format="localized"), f'Prévision ({unite_affichage})': st.column_config.NumberColumn(format="localized"), 'Écart': st.column_config.NumberColumn(format="localized"), 'Erreur (%)': st.column_config.NumberColumn(format="%.2f %%")})
             else: st.info("Aucune donnée réalisée à évaluer pour le moment (le mois de cutoff n'est peut-être pas encore passé).")

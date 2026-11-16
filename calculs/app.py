@@ -1028,11 +1028,7 @@ def onglet_suivi_ecart():
         st.markdown("<br>", unsafe_allow_html=True)
 
         # --- FILTRES ET OPTIONS DU TABLEAU ---
-        col_search_tab, col_view_mode = st.columns([2, 1])
-        with col_search_tab:
-            search_query = st.text_input("🔍 Rechercher un article ou une marque", "", placeholder="Ex: World Cola, FOSA...", key="search_recap")
-        with col_view_mode:
-            view_mode = st.radio("Vue", ["Compacte", "Complète"], horizontal=True, label_visibility="collapsed")
+        search_query = st.text_input("🔍 Rechercher un article ou une marque", "", placeholder="Ex: World Cola, FOSA...", key="search_recap")
 
         mode_affichage = st.radio("Mode d'affichage", ["Récap Annuel par Article", "Détail Mensuel Côte-à-côte"], horizontal=True, label_visibility="collapsed", key="recap_mode_tab")
 
@@ -1075,13 +1071,9 @@ def onglet_suivi_ecart():
                 mask = recap_df.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
                 recap_df = recap_df[mask]
 
-            # Apply view mode columns
-            if view_mode == "Compacte":
-                cols_to_keep = ['Marque', 'Article', 'Réalisé', 'Prévision', 'Écart PV', '% PV']
-                recap_df = recap_df[cols_to_keep]
-            else:
-                cols_to_keep = ['Marque', 'Article', 'Réalisé', 'Prévision', 'Rupture', 'Réalisé + Rupture', 'Écart PV', '% PV']
-                recap_df = recap_df[cols_to_keep]
+            # Colonnes affichées (avec et sans rupture)
+            cols_to_keep = ['Marque', 'Article', 'Réalisé', 'Prévision', 'Rupture', 'Réalisé + Rupture', 'Écart PV', '% PV']
+            recap_df = recap_df[cols_to_keep]
 
             # Add Total row
             recap_df = ajouter_total(recap_df, label_col="Marque", label="TOTAL", exclude_cols=["% PV"], custom_total_calc={

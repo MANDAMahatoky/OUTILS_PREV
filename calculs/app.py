@@ -985,7 +985,7 @@ with st.container(border=True):
     fig_dec = go.Figure()
     # (nom, colonne, couleur de remplissage, couleur du contour)
     _comp = [("Baseline", "Baseline", "#3D348B", "#231B5C"),
-             ("Bruit", "Bruit", "#8E8CD8", "#5B59A8"),
+             ("Bruit", "Bruit", "#3FA7F5", "#1565C0"),
              ("Saisonnalité", "Saisonnalite", "#FFD166", "#C99A1E"),
              ("Momentum", "Momentum_c", "#EF476F", "#A8223F")]
     for _nom, _col, _fill, _line in _comp:

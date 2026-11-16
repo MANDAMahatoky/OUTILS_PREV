@@ -964,7 +964,7 @@ with st.container(border=True):
 
 with st.container(border=True):
     st.markdown(f"#### Décomposition du volume en aires empilées ({annee_cible})")
-    st.caption("De bas en haut : Baseline, Bruit, Saisonnalité, Momentum. Bruit = données fictives (démo).")
+    st.caption("De bas en haut : Baseline, Bruit, Saisonnalité, Momentum. Bruit = données fictives (démo). Axe Y tronqué pour mieux voir les couches fines.")
     df_dec = df_cible_annuel.copy()
     _f = (10000.0 / df_dec['contenance_cl'].replace(0, 100).fillna(100.0)) if unite_affichage == "Cols" else 1.0
     df_dec['Baseline'] = df_dec['Base_Mensuelle'] * _f
@@ -979,6 +979,11 @@ with st.container(border=True):
     _rng = np.random.default_rng(42)
     df_dec_plot['Bruit'] = df_dec_plot['Baseline'] * _rng.uniform(0.03, 0.10, size=len(df_dec_plot))
 
+    # Zoom de l'axe Y pour rendre visibles les couches fines (Momentum, Bruit)
+    _cum3 = df_dec_plot['Baseline'] + df_dec_plot['Bruit'] + df_dec_plot['Saisonnalite']
+    _cum4 = _cum3 + df_dec_plot['Momentum_c']
+    _y_min = max(0.0, float(min(_cum3.min(), _cum4.min())) * 0.85)
+    _y_max = float(max(_cum3.max(), _cum4.max())) * 1.03
     fig_dec = go.Figure()
     # (nom, colonne, couleur de remplissage, couleur du contour)
     _comp = [("Baseline", "Baseline", "#3D348B", "#231B5C"),
@@ -992,7 +997,7 @@ with st.container(border=True):
     fig_dec.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10),
                           legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter")),
                           xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1"),
-                          yaxis=dict(title=unite_affichage, showgrid=True, gridcolor=COLORS['BORDURE']), height=450, hovermode="x unified")
+                          yaxis=dict(title=unite_affichage, showgrid=True, gridcolor=COLORS['BORDURE'], range=[_y_min, _y_max]), height=450, hovermode="x unified")
     st.plotly_chart(fig_dec, use_container_width=True, config={'displayModeBar': False})
 
 

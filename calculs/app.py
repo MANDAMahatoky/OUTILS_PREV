@@ -19,7 +19,7 @@ COLORS = {
     "ROUGE": "#E30613", "ROUGE_FONCE": "#B3050F", "ROUGE_CLAIR": "#FDECEE",
     "BLANC": "#FFFFFF", "TEXTE": "#111827", "TEXTE_SECONDAIRE": "#6B7280",
     "BORDURE": "#E5E7EB", "GRIS": "#9CA3AF", "VERT": "#059669",
-    "VERT_CLAIR": "#D1FAE5", "ORANGE": "#D97706", "OR": "#C9A227"
+    "VERT_CLAIR": "#D1FAE5", "ORANGE": "#D97706"
 }
 
 st.markdown(f"""
@@ -80,33 +80,25 @@ def ajouter_total(df, label_col, label="TOTAL", exclude_cols=None, custom_total_
     exclude = exclude_cols or []
     row = {c: np.nan for c in df.columns}
     if label_col in df.columns: row[label_col] = label
-
+    
     for c in df.columns:
         if c == label_col or c in exclude: continue
         try:
             if pd.api.types.is_numeric_dtype(df[c]):
                 row[c] = df[c].fillna(0).sum()
         except Exception: pass
-
+    
     if custom_total_calc:
         for col, func in custom_total_calc.items():
             if col in row:
                 row[col] = func(row)
-
+                
     for c in df.columns:
         if not pd.api.types.is_numeric_dtype(df[c]):
             if pd.isna(row[c]):
                 row[c] = ""
-
+                
     return pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-
-def small_kpi(label, value, color=COLORS['ROUGE']):
-    st.markdown(f"""
-    <div style="display: inline-block; background-color: {COLORS['BLANC']}; padding: 12px 20px; border-radius: 10px; border: 1px solid {COLORS['BORDURE']}; border-left: 4px solid {color}; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 15px; margin-right: 10px;">
-        <div style="color: {COLORS['TEXTE_SECONDAIRE']}; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">{label}</div>
-        <div style="color: {COLORS['TEXTE']}; font-size: 1.5rem; font-weight: 800;">{value}</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 def bold_total_row(df):
     return df.style.apply(lambda x: ['font-weight: bold; background-color: #F9FAFB;'] * len(x) if x.name == len(df)-1 else [''] * len(x), axis=1)
@@ -577,14 +569,12 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
 
     prev_2026 = df_cross['Base_Mensuelle'] * df_cross['Indice']
     prev_futur = df_cross['Base_Mensuelle'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
-    # ✅ FIX : appliquer le CAGR uniquement APRÈS l'année de clôture
-    df_cross['Prevision_HL'] = np.where(df_cross['annee'] <= annee_cloture, prev_2026, prev_futur)
+    df_cross['Prevision_HL'] = np.where(df_cross['annee'] <= annee_cible, prev_2026, prev_futur)
     df_cross['Prevision_HL'] = np.maximum(0.0, df_cross['Prevision_HL'])
 
     prev_sans_2026 = df_cross['Base_Mensuelle_pot'] * df_cross['Indice']
     prev_sans_futur = df_cross['Base_Mensuelle_pot'] * df_cross['Indice'] * df_cross['multiplicateur_cagr']
-    # ✅ FIX : idem pour la version sans rupture
-    df_cross['Prevision_HL_sans_rupture'] = np.where(df_cross['annee'] <= annee_cloture, prev_sans_2026, prev_sans_futur)
+    df_cross['Prevision_HL_sans_rupture'] = np.where(df_cross['annee'] <= annee_cible, prev_sans_2026, prev_sans_futur)
     df_cross['Prevision_HL_sans_rupture'] = np.maximum(0.0, df_cross['Prevision_HL_sans_rupture'])
 
     df_cross['key_article_budget'] = df_cross['article'].apply(clean_text_for_budget_key)
@@ -668,14 +658,7 @@ def calculer_etape_5(df_perimetre, annee_min_is, annee_max_is, annee_min_cagr, a
     cols_finales = ["annee", "mois", "agence", "article", "contenance_cl", "Date", "Statut", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", "Volume_HL", "Volume_Cols", "Prevision_HL", "Prevision_Cols", "hl_reel",
                     "Volume_HL_sans_rupture", "Volume_Cols_sans_rupture", "Prevision_HL_sans_rupture", "Prevision_Cols_sans_rupture"]
     df_realise_out = df_realise.merge(df_perimetre_filtre[['agence', 'article']].drop_duplicates(), on=['agence', 'article'], how='inner', sort=False).copy()
-
-    # ✅ FIX : ajouter CAGR (%) dans df_sarr_out pour l'analyse comportementale
     df_sarr_out = df_sarr_cont.merge(df_perim_unique[['agence', 'article', 'contenance_cl']], on=['agence', 'article'], how='left', sort=False)
-    df_sarr_out = df_sarr_out.merge(
-        df_base[['agence', 'article', 'CAGR_val']].drop_duplicates(subset=['agence', 'article']),
-        on=['agence', 'article'], how='left', sort=False
-    )
-    df_sarr_out['CAGR (%)'] = df_sarr_out['CAGR_val'] * 100
 
     return table_indices_rolling, df_sarr_out, df_global_rolling, df_cross[cols_finales].copy(), df_realise_out, budget_status, table_indices_forecast
 
@@ -699,7 +682,6 @@ def analyser_comportement_sku(df_sarr, df_perimetre):
         sarr_moyen = group['SARR_HL'].mean()
         sarr_recent = group['SARR_HL'].tail(3).mean()
         momentum_actuel = group['Momentum'].iloc[-1] if not pd.isna(group['Momentum'].iloc[-1]) else 0.0
-        # ✅ CAGR maintenant disponible dans df_sarr_out
         cagr = group['CAGR (%)'].iloc[-1] if 'CAGR (%)' in group.columns and not pd.isna(group['CAGR (%)'].iloc[-1]) else 0.0
         volatilite = (group['SARR_HL'].std() / sarr_moyen) if sarr_moyen > 0 else 0.0
         indices = group[['mois', 'Indice']].drop_duplicates(subset=['mois'])
@@ -944,11 +926,8 @@ with k4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ==============================================================================
-# GRAPHE PRINCIPAL EN AIRE : Réalisé vs Prévision
-# ==============================================================================
 with st.container(border=True):
-    st.markdown(f"#### Superposition Réalisé vs Prévision ({annee_cible}) — Graphique en aire")
+    st.markdown(f"#### Superposition Réalisé vs Prévision ({annee_cible})")
     df_real_cible = df_perimetre[df_perimetre['annee'] == annee_cible].copy()
     if annee_cible == annee_cloture: df_real_cible = df_real_cible[df_real_cible['mois'] <= mois_cutoff]
     df_real_cible['Date_Str'] = df_real_cible['annee'].astype(str) + '-' + df_real_cible['mois'].astype(str).str.zfill(2) + '-01'
@@ -964,36 +943,15 @@ with st.container(border=True):
 
     fig1 = go.Figure()
     if not df_prev_plot.empty:
-        # Prévision en AIRE (rouge transparente)
-        fig1.add_trace(go.Scatter(
-            x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], mode='lines+markers', name='Prévision',
-            line=dict(color=COLORS['ROUGE'], width=3, shape='spline', smoothing=1.3),
-            marker=dict(size=8, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
-            fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.18)',
-            hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
-        ))
+        fig1.add_trace(go.Scatter(x=df_prev_plot['Date_Plot'], y=df_prev_plot['Volume'], mode='lines+markers', name='Prévision', line=dict(color=COLORS['ROUGE'], width=3, dash='dot', shape='spline', smoothing=1.3), marker=dict(size=7, color=COLORS['ROUGE'], line=dict(color='white', width=2)), hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"))
     if not df_real_plot.empty:
-        # Réalisé en AIRE (rouge foncé, semi-transparente pour superposition)
-        fig1.add_trace(go.Scatter(
-            x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], mode='lines+markers', name='Réalisé',
-            line=dict(color=COLORS['ROUGE_FONCE'], width=4, shape='spline', smoothing=1.3),
-            marker=dict(size=10, color=COLORS['ROUGE_FONCE'], line=dict(color='white', width=2)),
-            fill='tozeroy', fillcolor='rgba(179, 5, 15, 0.25)',
-            hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
-        ))
+        fig1.add_trace(go.Scatter(x=df_real_plot['Date_Plot'], y=df_real_plot['Volume'], mode='lines+markers', name='Réalisé', line=dict(color=COLORS['ROUGE_FONCE'], width=4, shape='spline', smoothing=1.3), marker=dict(size=9, color=COLORS['ROUGE_FONCE'], line=dict(color='white', width=2)), hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"))
     if annee_rupture_tendance > annee_min_cagr:
         try:
             x_val = pd.to_datetime(f"{annee_rupture_tendance}-01-01")
             fig1.add_vline(x=x_val, line_width=2, line_dash="dash", line_color=COLORS['GRIS'], annotation_text="Rupture", annotation_position="top left")
         except: pass
-    fig1.update_layout(
-        separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")),
-        xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45),
-        yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"),
-        height=520, hovermode="x unified"
-    )
+    fig1.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=13, family="Inter", weight="bold")), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], linecolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickfont=dict(family="Inter", size=12, weight="bold"), tickangle=-45), yaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], zeroline=False, tickfont=dict(family="Inter", size=12, weight="bold"), tickformat=",.0f"), height=500, hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
 st.markdown("<hr style='border: 1px solid #E5E7EB; margin: 30px 0;'>", unsafe_allow_html=True)
@@ -1020,11 +978,9 @@ with tab_placeholder.container():
                 st.caption(f"⚠️ Affichage limité à {format_fr(N_MAX_DISPLAY)} lignes sur {format_fr(len(df_to_show))}.")
                 df_show_limited = df_to_show.head(N_MAX_DISPLAY)
                 df_show_limited = ajouter_total(df_show_limited, label_col="Année", label="TOTAL (affiché)")
-                small_kpi("TOTAL Ventes Réelles", format_fr(df_show_limited['Ventes Réelles (HL)'].iloc[-1]))
                 st.dataframe(bold_total_row(df_show_limited), use_container_width=True, hide_index=True)
             else:
                 df_to_show = ajouter_total(df_to_show, label_col="Année")
-                small_kpi("TOTAL Ventes Réelles", format_fr(df_to_show['Ventes Réelles (HL)'].iloc[-1]))
                 st.dataframe(bold_total_row(df_to_show), use_container_width=True, hide_index=True)
 
     elif active_tab == "Réalisé Cumulé":
@@ -1034,7 +990,6 @@ with tab_placeholder.container():
                 df_real_agg = (df_realise.groupby(['annee', 'mois', 'region', 'agence', 'article'], observed=True)[['hl', 'rupture_hl', 'hl_potentiel']].sum().reset_index())
                 df_real_agg.columns = ["Année", "Mois", "Région", "Agence", "Article", "Ventes Réelles", "Pertes Ruptures", "Volume Potentiel"]
                 df_real_agg = ajouter_total(df_real_agg, label_col="Année")
-                small_kpi("TOTAL Ventes Réelles", format_fr(df_real_agg['Ventes Réelles'].iloc[-1]))
                 st.dataframe(bold_total_row(df_real_agg.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True)
             else: st.info("Aucune donnée réalisée pour le moment.")
 
@@ -1081,7 +1036,6 @@ with tab_placeholder.container():
                         return (r.get("Momentum (SARR M - SARR M-1)", 0) / r["SARR M-1"]) * 100
                     return np.nan
                 df_sarr_aff = ajouter_total(df_sarr_aff, label_col="Agence", exclude_cols=["Momentum (%)"], custom_total_calc={"Momentum (%)": calc_mom_pct})
-                small_kpi("TOTAL SARR M", format_fr(df_sarr_aff["SARR M"].iloc[-1]))
                 st.dataframe(
                     bold_total_row(df_sarr_aff),
                     use_container_width=True, hide_index=True,
@@ -1089,8 +1043,6 @@ with tab_placeholder.container():
                 )
         st.markdown("---")
         st.markdown("### 📈 Visualisation Graphique")
-
-        # ===== GRAPHE MOMENTUM en AIRE EMPILÉE (barres verticales conservées + aire sur la droite) =====
         c_graph1, c_graph2 = st.columns(2)
         with c_graph1:
             st.markdown("**Graphique du Momentum (Barres Verticales)**")
@@ -1116,64 +1068,19 @@ with tab_placeholder.container():
                 fig_mom.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=60), xaxis=dict(title="SKU", showgrid=False, tickangle=-45, tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")), yaxis=dict(title=f"Momentum ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")), height=500, separators=" ,")
                 st.plotly_chart(fig_mom, use_container_width=True, config={'displayModeBar': False})
             else: st.info("Aucune donnée de Momentum à afficher avec ce filtre.")
-
         with c_graph2:
-            st.markdown("**Courbe de Saisonnalité Globale (en aire)**")
+            st.markdown("**Courbe de Saisonnalité Globale**")
             if not df_perimetre.empty:
                 df_global_hl = df_perimetre.groupby('mois', observed=True)['hl'].sum().reset_index()
                 total_hl = df_global_hl['hl'].sum()
                 df_global_hl['Indice_Glob'] = df_global_hl['hl'] / (total_hl / 12.0) if total_hl > 0 else 1.0
                 df_global_hl['Mois_Nom'] = df_global_hl['mois'].apply(lambda m: MOIS_NOMS[int(m)-1])
                 fig_season = go.Figure()
-                fig_season.add_trace(go.Scatter(
-                    x=df_global_hl['Mois_Nom'], y=df_global_hl['Indice_Glob'],
-                    mode='lines+markers', name='Indice global',
-                    line=dict(color=COLORS['ROUGE'], width=4, shape='spline'),
-                    marker=dict(size=10, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
-                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.20)',
-                    hovertemplate="<b>%{x}</b><br>Indice global: %{y:.2f}<extra></extra>"
-                ))
+                fig_season.add_trace(go.Scatter(x=df_global_hl['Mois_Nom'], y=df_global_hl['Indice_Glob'], mode='lines+markers', line=dict(color=COLORS['ROUGE'], width=4, shape='spline'), marker=dict(size=8, color=COLORS['ROUGE'], line=dict(color='white', width=2)), fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.1)', hovertemplate="<b>%{x}</b><br>Indice global: %{y:.2f}<extra></extra>"))
                 fig_season.add_hline(y=1.0, line_dash="dot", line_color=COLORS['TEXTE'], annotation_text="Moyenne Globale (1.0)", annotation_position="top left")
                 fig_season.update_layout(plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(title="Mois", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")), yaxis=dict(title="Indice global de saisonnalité", showgrid=True, gridcolor=COLORS['BORDURE'], tickfont=dict(family="Inter", size=11, color=COLORS['TEXTE'], weight="bold")), height=500, separators=" ,")
                 st.plotly_chart(fig_season, use_container_width=True, config={'displayModeBar': False})
             else: st.info("Pas de données de saisonnalité disponibles.")
-
-        # ===== NOUVEAU GRAPHE : Évolution du SARR en AIRE (Top 5 SKU par volume) =====
-        st.markdown("---")
-        st.markdown("**Évolution du SARR dans le temps (en aire empilée) — Top 5 SKU**")
-        if not df_sarr_calc.empty:
-            top5_skus = (df_sarr_calc.groupby(['agence', 'article'], observed=True)['SARR_Aff'].sum()
-                         .sort_values(ascending=False).head(5).reset_index())
-            top5_labels = (top5_skus['agence'] + " - " + top5_skus['article']).tolist()
-            df_sarr_plot = df_sarr_calc.copy()
-            df_sarr_plot['Label'] = df_sarr_plot['agence'] + " - " + df_sarr_plot['article']
-            df_sarr_plot = df_sarr_plot[df_sarr_plot['Label'].isin(top5_labels)].copy()
-            df_sarr_plot['Date_Str'] = df_sarr_plot['annee'].astype(str) + '-' + df_sarr_plot['mois'].astype(str).str.zfill(2) + '-01'
-            df_sarr_plot['Date_Plot'] = pd.to_datetime(df_sarr_plot['Date_Str'])
-
-            fig_sarr_area = go.Figure()
-            palette = [COLORS['ROUGE'], '#F59E0B', COLORS['TEXTE'], COLORS['VERT'], COLORS['GRIS']]
-            for i, label in enumerate(top5_labels):
-                df_sku = df_sarr_plot[df_sarr_plot['Label'] == label].groupby('Date_Plot', observed=True)['SARR_Aff'].sum().reset_index().sort_values('Date_Plot')
-                if df_sku.empty: continue
-                fig_sarr_area.add_trace(go.Scatter(
-                    x=df_sku['Date_Plot'], y=df_sku['SARR_Aff'],
-                    mode='lines', name=label[:30], stackgroup='one',
-                    line=dict(width=1.5, color=palette[i % len(palette)]),
-                    fillcolor=None,
-                    hovertemplate="<b>%{fullData.name}</b><br>%{x|%b-%y}: %{y:,.0f} " + unite_affichage + "<extra></extra>"
-                ))
-            fig_sarr_area.update_layout(
-                separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
-                margin=dict(l=10, r=10, t=30, b=10),
-                xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickangle=-45),
-                yaxis=dict(title=f"SARR ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickformat=",.0f"),
-                legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5, font=dict(size=11)),
-                height=450, hovermode="x unified"
-            )
-            st.plotly_chart(fig_sarr_area, use_container_width=True, config={'displayModeBar': False})
-        else:
-            st.info("Pas assez de données SARR.")
 
     elif active_tab == "Prévisions":
         st.markdown("### Prévisions Détaillées")
@@ -1185,37 +1092,6 @@ with tab_placeholder.container():
             search_query = st.text_input("Rechercher", "", placeholder="Rechercher un article ou une agence...", label_visibility="collapsed", key="search_previsions")
         with col_export:
             pass
-
-        # ===== NOUVEAU GRAPHE EN AIRE : Prévision mensuelle 12 mois (stacked par segment) =====
-        with st.container(border=True):
-            st.markdown(f"#### 📊 Prévision mensuelle {annee_cible} (aire empilée par segment)")
-            df_prev_seg_plot = df_previsions_filtre[df_previsions_filtre['annee'] == annee_cible].copy()
-            df_seg_map = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
-            df_prev_seg_plot = df_prev_seg_plot.merge(df_seg_map, on='article', how='left')
-            df_prev_seg_plot['Date_Str'] = df_prev_seg_plot['annee'].astype(str) + '-' + df_prev_seg_plot['mois'].astype(str).str.zfill(2) + '-01'
-            df_prev_seg_plot['Date_Plot'] = pd.to_datetime(df_prev_seg_plot['Date_Str'])
-
-            pivot_seg = df_prev_seg_plot.pivot_table(index='Date_Plot', columns='segment', values=col_prev_aff, aggfunc='sum').fillna(0)
-            pivot_seg = pivot_seg.sort_index()
-
-            fig_prev_area = go.Figure()
-            palette_seg = [COLORS['ROUGE'], '#F59E0B', COLORS['TEXTE'], COLORS['VERT'], '#7C3AED', '#0EA5E9', COLORS['GRIS'], '#EC4899']
-            for i, seg in enumerate(pivot_seg.columns):
-                fig_prev_area.add_trace(go.Scatter(
-                    x=pivot_seg.index, y=pivot_seg[seg], mode='lines', name=str(seg),
-                    stackgroup='one', line=dict(width=1.5, color=palette_seg[i % len(palette_seg)]),
-                    fillcolor=None,
-                    hovertemplate="<b>%{fullData.name}</b><br>%{x|%b-%y}: %{y:,.0f} " + unite_affichage + "<extra></extra>"
-                ))
-            fig_prev_area.update_layout(
-                separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
-                margin=dict(l=10, r=10, t=30, b=10),
-                xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickangle=-45),
-                yaxis=dict(title=f"Prévision ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickformat=",.0f"),
-                legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5, font=dict(size=11)),
-                height=480, hovermode="x unified"
-            )
-            st.plotly_chart(fig_prev_area, use_container_width=True, config={'displayModeBar': False})
 
         with st.expander("📊 Afficher le tableau des prévisions détaillées (Format Excel)", expanded=True):
             df_seg = df_perimetre[['article', 'segment']].drop_duplicates(subset=['article'])
@@ -1234,7 +1110,6 @@ with tab_placeholder.container():
                 pivot_mensuel_display = pivot_mensuel_reset[mask]
             else: pivot_mensuel_display = pivot_mensuel_reset
             pivot_mensuel_display = ajouter_total(pivot_mensuel_display, label_col="Articles")
-            small_kpi(f"TOTAL {nom_total} ({unite_affichage})", format_fr(pivot_mensuel_display[nom_total].iloc[-1]))
             col_config = {"Articles": st.column_config.TextColumn("Articles", width="medium"), "Segments": st.column_config.TextColumn("Segments", width="small")}
             for mois in MOIS_NOMS:
                 if mois in pivot_mensuel_display.columns: col_config[mois] = st.column_config.NumberColumn(mois, format="%.2f")
@@ -1242,7 +1117,7 @@ with tab_placeholder.container():
             st.dataframe(bold_total_row(pivot_mensuel_display), use_container_width=True, hide_index=True, column_config=col_config, height=600)
 
         with st.expander("🔍 Voir le détail des calculs (Hybride)"):
-            st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle). Les années suivantes ajoutent le CAGR calculé.")
+            st.markdown("**Note :** L'année de clôture utilise la projection du Run-Rate (Base Mensuelle) pour éviter l'explosion du Momentum absolu. Les années suivantes ajoutent le CAGR calculé.")
             cols_to_show = ["annee", "mois", "Statut", "agence", "article", "Indice", "Base_EXCEL", "Momentum", "Base_Mensuelle", "CAGR (%)", col_prev_aff]
             df_detail = (df_previsions_filtre[cols_to_show].sort_values(["annee", "mois", "agence", "article"]))
             df_detail = ajouter_total(df_detail, label_col="annee", exclude_cols=["CAGR (%)", "Indice"])
@@ -1264,56 +1139,6 @@ with tab_placeholder.container():
         if df_year.empty:
             st.warning("Aucune donnée de prévision pour l'année cible.")
         else:
-            total_avec = df_year[col_prev_aff].fillna(0).sum()
-            total_sans = df_year[col_vol_sans].fillna(0).sum()
-            diff = total_sans - total_avec
-            diff_pct = (diff / total_avec * 100) if total_avec > 0 else 0
-
-            rc1, rc2, rc3 = st.columns(3)
-            with rc1:
-                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['ROUGE']};"><div class="kpi-label">Total AVEC rupture ({unite_affichage})</div><div class="kpi-value">{format_fr(total_avec)}</div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']};">Base : ventes réelles</div></div>""", unsafe_allow_html=True)
-            with rc2:
-                st.markdown(f"""<div class="kpi-card" style="border-left-color: {COLORS['VERT']};"><div class="kpi-label">Total SANS rupture ({unite_affichage})</div><div class="kpi-value">{format_fr(total_sans)}</div><div class="kpi-delta" style="color: {COLORS['TEXTE_SECONDAIRE']};">Base : volume potentiel</div></div>""", unsafe_allow_html=True)
-            with rc3:
-                ecart_color = COLORS['VERT'] if diff >= 0 else COLORS['ROUGE']
-                st.markdown(f"""<div class="kpi-card" style="border-left-color: {ecart_color};"><div class="kpi-label">Manque à gagner (rupture)</div><div class="kpi-value" style="color: {ecart_color};">{format_fr(diff, signed=True)}</div><div class="kpi-delta" style="color: {ecart_color};">{format_fr(diff_pct, 1, signed=True)}% vs prévision avec rupture</div></div>""", unsafe_allow_html=True)
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ===== NOUVEAU GRAPHE EN AIRE : AVEC vs SANS rupture =====
-            with st.container(border=True):
-                st.markdown(f"#### 📊 Impact des ruptures sur la prévision {annee_cible} (aire)")
-                df_rupture_plot = df_year.copy()
-                df_rupture_plot['Date_Str'] = df_rupture_plot['annee'].astype(str) + '-' + df_rupture_plot['mois'].astype(str).str.zfill(2) + '-01'
-                df_rupture_plot['Date_Plot'] = pd.to_datetime(df_rupture_plot['Date_Str'])
-                agg_avec = df_rupture_plot.groupby('Date_Plot', observed=True)[col_prev_aff].sum().reset_index()
-                agg_sans = df_rupture_plot.groupby('Date_Plot', observed=True)[col_vol_sans].sum().reset_index()
-
-                fig_rupture_area = go.Figure()
-                fig_rupture_area.add_trace(go.Scatter(
-                    x=agg_sans['Date_Plot'], y=agg_sans[col_vol_sans], mode='lines+markers', name='SANS rupture (potentiel)',
-                    line=dict(color=COLORS['VERT'], width=3, shape='spline', smoothing=1.3),
-                    marker=dict(size=8, color=COLORS['VERT'], line=dict(color='white', width=2)),
-                    fill='tozeroy', fillcolor='rgba(5, 150, 105, 0.18)',
-                    hovertemplate="<b>SANS rupture</b>: %{y:,.0f}<extra></extra>"
-                ))
-                fig_rupture_area.add_trace(go.Scatter(
-                    x=agg_avec['Date_Plot'], y=agg_avec[col_prev_aff], mode='lines+markers', name='AVEC rupture (réalisé)',
-                    line=dict(color=COLORS['ROUGE'], width=3, shape='spline', smoothing=1.3),
-                    marker=dict(size=8, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
-                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.20)',
-                    hovertemplate="<b>AVEC rupture</b>: %{y:,.0f}<extra></extra>"
-                ))
-                fig_rupture_area.update_layout(
-                    separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
-                    margin=dict(l=10, r=10, t=30, b=10),
-                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=12, family="Inter", weight="bold")),
-                    xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickangle=-45),
-                    yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickformat=",.0f"),
-                    height=450, hovermode="x unified"
-                )
-                st.plotly_chart(fig_rupture_area, use_container_width=True, config={'displayModeBar': False})
-
             # --- FILTRES ET OPTIONS DU TABLEAU ---
             col_search_tab, col_view_mode = st.columns([2, 1])
             with col_search_tab:
@@ -1327,20 +1152,24 @@ with tab_placeholder.container():
             df_year = df_year.merge(df_meta, on='article', how='left')
 
             if mode_affichage == "Récap Annuel par Article":
+                # Aggregations
                 recap_df = df_year.groupby(['marque', 'article'], as_index=False).agg(
                     Realise=('hl_reel', 'sum'),
                     Prevision=(col_prev_pure, 'sum')
                 )
 
+                # Aggregate Rupture for the same period
                 df_rupture_sum = df_perimetre[(df_perimetre['annee'] == annee_cible) & (df_perimetre['mois'].isin(mois_cibles_nums))]
                 df_rupture_sum = df_rupture_sum.groupby('article', as_index=False)['rupture_hl'].sum()
-
+                
                 recap_df = recap_df.merge(df_rupture_sum, on='article', how='left').fillna({'rupture_hl': 0})
 
+                # Calculations
                 recap_df['Réalisé + Rupture'] = recap_df['Realise'] + recap_df['rupture_hl']
                 recap_df['Écart PV'] = recap_df['Prevision'] - recap_df['Réalisé + Rupture']
                 recap_df['% PV'] = np.where(recap_df['Prevision'] > 0, (recap_df['Réalisé + Rupture'] - recap_df['Prevision']) / recap_df['Prevision'] * 100, 0)
 
+                # Rename for display
                 recap_df = recap_df.rename(columns={
                     'marque': 'Marque',
                     'article': 'Article',
@@ -1349,13 +1178,16 @@ with tab_placeholder.container():
                     'rupture_hl': 'Rupture'
                 })
 
+                # Filter 0 rows
                 recap_df = recap_df[(recap_df['Réalisé'] > 0) | (recap_df['Prévision'] > 0)]
                 recap_df = recap_df.sort_values('Réalisé', ascending=False)
 
+                # Apply search filter
                 if search_query:
                     mask = recap_df.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
                     recap_df = recap_df[mask]
 
+                # Apply view mode columns
                 if view_mode == "Compacte":
                     cols_to_keep = ['Marque', 'Article', 'Réalisé', 'Prévision', 'Écart PV', '% PV']
                     recap_df = recap_df[cols_to_keep]
@@ -1363,13 +1195,16 @@ with tab_placeholder.container():
                     cols_to_keep = ['Marque', 'Article', 'Réalisé', 'Prévision', 'Rupture', 'Réalisé + Rupture', 'Écart PV', '% PV']
                     recap_df = recap_df[cols_to_keep]
 
+                # Add Total row
                 recap_df = ajouter_total(recap_df, label_col="Marque", label="TOTAL", exclude_cols=["% PV"], custom_total_calc={
                     "% PV": lambda r: (r["Réalisé"] - r["Prévision"]) / r["Prévision"] * 100 if "Réalisé" in r and "Prévision" in r and r["Prévision"] > 0 else 0
                 })
 
+                # --- STYLE PROFESSIONNEL DU TABLEAU ---
                 def style_dataframe(df):
                     def color_ecart(val):
                         if pd.isna(val): return ''
+                        # Ecart PV = Prevision - Reel. Negatif = On a depasse la prev -> Vert. Positif = On a pas atteint -> Rouge.
                         if val > 0:
                             return f'background-color: {COLORS["ROUGE_CLAIR"]}; color: {COLORS["ROUGE"]}; font-weight: 700; border-left: 2px solid {COLORS["ROUGE"]};'
                         elif val < 0:
@@ -1378,6 +1213,7 @@ with tab_placeholder.container():
 
                     def color_pct(val):
                         if pd.isna(val): return ''
+                        # % PV = Reel / Prevision. Positif = On a depasse -> Vert. Negatif = On a pas atteint -> Rouge.
                         if val >= 0:
                             return f'background-color: {COLORS["VERT_CLAIR"]}; color: {COLORS["VERT"]}; font-weight: 700;'
                         else:
@@ -1405,12 +1241,12 @@ with tab_placeholder.container():
                         styled = styled.map(color_pct, subset=['% PV'])
                     if 'Rupture' in df.columns:
                         styled = styled.map(color_rupture, subset=['Rupture'])
-
+                    
                     def highlight_total(row):
                         if row.name == len(df) - 1:
                             return [f'background-color: #F3F4F6; font-weight: 800; color: {COLORS["TEXTE"]}; border-top: 2px solid #9CA3AF;'] * len(row)
                         return [''] * len(row)
-
+                    
                     styled = styled.apply(highlight_total, axis=1)
                     return styled
 
@@ -1492,7 +1328,6 @@ with tab_placeholder.container():
                 df_table = df_pareto_xyz[['article', 'Classe', 'XYZ', col_prev_aff, 'Cumul_Pct']].copy()
                 df_table.columns = ['Article', 'Classe ABC', 'Classe XYZ', f'Volume ({unite_affichage})', '% Cumulé']
                 df_table = ajouter_total(df_table, label_col="Article", exclude_cols=["% Cumulé"], custom_total_calc={"% Cumulé": lambda r: 100.0})
-                small_kpi("TOTAL Volume", format_fr(df_table[f'Volume ({unite_affichage})'].iloc[-1]))
                 st.dataframe(bold_total_row(df_table), use_container_width=True, hide_index=True, column_config={f'Volume ({unite_affichage})': st.column_config.NumberColumn(format="localized"), '% Cumulé': st.column_config.NumberColumn(format="%.1f %%"), 'Classe ABC': st.column_config.TextColumn(width="small"), 'Classe XYZ': st.column_config.TextColumn(width="small")}, height=400)
         else: st.info("Pas assez de données pour l'analyse.")
 
@@ -1554,41 +1389,7 @@ with tab_placeholder.container():
         with m1: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">MAE (Erreur Absolue Moyenne)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(mae, 2)}</div><div class="kpi-footer">Marge d'erreur moyenne en {unite_affichage}</div></div>""", unsafe_allow_html=True)
         with m2: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">WMAPE (Erreur % Pondérée)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(wmape, 2)}%</div><div class="kpi-footer">Précision sur le volume total (Standard industrie)</div></div>""", unsafe_allow_html=True)
         with m3: st.markdown(f"""<div class="white-card" style="border-top: 4px solid {COLORS['TEXTE_SECONDAIRE']};"><div class="kpi-label">SMAPE (Erreur % Symétrique)</div><div class="kpi-value kpi-value-dark" style="font-size: 1.8rem;">{format_fr(smape, 2)}%</div><div class="kpi-footer">Précision sur les articles à faibles volumes</div></div>""", unsafe_allow_html=True)
-
-        # ===== NOUVEAU GRAPHE EN AIRE : Réalisé vs Prévision de la période évaluée =====
-        with st.container(border=True):
-            st.markdown("#### 📊 Réalisé vs Prévision sur la période de cutoff (aire)")
-            if not df_eval_agg.empty:
-                df_eval_plot = df_eval_agg.copy()
-                df_eval_plot['Date_Str'] = df_eval_plot['annee'].astype(str) + '-' + df_eval_plot['mois'].astype(str).str.zfill(2) + '-01'
-                df_eval_plot['Date_Plot'] = pd.to_datetime(df_eval_plot['Date_Str'])
-                fig_eval = go.Figure()
-                fig_eval.add_trace(go.Scatter(
-                    x=df_eval_plot['Date_Plot'], y=df_eval_plot[col_prev_aff], mode='lines+markers', name='Réalisé',
-                    line=dict(color=COLORS['ROUGE_FONCE'], width=3, shape='spline', smoothing=1.3),
-                    marker=dict(size=9, color=COLORS['ROUGE_FONCE'], line=dict(color='white', width=2)),
-                    fill='tozeroy', fillcolor='rgba(179, 5, 15, 0.25)',
-                    hovertemplate="<b>Réalisé</b>: %{y:,.0f}<extra></extra>"
-                ))
-                fig_eval.add_trace(go.Scatter(
-                    x=df_eval_plot['Date_Plot'], y=df_eval_plot[col_prev_pure], mode='lines+markers', name='Prévision',
-                    line=dict(color=COLORS['ROUGE'], width=3, dash='dot', shape='spline', smoothing=1.3),
-                    marker=dict(size=8, color=COLORS['ROUGE'], line=dict(color='white', width=2)),
-                    fill='tozeroy', fillcolor='rgba(227, 6, 19, 0.15)',
-                    hovertemplate="<b>Prévision</b>: %{y:,.0f}<extra></extra>"
-                ))
-                fig_eval.update_layout(
-                    separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'],
-                    margin=dict(l=10, r=10, t=30, b=10),
-                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, font=dict(size=12, family="Inter", weight="bold")),
-                    xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y", dtick="M1", tickangle=-45),
-                    yaxis=dict(title=f"Volume ({unite_affichage})", showgrid=True, gridcolor=COLORS['BORDURE'], tickformat=",.0f"),
-                    height=400, hovermode="x unified"
-                )
-                st.plotly_chart(fig_eval, use_container_width=True, config={'displayModeBar': False})
-            else:
-                st.info("Aucune donnée réalisée à évaluer.")
-
+        st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("📊 Afficher le détail mensuel (Prévision vs Réalisé)", expanded=True):
             st.markdown("Ce tableau compare ce que le modèle prévoyait pour chaque mois écoulé par rapport à ce qui a réellement été vendu. Les cellules rouges indiquent une erreur critique (>10%).")
             if not df_eval_agg.empty:
@@ -1634,26 +1435,17 @@ with tab_placeholder.container():
                 fig_sku.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(title="Volume Perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), yaxis=dict(showgrid=False, tickfont=dict(size=11)), height=450)
                 st.plotly_chart(fig_sku, use_container_width=True, config={'displayModeBar': False})
             with col_chart2:
-                st.markdown("#### Évolution mensuelle des pertes (Top 5 SKU) — en aire")
+                st.markdown("#### Évolution mensuelle des pertes (Top 5 SKU)")
                 top_5_skus = df_rupture_sku.tail(5)['article'].tolist()
                 df_top = df_rupture_hist[df_rupture_hist['article'].isin(top_5_skus)].copy()
                 df_top['Date_Str'] = df_top['annee'].astype(str) + '-' + df_top['mois'].astype(str).str.zfill(2) + '-01'
                 df_top['Date_Plot'] = pd.to_datetime(df_top['Date_Str'])
                 df_top_agg = df_top.groupby(['Date_Plot', 'article'], observed=True)['rupture_hl'].sum().reset_index()
-
-                # Conversion en aire empilée
                 fig_trend = go.Figure()
                 palette = [COLORS['ROUGE'], '#F59E0B', COLORS['TEXTE'], COLORS['VERT'], COLORS['GRIS']]
                 for i, sku in enumerate(top_5_skus):
-                    df_sku_rupt = df_top_agg[df_top_agg['article'] == sku].sort_values('Date_Plot')
-                    if df_sku_rupt.empty: continue
-                    fig_trend.add_trace(go.Scatter(
-                        x=df_sku_rupt['Date_Plot'], y=df_sku_rupt['rupture_hl'],
-                        mode='lines', name=str(sku)[:25], stackgroup='one',
-                        line=dict(color=palette[i % len(palette)], width=1.5),
-                        fillcolor=None,
-                        hovertemplate="<b>%{fullData.name}</b><br>%{x|%b-%y}: %{y:,.1f} HL<extra></extra>"
-                    ))
+                    df_sku = df_top_agg[df_top_agg['article'] == sku].sort_values('Date_Plot')
+                    fig_trend.add_trace(go.Scatter(x=df_sku['Date_Plot'], y=df_sku['rupture_hl'], mode='lines+markers', name=str(sku)[:25], line=dict(color=palette[i % len(palette)], width=2.5), marker=dict(size=7), hovertemplate="<b>%{fullData.name}</b><br>%{x|%b-%y}: %{y:,.1f} HL<extra></extra>"))
                 fig_trend.update_layout(separators=" ,", plot_bgcolor=COLORS['BLANC'], paper_bgcolor=COLORS['BLANC'], margin=dict(l=10, r=10, t=30, b=10), xaxis=dict(showgrid=True, gridcolor=COLORS['BORDURE'], tickformat="%b-%y", tickangle=-45), yaxis=dict(title="Volume perdu (HL)", showgrid=True, gridcolor=COLORS['BORDURE']), legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5, font=dict(size=11)), height=450, hovermode="x unified")
                 st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': False})
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1664,7 +1456,6 @@ with tab_placeholder.container():
                 df_rupture_detail.columns = ['Année', 'Mois', 'Agence', 'Article', 'Volume Perdu (HL)']
                 df_rupture_detail = df_rupture_detail.sort_values('Volume Perdu (HL)', ascending=False)
                 df_rupture_detail = ajouter_total(df_rupture_detail, label_col="Année")
-                small_kpi("TOTAL Volume Perdu", format_fr(df_rupture_detail['Volume Perdu (HL)'].iloc[-1]))
                 st.dataframe(bold_total_row(df_rupture_detail.head(N_MAX_DISPLAY)), use_container_width=True, hide_index=True, column_config={'Volume Perdu (HL)': st.column_config.NumberColumn(format="%.2f")})
         else:
             st.info("Aucune rupture enregistrée sur le périmètre sélectionné.")

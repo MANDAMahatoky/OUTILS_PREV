@@ -27,6 +27,15 @@ COLORS = {
 
 N_MAX_DISPLAY = 5000   # nombre max de lignes affichées dans les tableaux
 
+# Facteurs de bruit du simulateur : (nom, couleur de remplissage, couleur du contour)
+FACTEURS_BRUIT = [
+    ("Promotion", "#1E88E5", "#0D47A1"),
+    ("Animation", "#4FC3F7", "#0288D1"),
+    ("Météo", "#26A69A", "#00695C"),
+    ("Événements & fêtes", "#0D47A1", "#082B63"),
+    ("Prix & concurrence", "#90CAF9", "#42A5F5"),
+]
+
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
 REF_DEFAUT = [
@@ -784,33 +793,47 @@ def afficher_superposition():
 
 
 def afficher_decomposition():
-    """Aires empilées : Baseline, Bruit, Saisonnalité, Momentum."""
+    """Aires empilées : Baseline, facteurs de bruit simulés, Saisonnalité, Momentum."""
     with st.container(border=True):
         st.markdown(f"#### Décomposition du volume en aires empilées ({annee_cible})")
-        st.caption("De bas en haut : Baseline, Bruit, Saisonnalité, Momentum. Bruit = résidu (Réalisé − modèle), mesuré sur les mois réalisés uniquement. Axe Y tronqué pour mieux voir les couches fines.")
+        st.caption("De bas en haut : Baseline, bruit (facteurs simulés : promo, animation, météo...), Saisonnalité, Momentum.")
+
+        with st.expander("🎛️ Simulateur de bruit (impact en % de la Baseline, par mois)", expanded=False):
+            st.caption("Saisis l'impact attendu de chaque facteur sur le volume du mois, en % de la Baseline (négatif = baisse, ex. pluie : -5). Ces valeurs alimentent uniquement ce graphique.")
+            df_sim_init = pd.DataFrame(0.0, index=MOIS_NOMS, columns=[f[0] for f in FACTEURS_BRUIT])
+            df_sim = st.data_editor(
+                df_sim_init, key="sim_bruit", use_container_width=True,
+                column_config={f[0]: st.column_config.NumberColumn(f[0], format="%.1f %%", min_value=-100.0, max_value=300.0, step=0.5) for f in FACTEURS_BRUIT}
+            ).fillna(0.0)
+
         df_dec = df_cible_annuel.copy()
         _f = (10000.0 / df_dec['contenance_cl'].replace(0, 100).fillna(100.0)) if unite_affichage == "Cols" else 1.0
         df_dec['Baseline'] = df_dec['Base_Mensuelle'] * _f
         df_dec['Saisonnalite'] = df_dec['Base_Mensuelle'] * (df_dec['Indice'] - 1.0) * _f
         df_dec['Momentum_c'] = df_dec['Momentum'] * df_dec['Indice'] * _f
-        df_dec['Total'] = df_dec[col_prev_aff]
-        df_dec['Bruit'] = df_dec['Total'] - df_dec['Baseline'] - df_dec['Saisonnalite'] - df_dec['Momentum_c']
-        df_dec.loc[df_dec['Statut'] != 'Réalisé', 'Bruit'] = 0.0  # bruit mesuré uniquement sur les mois réalisés
-        df_dec_plot = df_dec.groupby('mois', observed=True)[['Baseline', 'Bruit', 'Saisonnalite', 'Momentum_c', 'Total']].sum().reset_index()
-        df_dec_plot['Date_Plot'] = pd.to_datetime(annee_cible.__str__() + '-' + df_dec_plot['mois'].astype(str).str.zfill(2) + '-01')
-        df_dec_plot = df_dec_plot.sort_values('Date_Plot')
+        df_dec_plot = df_dec.groupby('mois', observed=True)[['Baseline', 'Saisonnalite', 'Momentum_c']].sum().reset_index()
+        df_dec_plot['Date_Plot'] = pd.to_datetime(str(annee_cible) + '-' + df_dec_plot['mois'].astype(str).str.zfill(2) + '-01')
+        df_dec_plot = df_dec_plot.sort_values('Date_Plot').reset_index(drop=True)
 
-        # Zoom de l'axe Y pour rendre visibles les couches fines (Momentum, Bruit)
-        _cum3 = df_dec_plot['Baseline'] + df_dec_plot['Bruit'] + df_dec_plot['Saisonnalite']
+        # Bruit = somme des facteurs simulés (chaque facteur = % de la Baseline du mois)
+        _idx_mois = df_dec_plot['mois'].astype(int).to_numpy() - 1
+        for _nom, _, _ in FACTEURS_BRUIT:
+            df_dec_plot[_nom] = df_dec_plot['Baseline'] * df_sim[_nom].to_numpy()[_idx_mois] / 100.0
+
+        # Zoom de l'axe Y pour rendre visibles les couches fines
+        _bruit = df_dec_plot[[f[0] for f in FACTEURS_BRUIT]].sum(axis=1)
+        _cum3 = df_dec_plot['Baseline'] + _bruit + df_dec_plot['Saisonnalite']
         _cum4 = _cum3 + df_dec_plot['Momentum_c']
         _y_min = max(0.0, float(min(_cum3.min(), _cum4.min())) * 0.85)
         _y_max = float(max(_cum3.max(), _cum4.max())) * 1.03
+
+        # (nom, colonne, couleur de remplissage, couleur du contour), de bas en haut
+        _comp = [("Baseline", "Baseline", "#3D348B", "#231B5C")]
+        _comp += [(_nom, _nom, _fill, _line) for _nom, _fill, _line in FACTEURS_BRUIT]
+        _comp += [("Saisonnalité", "Saisonnalite", "#FFD166", "#C99A1E"),
+                  ("Momentum", "Momentum_c", "#EF476F", "#A8223F")]
+
         fig_dec = go.Figure()
-        # (nom, colonne, couleur de remplissage, couleur du contour)
-        _comp = [("Baseline", "Baseline", "#3D348B", "#231B5C"),
-                 ("Bruit", "Bruit", "#3FA7F5", "#1565C0"),
-                 ("Saisonnalité", "Saisonnalite", "#FFD166", "#C99A1E"),
-                 ("Momentum", "Momentum_c", "#EF476F", "#A8223F")]
         for _nom, _col, _fill, _line in _comp:
             fig_dec.add_trace(go.Scatter(x=df_dec_plot['Date_Plot'], y=df_dec_plot[_col], name=_nom, mode='lines', stackgroup='decomp',
                                          line=dict(width=2, color=_line, shape='linear'), fillcolor=_fill,

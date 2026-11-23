@@ -35,6 +35,8 @@ FACTEURS_BRUIT = [
     ("Événements & fêtes", "#0D47A1", "#082B63"),
     ("Prix & concurrence", "#90CAF9", "#42A5F5"),
 ]
+# Facteurs saisis une seule fois pour l'année (même impact appliqué à chaque mois)
+FACTEURS_ANNUELS = {"Prix & concurrence"}
 
 MOIS_NOMS = ["Janv", "Févr", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
 
@@ -800,11 +802,17 @@ def afficher_decomposition():
 
         with st.expander("🎛️ Simulateur de bruit (impact en % de la Baseline, par mois)", expanded=False):
             st.caption("Saisis l'impact attendu de chaque facteur sur le volume du mois, en % de la Baseline (négatif = baisse, ex. pluie : -5). Ces valeurs alimentent uniquement ce graphique.")
-            df_sim_init = pd.DataFrame(0.0, index=MOIS_NOMS, columns=[f[0] for f in FACTEURS_BRUIT])
+            _facteurs_mensuels = [f[0] for f in FACTEURS_BRUIT if f[0] not in FACTEURS_ANNUELS]
+            df_sim_init = pd.DataFrame(0.0, index=MOIS_NOMS, columns=_facteurs_mensuels)
             df_sim = st.data_editor(
                 df_sim_init, key="sim_bruit", use_container_width=True,
-                column_config={f[0]: st.column_config.NumberColumn(f[0], format="%.1f %%", min_value=-100.0, max_value=300.0, step=0.5) for f in FACTEURS_BRUIT}
+                column_config={n: st.column_config.NumberColumn(n, format="%.1f %%", min_value=-100.0, max_value=300.0, step=0.5) for n in _facteurs_mensuels}
             ).fillna(0.0)
+            st.markdown("**Facteurs annuels** (même impact appliqué à chaque mois de l'année)")
+            _cols_ann = st.columns(max(1, len(FACTEURS_ANNUELS)))
+            _impact_annuel = {}
+            for _c, _nom in zip(_cols_ann, [f[0] for f in FACTEURS_BRUIT if f[0] in FACTEURS_ANNUELS]):
+                _impact_annuel[_nom] = _c.number_input(f"{_nom} (% de la Baseline, sur l'année)", min_value=-100.0, max_value=300.0, value=0.0, step=0.5, key=f"sim_annuel_{_nom}")
 
         df_dec = df_cible_annuel.copy()
         _f = (10000.0 / df_dec['contenance_cl'].replace(0, 100).fillna(100.0)) if unite_affichage == "Cols" else 1.0
@@ -818,7 +826,11 @@ def afficher_decomposition():
         # Bruit = somme des facteurs simulés (chaque facteur = % de la Baseline du mois)
         _idx_mois = df_dec_plot['mois'].astype(int).to_numpy() - 1
         for _nom, _, _ in FACTEURS_BRUIT:
-            df_dec_plot[_nom] = df_dec_plot['Baseline'] * df_sim[_nom].to_numpy()[_idx_mois] / 100.0
+            if _nom in FACTEURS_ANNUELS:
+                _pct = _impact_annuel[_nom]
+            else:
+                _pct = df_sim[_nom].to_numpy()[_idx_mois]
+            df_dec_plot[_nom] = df_dec_plot['Baseline'] * _pct / 100.0
 
         # Zoom de l'axe Y pour rendre visibles les couches fines
         _bruit = df_dec_plot[[f[0] for f in FACTEURS_BRUIT]].sum(axis=1)
